@@ -1,0 +1,14 @@
+pandas
+rdkit
+igraph
+XlsxWriter
+dgl
+pyarrow
+plotly
+customtkinter
+chardet
+torch
+matplotlib
+rmsd
+networkx
+MolFeatures==0.4

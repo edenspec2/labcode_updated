@@ -1,0 +1,4 @@
+include README.md
+recursive-include feather_example *
+include description.txt
+include requirements.txt
