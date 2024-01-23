@@ -64,6 +64,8 @@ def extract_lines_from_text(text_lines, re_expression):
     #     selected_lines=selected_lines.strip()
     return selected_lines
 
+def find_all_matches(log_file_lines, key_phrase):
+    return [match for match in re.finditer(key_phrase, log_file_lines)]
 
 
 def process_gaussian_charge_text(log_file_lines):
@@ -75,13 +77,24 @@ def process_gaussian_charge_text(log_file_lines):
     charge_array=charge_array[1::6]
     return pd.DataFrame(charge_array, columns=['charge'])
 
+## This function is not used in the current version of the code- takes the last instance of dipole moment from log file
+
 def process_gaussian_dipole_text(log_file_lines):
-    dipole_start=search_phrase_in_text(log_file_lines, key_phrase=FileFlags.DIPOLE_START.value)
-    dipole_end=search_phrase_in_text(log_file_lines, key_phrase=FileFlags.DIPOLE_END.value)
-    selected_lines=extract_lines_from_text(log_file_lines[dipole_start.start():dipole_end.start()], re_expression=ReExpressions.FLOAT.value)
-    dipole_df=pd.DataFrame(selected_lines,index=Names.DIPOLE_COLUMNS.value).T
-    # dipole_df=dipole_df.astype(float)
-    return dipole_df
+    # Find all occurrences of the start and end markers
+    dipole_starts = find_all_matches(log_file_lines, FileFlags.DIPOLE_START.value)
+    dipole_ends = find_all_matches(log_file_lines, FileFlags.DIPOLE_END.value)
+
+    if dipole_starts and dipole_ends:
+        last_dipole_start = dipole_starts[-1].end()
+        last_dipole_end = dipole_ends[-1].start()
+        text_section = log_file_lines[last_dipole_start:last_dipole_end]
+        selected_lines = extract_lines_from_text(text_section, re_expression=ReExpressions.FLOAT.value)
+        selected_lines = selected_lines[0:4] 
+        dipole_df = pd.DataFrame(selected_lines, index=Names.DIPOLE_COLUMNS.value).T
+        
+        return dipole_df
+    
+
 
 def gauss_first_split(log_file_lines):
     first_split=re.split(FileFlags.STANDARD_ORIENTATION_START.value,log_file_lines)[-1]
@@ -440,14 +453,10 @@ def logs_to_feather(dir_path):
     os.chdir(dir_path)
     return string_report
 
-def renumber_batch():
-    os.mkdir('renumbered_files')
-    os.chdir('renumbered_files')
-
 # Example usage
-path=(r'C:\Users\edens\Documents\GitHub\Automation_code-main\M2_data_extractor\gauss_log')
+path=(r'C:\Users\edens\Documents\Random molecules\Lucas renumbered logs')
 os.chdir(path)
-logs_to_feather(path)
+df=gauss_file_handler('LS1621_optimized.log')
 
 # def read_from_feather_and_convert_to_list(filename):
 #     # Read the Feather file

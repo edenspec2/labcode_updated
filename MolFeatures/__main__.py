@@ -21,6 +21,8 @@ try:
     import warnings
     from typing import Dict
     from .QuantuMol.DGLmol import QuantuMolGraph
+    from tkinterweb import HtmlFrame
+    
 except ImportError or ModuleNotFoundError as e:
     print(f"An error occurred: {e}")
     import os
@@ -76,7 +78,7 @@ except ImportError or ModuleNotFoundError as e:
     import warnings
     from typing import Dict
     from .QuantuMol.DGLmol import QuantuMolGraph
-
+    from tkinterweb import HtmlFrame
 
 
 # Assuming the 'Model' and 'Model_info' classes are defined elsewhere in your code
@@ -338,6 +340,8 @@ class MoleculeApp:
                                                    
     
     def open_question_window(self):
+        self.parameters={'dipole_mode': 'gaussian', 'radii': 'bondi'}
+
         def load_answers():
             file_path = filedialog.askopenfilename(defaultextension=".txt",
                                                 filetypes=[("Text files", "*.txt"),
@@ -373,14 +377,50 @@ class MoleculeApp:
                 f.close()
                 print(dict_of_ints)
             return dict_of_ints
+
+        
+        # Function to open a new window with the parameters of the given function
+        def open_parameter_window():
+            window = Toplevel(root)
+            window.title("Parameters")
+            window.grab_set()
+            frame = Frame(window)
+            var1 = StringVar(frame)
+            var1.set("Dipole")
+            var1.trace_add("write", lambda *args: apply_parameters())
+            frame.pack(pady=5)
+            dipole_mode=OptionMenu(frame,var1, 'Gaussian', 'NBO')
+            dipole_mode.grid(row=0, column=0, padx=5)
             
-        def submit_answers(entry_widgets, save_as=False, load=False):
+            var2 = StringVar(frame)
+            var2.set("Radii")
+            var2.trace_add("write", lambda *args: apply_parameters())
+            radii_mode=OptionMenu(frame, var2 ,'Bondi', 'CPK','Covalent')
+            radii_mode.grid(row=0, column=1, padx=5)
+            
+            
+            def apply_parameters():
+                self.parameters['dipole_mode']=var1.get()   
+                self.parameters['radii']=var2.get()
+                chosen_parameters.config(text=f"Chosen Parameters: {self.parameters}")
+                
+                return 
+            
+            # Create an entry widget for the answer
+            apply_button = Button(frame, text="Apply", command=new_window.destroy)
+            apply_button.grid(row=0, column=2, padx=5)
+
+
+        def submit_answers(entry_widgets, parameters ,save_as=False, load=False):
             answers = {}
             for question, entry in entry_widgets.items():
                 answers[question] = entry.get()
             if load:
                 answers=load_answers()
-            comp_set=self.molecules.get_molecules_comp_set_app(answers)  # For demonstration purposes; replace this with your desired action
+            
+            dipole = self.parameters['dipole_mode'] if 'dipole' in self.parameters else 'Gaussian'
+            radii = self.parameters['radii'] if 'radii' in self.parameters else 'Bondi'
+            comp_set=self.molecules.get_molecules_comp_set_app(answers, dipole_mode=dipole, radii=radii)  # For demonstration purposes; replace this with your desired action
 
             self.show_result(f"Comp Set: {comp_set}")
             if save_as and not load:
@@ -404,7 +444,13 @@ class MoleculeApp:
         # Create a new window
         new_window = Toplevel(root)
         new_window.title("Questions")
-        new_window.grab_set() 
+        new_window.grab_set()
+
+        button = Button(new_window, text="Choose Parameters", command=lambda : open_parameter_window())
+        button.pack(pady=10)
+        chosen_parameters = Label(new_window, text=f"Chosen Parameters: {self.parameters}")
+        chosen_parameters.pack(pady=10)
+        
 
         questions = [
             "Ring Vibration atoms - by order -> primary axis (para first), ortho atoms and meta atoms: \n example: 1,2 5,7 3,6",
@@ -432,19 +478,22 @@ class MoleculeApp:
             # Create an entry widget for the answer
             entry = Entry(frame, width=50)
             entry.pack(side="left", padx=5)
+            # choose parameters button
+            visualize_button = Button(frame, text="Visualize", command=lambda: self.visualize_smallest_molecule())
+            visualize_button.pack(side="left", padx=5)
 
             # Store the entry widget in the dictionary
             entry_widgets[question] = entry
 
             # Add Submit button
-        submit_button = Button(new_window, text="Submit", command=lambda: submit_answers(entry_widgets))
+        submit_button = Button(new_window, text="Submit", command=lambda: submit_answers(entry_widgets, parameters=self.parameters))
         submit_button.pack(pady=20)
 
         # save as 
-        save_as_button = Button(new_window, text="Save input/output", command=lambda: submit_answers(entry_widgets, save_as=True))
+        save_as_button = Button(new_window, text="Save input/output", command=lambda: submit_answers(entry_widgets, parameters=self.parameters,save_as=True))
         save_as_button.pack(pady=10)
 
-        load_answers_file = Button(new_window, text="Load input", command=lambda: submit_answers(entry_widgets,save_as=True, load=True))
+        load_answers_file = Button(new_window, text="Load input", command=lambda: submit_answers(entry_widgets,parameters=self.parameters, save_as=True, load=True))
         load_answers_file.pack(pady=10)
 
         
@@ -502,7 +551,7 @@ class MoleculeApp:
                                          self.title_var.get(),
                                          self.task_var.get())
 
-                    self.show_result(f"Converting {filename} with {self.functional_var.get()} / {self.basisset_var.get()} ...")
+                    # self.show_result(f"Converting {filename} with {self.functional_var.get()} / {self.basisset_var.get()} ...")
 
                     try: 
                         com_filename = filename.replace('.xyz', '.com')
@@ -775,6 +824,13 @@ class MoleculeApp:
         if self.molecules:
             self.molecules.visualize_molecules()
 
+    def visualize_smallest_molecule(self):
+        if self.molecules:
+            self.molecules.visualize_smallest_molecule()
+            html='my_plot.html'
+            frame = HtmlFrame(root, horizontal_scrollbar="auto") #create the HTML browser
+            frame.load_file(html) #load a website
+            frame.pack(fill="both", expand=True) #attach the HtmlFrame widget to the parent window
 
     def export_data(self):
         self.molecules.extract_all_dfs()

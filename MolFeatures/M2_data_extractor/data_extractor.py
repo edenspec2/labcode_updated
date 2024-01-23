@@ -1870,7 +1870,15 @@ class Molecules():
         for molecule in self.molecules:
             molecule.visualize_molecule()
         
-
+    def visualize_smallest_molecule(self):
+        idx=0
+        smallest= len(self.molecules[0].xyz_df)
+        for id, molecule in enumerate(self.molecules[1:]):
+            if len(molecule.xyz_df)<smallest:
+                smallest=len(molecule.xyz_df)
+                idx=id
+        html=self.molecules[idx].visualize_molecule()
+        return html
     
     def get_molecules_comp_set_app(self,answers_dict: dict,
                                    dipole_mode = 'gaussian', radii = 'bondi', export_csv=False, answers_list_load=None):

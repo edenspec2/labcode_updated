@@ -221,8 +221,10 @@ def show_single_molecule(molecule_name,xyz_df=None, color='black'):
     layout = dict(title=dict(text=molecule_name, x=0.5, y=0.9, xanchor='center', yanchor='top'),scene=dict(xaxis=axis_params, yaxis=axis_params, zaxis=axis_params, annotations=annotations_id_main),
                   margin=dict(r=0, l=0, b=0, t=0), showlegend=False, updatemenus=updatemenus)
     fig = go.Figure(data=data_main, layout=layout)
-    fig.show()
-    return
+    html=fig.show()
+    fig_html=fig.write_html("my_plot.html")
+    print(html)
+    return html
 
 
 
