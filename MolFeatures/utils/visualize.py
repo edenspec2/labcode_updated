@@ -209,6 +209,11 @@ def compare_molecules(coordinates_df_list: List[pd.DataFrame],conformer_numbers:
     fig.show()
     return fig
 
+import dash
+from dash import html, dcc, Output, Input, State
+import plotly.graph_objects as go
+import pandas as pd
+
 def show_single_molecule(molecule_name,xyz_df=None, color='black'):
     if xyz_df is None:
         xyz_df=get_df_from_file(choose_filename()[0])
@@ -222,11 +227,48 @@ def show_single_molecule(molecule_name,xyz_df=None, color='black'):
                   margin=dict(r=0, l=0, b=0, t=0), showlegend=False, updatemenus=updatemenus)
     fig = go.Figure(data=data_main, layout=layout)
     html=fig.show()
-    fig_html=fig.write_html("my_plot.html")
-    print(html)
+    run_app(fig)
+
+    
     return html
 
 
+def run_app(figure):
+        # Create a Dash app
+    app = dash.Dash(__name__)
+
+    # App layout
+    app.layout = html.Div([
+        dcc.Graph(id='molecule-plot', figure=figure), # Replace "Water" with your molecule
+        html.Div(id='clicked-data', children=[]),
+        html.Button('Save Clicked Atom', id='save-button', n_clicks=0),
+        html.Div(id='saved-atoms', children=[])
+    ])
+
+    # Callback to display clicked data
+    @app.callback(
+        Output('clicked-data', 'children'),
+        Input('molecule-plot', 'clickData'),
+        prevent_initial_call=True
+    )
+    def display_click_data(clickData):
+        if clickData:
+            return f"Clicked Point: {clickData['points'][0]['pointIndex']}"
+        return "Click on an atom."
+
+    # Callback to save clicked atom index
+    @app.callback(
+        Output('saved-atoms', 'children'),
+        Input('save-button', 'n_clicks'),
+        State('molecule-plot', 'clickData'),
+        State('saved-atoms', 'children'),
+        prevent_initial_call=True
+    )
+    def save_clicked_atom(n_clicks, clickData, saved_atoms):
+        if clickData:
+            saved_atoms.append(clickData['points'][0]['pointIndex'])
+        return f"Saved Atom Indices: {saved_atoms}"
+        
 
 
 

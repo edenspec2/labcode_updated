@@ -1,25 +1,3 @@
-# Automation_code
-This is the automation code for molecule featurization and modeling:
-
-https://github.com/edenspec2/Automation_code-main/tree/eden_work
-
-first you need to install pip by downloading get-pip.py, enter the following line to your cmd:
-curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-then:
-python get-pip.py
-
-Use pip to download the needed packages by using this line in you cmd:
-pip install pandas rdkit igraph XlsxWriter dgl pyarrow plotly customtkinter chardet torch matplotlib rmsd networkx
-
-Or navigate to the package directory and enter:
-pip install -r requirements.txt
-
-Install the package by:
-pip install -i https://test.pypi.org/simple/ MolFeatures==
-
-
------------------------------------------------------------------------------------------------------------------------------------
-In the "Molecule Data Extractor" interface, the "Browse for Feather Files Directory" button is a convenient tool for users to quickly locate and load their directories containing Feather-format files. This button streamlines the process of importing large datasets by allowing the user to interact with the file system and select the appropriate folder containing the Feather files. For demonstration purposes or to assist new users, the application includes an example Feather file directory. This example directory can be loaded through this browsing feature, giving users the opportunity to test and familiarize themselves with the application's capabilities using pre-prepared data. By selecting this directory, users can seamlessly begin their data extraction and analysis without needing to prepare their own datasets initially.
 
 Loading Data: Users can browse and load molecular data files with ease, you can use it too choose with the "Browse for Feather Files Directory" button the feather files directory to load them as Molecule object for feature extraction.
 
@@ -50,4 +28,3 @@ Bond length: Here, users can input pairs of atoms to calculate and compare bond 
 Bond Angle: Users can insert a list of atom triads or quartets to calculate angles or dihedrals.
 
 At the bottom of the window, there are buttons to "Submit" the entered data for processing, "Save input/output" for record-keeping, and "Load input" to retrieve previously saved parameters.
-

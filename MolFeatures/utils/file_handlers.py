@@ -113,7 +113,7 @@ def use_sh_script(file_name):
 
 
 
-def write_gaussian_file(filename, functional, basisset, charge, title, task):
+def write_gaussian_file(filename, functional, basisset, charge, title, task, freeze):
     """
     Writes the Gaussian input file based on the provided parameters.
     """
@@ -121,9 +121,9 @@ def write_gaussian_file(filename, functional, basisset, charge, title, task):
     with open(f'{name}.com', 'w') as my_file:
         my_file.write(f"%mem=100GB\n%nproc=32\n%chk={name}.chk\n")
         if task == 'sp':
-            my_file.write(f"#P {functional}/{basisset}\n\n{title}\n\n{charge}\n")
+            my_file.write(f"#P {functional}/{basisset}  Freq \n\n{title}\n\n{charge}\n")
         elif task == 'opt':
-            my_file.write(f"#P {functional}/{basisset} Opt Freq pop=nbo\n\n{title}\n\n{charge}\n")
+            my_file.write(f"# opt Freq {functional}/{basisset}  pop=npa \n\n{title}\n\n{charge}\n") ## opt freq def2tzv pop=npa m062x
         xyz_df = hf.get_df_from_file(filename)
         atoms_np_array = np.array(xyz_df)
         for atom_np_array in atoms_np_array:
@@ -131,7 +131,8 @@ def write_gaussian_file(filename, functional, basisset, charge, title, task):
                 my_file.write("{:1} {:11.5f} {:11.5f} {:11.5f}\n".format(*atom_np_array))
             except Exception as e:
                 print(f'Error writing atom data: {e}')
-        
+        if freeze:
+            my_file.write(f"\n{freeze}\n")
         my_file.write("\n")
 
 def process_file(file, functional, basisset, charge, title, task, nbo_answer):

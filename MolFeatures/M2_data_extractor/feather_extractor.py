@@ -107,7 +107,7 @@ def process_gaussian_standard_orientation_text(log_file_lines):
     standard_orientation=np.delete(standard_orientation,(0,2),1)
     standard_orientation_df=pd.DataFrame(standard_orientation,columns=Names.STANDARD_ORIENTATION_COLUMNS.value)
     standard_orientation_df['atom'].replace(GeneralConstants.ATOMIC_NUMBERS.value, inplace=True)
-    # standard_orientation_df[['x', 'y', 'z']] = standard_orientation_df[['x', 'y', 'z']].astype(float)
+    standard_orientation_df[['x', 'y', 'z']] = standard_orientation_df[['x', 'y', 'z']].astype(float)
     ## add 2 columns on top and add the .shape[0] to the first row 'atom' column
     # Create a new DataFrame with two rows
     new_rows = pd.DataFrame(np.nan, index=[0, 1], columns=standard_orientation_df.columns)
@@ -164,11 +164,11 @@ def process_gaussian_pol_text(log_file_lines: List[str]) -> Optional[pd.DataFram
     
     if pol_start is not None and pol_end is not None:
         pol = extract_lines_from_text(log_file_lines[pol_start:pol_end], re_expression=ReExpressions.FLOAT.value)
-        pol_df = pd.DataFrame([float(pol[0])*1000, float(pol[6])*1000], index=['iso', 'aniso'], dtype=str).T
+        pol_df = pd.DataFrame([float(pol[0])*1000, float(pol[6])*1000], index=['iso', 'aniso'], dtype=float).T
         return pol_df
     else:
         # print("Failed to create.")
-        pol_df = pd.DataFrame([100, 100], index=['iso', 'aniso'], dtype=str).T
+        pol_df = pd.DataFrame([100, 100], index=['iso', 'aniso'], dtype=float).T
         return pol_df
 
 
@@ -250,6 +250,7 @@ def process_gaussian_info(frequency_string):
     info_df=pd.DataFrame()
     info_df['Frequency']=[(item) for sublist in frequency for item in sublist]
     info_df['IR']=[(item) for sublist in ir for item in sublist] 
+    info_df=info_df.astype(float)
 
     return info_df
 
@@ -263,6 +264,7 @@ def vib_array_list_to_df(array_list):
         array_list_df.append(new_df)
     
     vibs_df=pd.concat(array_list_df,axis=1)
+    vibs_df=vibs_df.astype(float)
     return vibs_df
 
 def process_gaussian_frequency_string(final_blocks):
@@ -307,6 +309,7 @@ def process_gaussian_energy_text(energy_string):
     energy=extract_lines_from_text(cut, re_expression=ReExpressions.FLOAT.value)
     data = np.array([[energy[0]]])
     df = pd.DataFrame(data, columns=['energy'])
+    df=df.astype(float)
 
     return df
 
@@ -346,6 +349,7 @@ def gauss_file_handler(gauss_filename, export=False):
 
     try:
         energy_df = process_gaussian_energy_text(log_file_lines)
+        energy_df=energy_df.astype(float)
     except IndexError:
         energy_df = pd.DataFrame()
         print("{gauss_filename}: Error processing energy.")
@@ -353,18 +357,21 @@ def gauss_file_handler(gauss_filename, export=False):
 
     try:
         charge_df = process_gaussian_charge_text(log_file_lines)
+        charge_df=charge_df.astype(float)
     except Exception as e:
         charge_df = pd.DataFrame()
         print(f"{gauss_filename}: Error processing charge: {e}")
         string_report+=f"{gauss_filename}: Error processing charge: {e}\n"
     try:
         dipole_df = process_gaussian_dipole_text(log_file_lines)
+        dipole_df=dipole_df.astype(float)
     except Exception as e:
         dipole_df = pd.DataFrame()
         print(f"{gauss_filename}: Error processing dipole: {e}")
         string_report+=f"{gauss_filename}: Error processing dipole: {e}\n"
     try:
         pol_df = process_gaussian_pol_text(log_file_lines)
+        pol_df=pol_df.astype(float)
     except Exception as e:
         pol_df = pd.DataFrame()
         print(f"{gauss_filename}: Error processing polarization: {e}")
@@ -384,6 +391,7 @@ def gauss_file_handler(gauss_filename, export=False):
         string_report+=f"{gauss_filename}: Error processing vibrations: {e}\n"
     try:
         info_df = process_gaussian_info(frequency_str)
+        info_df=info_df.astype(float)
         
     except Exception as e:
         info_df = pd.DataFrame()  # or some default DataFrame
@@ -416,10 +424,10 @@ def save_to_feather(df, filename):
 
     
     feather_filename = filename + '.feather'
-    df=df.astype(str)
+    # df=df.astype(str)
     # Set each column name to a string representation of its index
     df.columns = range(df.shape[1]) # [str(i) for i in range(df.shape[1])]
-
+    df.columns = df.columns.map(str)
     df.to_feather(feather_filename)
 
     print(f"Data saved to {feather_filename}")
@@ -453,10 +461,7 @@ def logs_to_feather(dir_path):
     os.chdir(dir_path)
     return string_report
 
-# Example usage
-path=(r'C:\Users\edens\Documents\Random molecules\Lucas renumbered logs')
-os.chdir(path)
-df=gauss_file_handler('LS1621_optimized.log')
+
 
 # def read_from_feather_and_convert_to_list(filename):
 #     # Read the Feather file

@@ -1,0 +1,39 @@
+Ring Vibration atoms - by order -> primary axis (para first), ortho atoms and meta atoms: 
+ example: 1,2 5,7 3,6
+[[11, 8], [9, 7], [10, 14]]
+
+Strech Vibration atoms- enter atom pairs that have a common atom: 
+ example: 1,2 4,5
+[]
+
+Bending Vibration atoms - Atom pairs: 
+ example: 1,2 4,5
+[[8, 7], [7, 5], [4, 5]]
+
+Indices to move center:
+[1,2,3]
+
+Dipole atoms - indices for coordination transformation: 
+ example: 4,5,6 - origin, y-axis, new xy plane
+[[14, 7, 8], [5, 6, 4], [7, 6, 4]]
+
+NBO values - Insert atoms to show NBO: 
+ example: 1,2,3,4
+[8, 7, 14, 5, 4]
+
+NBO difference - Insert atoms to show NBO difference: 
+ example: 1,2 3,4
+[[8, 7], [14, 7], [4, 5]]
+
+Sterimol atoms - Primary axis along: 
+ example: 7,8 2,3
+[[7, 8], [8, 7], [8, 9], [6, 7], [6, 5]]
+
+Bond lenght - Atom pairs to calculate difference: 
+ example: 1,2 4,5
+[[5, 8], [6, 7], [4, 6], [4, 7]]
+
+Bond Angle - Insert a list of atom triads/quartets for which you wish to have angles/dihedrals: 
+ example: 1,3,4 5,6,7,4
+[[5, 6, 7, 8], [4, 6, 7, 8], [2, 5, 6]]
+

@@ -1,6 +1,6 @@
 import warnings
-from single_model_processing import Model
-from model_info_app import Model_info
+from .single_model_processing import Model
+from .model_info_app import Model_info
 import os
 import os
 import warnings

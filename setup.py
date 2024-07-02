@@ -6,7 +6,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='MolFeatures',
-    version='0.91',
+    version='0.4007',
     packages=find_packages(),
     description='Your package description',
     long_description=long_description,
@@ -17,7 +17,7 @@ setup(
     install_requires=[],
     package_data={
         # If 'feather_example' is a Python package with __init__.py
-        'MolFeatures': ['feather_example/*', 'description.txt', 'README.md', 'requirements.txt'],
+        'MolFeatures': ['feather_example/*','Workshop_Example_Data/*','pictures/*', 'description.txt', 'README.md', 'requirements.txt','setup.py'],
     },
     include_package_data=True,
 )

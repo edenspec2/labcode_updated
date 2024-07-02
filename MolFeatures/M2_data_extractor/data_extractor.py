@@ -12,8 +12,8 @@ import warnings
 from scipy.spatial.distance import pdist, squareform
 from ..utils import help_functions
 from ..Mol_align import renumbering
-
-
+from sklearn.preprocessing import MinMaxScaler
+from morfeus import Sterimol, read_xyz
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 class GeneralConstants(Enum):
@@ -58,18 +58,37 @@ class GeneralConstants(Enum):
         'Br': 1.83, 'Si': 2.10,'Ni': 2.00,
         'P': 1.80, 'Cl': 1.75, 
     }
+    CPK_RADII = {
+    'C': 1.50,
+    'C3': 1.60,
+    'C6/N6': 1.70,
+    'H': 1.00,
+    'N': 1.50,
+    'N4': 1.45,
+    'O': 1.35,
+    'O2': 1.35,
+    'P': 1.40,
+    'S': 1.70,
+    'S1': 1.00,
+    'F': 1.35,
+    'Cl': 1.80,
+    'S4': 1.40,
+    'Br': 1.95,
+    'I': 2.15,
+    'X': 1.92,
+    'F': 1.35
+}
+    # CPK_RADII={
+    #     'C':1.50,   'H':1.00,   'S.O':1.70,  'Si':2.10,
+    #     'C2':1.60,  'N':1.50,   'S1':1.00,   'Co':2.00,
+    #     'C3':1.60,  'C66':1.70, 'F':1.35,    'Ni':2.00,
+    #     'C4':1.50,  'N4':1.45,  'Cl':1.75,
+    #     'C5/N5':1.70, 'O':1.35, 'S4':1.40,
+    #     'C6/N6':1.70, 'O2':1.35, 'Br':1.95,
+    #     'C7':1.70,    'P':1.40,  'I':2.15,
+    #     'C8':1.50,    'S':1.70,  'B':1.92,
     
-    CPK_RADII={
-        'C':1.50,   'H':1.00,   'S.O':1.70,  'Si':2.10,
-        'C2':1.60,  'N':1.50,   'S1':1.00,   'Co':2.00,
-        'C3':1.60,  'C66':1.70, 'F':1.35,    'Ni':2.00,
-        'C4':1.50,  'N4':1.45,  'Cl':1.75,
-        'C5/N5':1.70, 'O':1.35, 'S4':1.40,
-        'C6/N6':1.70, 'O2':1.35, 'Br':1.95,
-        'C7':1.70,    'P':1.40,  'I':2.15,
-        'C8':1.50,    'S':1.70,  'B':1.92,
-    
-    }
+    # }
 
     REGULAR_BOND_TYPE = {
 
@@ -86,12 +105,12 @@ class GeneralConstants(Enum):
     BOND_TYPE={
         
         'O.2':'O2', 'N.2':'C6/N6','S.3':'S4',
-        'O.3':'O', 'N.1':'N', 'S.O2':'S1',
+        'O.3':'O', 'N.1':'N', 'S.O2':'S',
         'O.co2':'O', 'N.3':'C6/N6','P.3':'P',
-        'C.1':'C3', 'N.ar':'C6/N6',
-        'C.2':'C2', 'N.am':'C6/N6',
+        'C.1':'C', 'N.ar':'C6/N6',
+        'C.2':'C3', 'N.am':'C6/N6',
         "C.cat":'C3', 'N.pl3':'C6/N6',
-        'C.3':'C', 'N.4':'N',
+        'C.3':'C', 'N.4':'N4',
         'C.ar':'C6/N6', 'S.2':'S','H':'H' 
         }
     
@@ -276,6 +295,7 @@ def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLik
     # atom_mask=range(charge_array) if sub_atoms==None else sub_atoms
 #TODO: Add option for sub_atoms!
     # Apply geometric transformation if specified
+    # print(geom_transform_indices)
     if geom_transform_indices is not None:
         geometric_center = np.mean(coordinates_array[geom_transform_indices], axis=0)
         coordinates_array -= geometric_center
@@ -285,7 +305,7 @@ def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLik
     dipole_vector=np.sum(dipole_xyz,axis=0)
     array_dipole=np.hstack([dipole_vector,np.linalg.norm(dipole_vector)])
     dipole_df=pd.DataFrame(array_dipole,index=help_functions.XYZConstants.DIPOLE_COLUMNS.value).T
-    
+    # print(dipole_df)
     return dipole_df
 
 def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indices ,geometric_transformation_indices=None):
@@ -303,6 +323,7 @@ def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indic
     basis_vector=calc_basis_vector(*calc_new_base_atoms(coordinates_array, indices))
     gauss_dipole_array[0,0:3]=np.matmul(basis_vector,gauss_dipole_array[0,0:3])
     dipole_df=pd.DataFrame(gauss_dipole_array,columns=['dipole_x','dipole_y','dipole_z','total'])
+    # print(geometric_transformation_indices, dipole_df)
     return dipole_df
 
 def check_imaginary_frequency(info_df):##return True if no complex frequency, called ground.state in R
@@ -458,12 +479,7 @@ def direction_atoms_for_sterimol(bonds_df,base_atoms)->list: #help function for 
             # take the first atom in the bond where the first equeal to the direction, second option
             base_atoms_copy[2]=int(bonds_df[(bonds_df[1]==direction)][0].iloc[1])
     except: 
-        # if (any(bonds_df[0]==direction)):
-        #     print(bonds_df[(bonds_df[0]==direction)][1].iloc[0],'h')
-        #     base_atoms_copy.append(int(bonds_df[(bonds_df[0]==direction)][1].iloc[0])) if int(bonds_df[(bonds_df[0]==direction)][1].iloc[0])!=origin else base_atoms_copy.append(int(bonds_df[(bonds_df[0]==direction)][0].iloc[0]))
-        # else:
-        #     print(bonds_df[(bonds_df[1]==direction)][0].iloc[0],'w')
-        #     base_atoms_copy.append(int(bonds_df[(bonds_df[1]==direction)][0].iloc[0])) if int(bonds_df[(bonds_df[1]==direction)][0].iloc[0])!=origin else base_atoms_copy.append(int(bonds_df[(bonds_df[1]==direction)][1].iloc[0]))
+        
         for _, row in bonds_df.iterrows():
             if row[0] == direction:
                 base_atoms_copy.append(row[1])
@@ -515,7 +531,7 @@ def remove_atom_bonds(bonded_atoms_df,atom_remove='H'):
 
 
 
-def extract_connectivity(xyz_df, threshhold_distance=2.02):
+def extract_connectivity(xyz_df, threshhold_distance=1.82):
     coordinates=np.array(xyz_df[['x','y','z']].values)
     atoms_symbol=np.array(xyz_df['atom'].values)
     # compute the pairwise distances between the points
@@ -528,19 +544,34 @@ def extract_connectivity(xyz_df, threshhold_distance=2.02):
     dist_df['second_atom']=[atoms_symbol[i] for i in dist_df['a2']]
     remove_list=[]
     dist_array=np.array(dist_df)
-    for idx,row in enumerate(dist_array):
-        if ((row[3]=='H') & (row[4] not in help_functions.XYZConstants.NOF_ATOMS.value)):
-            remove_list.append(idx)
+    remove_list = []
+    for idx, row in enumerate(dist_array):
+        remove_flag = False
+      
+        if row[0] == row[1]:
+            remove_flag = True
+          
+        if ((row[3] == 'H') & (row[4] not in help_functions.XYZConstants.NOF_ATOMS.value)):
+            remove_flag = True
+           
         if ((row[3] == 'H') & (row[4] == 'H')):
+            remove_flag = True
+          
+        if (((row[3] == 'H') | (row[4] == 'H')) & (row[2] >= 1.5)):
+            remove_flag = True
+           
+        if ((row[2] >= threshhold_distance) | (row[2] == 0)):
+            remove_flag = True
+      
+
+        if remove_flag:
             remove_list.append(idx)
-        if (((row[3] == 'H') | (row[4] == 'H')) & (row[2]>=1.5) ):
-            remove_list.append(idx)
-        if ((row[2]>=threshhold_distance) | (row[2]==0)):
-            remove_list.append(idx)
+
     dist_df=dist_df.drop(remove_list)
-    dist_df=dist_df.drop_duplicates(subset=['value'])
-    dist_array=np.array(dist_df[['a1','a2']])+1
-    return pd.DataFrame(dist_array)
+    dist_df[['min_col', 'max_col']] = pd.DataFrame(np.sort(dist_df[['a1', 'a2']], axis=1), index=dist_df.index)
+    dist_df = dist_df.drop(columns=['a1', 'a2']).rename(columns={'min_col': 0, 'max_col': 1})
+    dist_df = dist_df.drop_duplicates(subset=[0, 1])
+    return pd.DataFrame(dist_df[[0,1]]+1)
 
 def get_center_of_mass(xyz_df):
     coordinates=np.array(xyz_df[['x','y','z']].values,dtype=float)
@@ -581,6 +612,8 @@ def nob_atype(xyz_df, bonds_df):
         nob = bonds_df[(bonds_df[0] == index) | (bonds_df[1] == index)].shape[0]
         if symbol == 'H':
             result = 'H'
+        elif symbol == 'F':
+            result = 'F'
         elif symbol == 'P':
             result = 'P'
         elif symbol == 'Cl':
@@ -638,7 +671,7 @@ def filter_atoms_for_sterimol(bonded_atoms_df,coordinates_df):
     return edited_coordinates_df
 
 
-def get_extended_df_for_sterimol(coordinates_df, bonds_df, radii='bondi'):
+def get_extended_df_for_sterimol(coordinates_df, bonds_df, radii='CPK'):
     """
     A function that adds information to the regular coordinates_df
 
@@ -659,13 +692,16 @@ def get_extended_df_for_sterimol(coordinates_df, bonds_df, radii='bondi'):
     
     bond_type_map = GeneralConstants.BOND_TYPE.value
     ## if radius is cpk mapping should be done on atype, else on atom
-    radii_map = GeneralConstants.BONDI_RADII.value if radii == 'bondi' else GeneralConstants.COVALENT_RADII.value
+    radii_map = GeneralConstants.CPK_RADII.value if radii == 'CPK' else GeneralConstants.BONDI_RADII.value
+    
     df = coordinates_df.copy()  # make a copy of the dataframe to avoid modifying the original
+    
     df['atype']=nob_atype(coordinates_df, bonds_df)
+    
     
     # df['atype'] = df['atom'].map(bond_type_map).fillna(bond_type)
     df['magnitude'] = calc_magnitude_from_coordinates_array(df[['x', 'z']].astype(float))
-   
+    
     df['radius'] = df['atom'].map(radii_map)
     df['B5'] = df['radius'] + df['magnitude']
     df['L'] = df['y'] + df['radius']
@@ -689,6 +725,9 @@ def get_transfomed_plane_for_sterimol(plane,degree):
     sin_deg=np.sin(degree*(np.pi/180))
     rot_matrix=np.array([[cos_deg,-1*sin_deg],[sin_deg,cos_deg]])
     transformed_plane=np.vstack([np.matmul(rot_matrix,row) for row in plane]).round(4)
+    avs=np.abs([max(transformed_plane[:,0]),min(transformed_plane[:,0]), 
+                    max(transformed_plane[:,1]),min(transformed_plane[:,1])])
+    
     return transformed_plane
 
 
@@ -735,10 +774,12 @@ def calc_B1(transformed_plane,avs,edited_coordinates_df,column_index):
         if len(against)>0:
             B1.append(max(against))
             B1_loc.append(against_loc[against.index(max(against))])
+            
         else:
             B1.append(np.abs(transformed_plane[idx,column_index]+edited_coordinates_df['radius'].iloc[idx]))
             B1_loc.append(edited_coordinates_df['radius'].iloc[idx])
             
+    # print(f'B1: {B1}, B1_loc: {B1_loc}')      
     return [B1,B1_loc]
 
 def b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane):
@@ -753,20 +794,42 @@ def b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane):
     degree_list : list
     plane : np.array
     """
+    degree=[]
     for degree in degree_list:
         transformed_plane=get_transfomed_plane_for_sterimol(plane, degree)
         
         avs=np.abs([max(transformed_plane[:,0]),min(transformed_plane[:,0]), 
                     max(transformed_plane[:,1]),min(transformed_plane[:,1])])
         
+        if min(avs) == 0:
+            min_avs_indices = np.where(avs == min(avs))[0]
+            if any(index in [0, 1] for index in min_avs_indices):
+                tc = np.round(transformed_plane, 1)
+                B1 = max(extended_df['radius'].iloc[np.where(tc[:, 0] == 0)])
+                B1_loc = extended_df['L'].iloc[np.argmax(extended_df['radius'].iloc[np.where(tc[:, 0] == 0)])]
+                b1s.append(B1)
+                b1s_loc.append(B1_loc)
+                continue  # Skip the rest of the loop
+
+            elif any(index in [2, 3] for index in min_avs_indices):
+                tc = np.round(transformed_plane, 1)
+                B1 = max(extended_df['radius'].iloc[np.where(tc[:, 1] == 0)])
+                B1_loc = extended_df['L'].iloc[np.argmax(extended_df['radius'].iloc[np.where(tc[:, 1] == 0)])]
+                b1s.append(B1)
+                b1s_loc.append(B1_loc)
+                continue
+
         if np.where(avs==avs.min())[0][0] in [0,1]:
-                B1,B1_loc=calc_B1(transformed_plane,avs,extended_df,0)
+            B1,B1_loc=calc_B1(transformed_plane,avs,extended_df,0)
+            
   
         elif np.where(avs==avs.min())[0][0] in [2,3]:
             B1,B1_loc=calc_B1(transformed_plane,avs,extended_df,1)
-            
+             
+        
         b1s.append(np.unique(np.vstack(B1)).max())####check
         b1s_loc.append(np.unique(np.vstack(B1_loc)).max())
+    
 
 def get_b1s_list(extended_df, scans=90//5):
     
@@ -775,12 +838,23 @@ def get_b1s_list(extended_df, scans=90//5):
     degree_list=list(range(18,108,scans))
     plane=np.array(extended_df[['x','z']].astype(float))
     b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane)
-    back_ang=degree_list[np.where(b1s==min(b1s))[0][0]]-scans   
-    front_ang=degree_list[np.where(b1s==min(b1s))[0][0]]+scans
-    degree_list=range(back_ang,front_ang+1)
-    print('e')
+    
+    if b1s:
+        try:
+            back_ang=degree_list[np.where(b1s==min(b1s))[0][0]]-scans   
+            front_ang=degree_list[np.where(b1s==min(b1s))[0][0]]+scans
+            degree_list=range(back_ang,front_ang+1)
+        except:
+            print(np.where(np.isclose(b1s, min(b1s), atol=1e-8)))
+            back_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]-scans
+            front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
+            degree_list=range(back_ang,front_ang+1)
+    else:
+        print('no b1s found')
+        return [np.array(b1s),np.array(b1s_loc)]
+    # print(f'specific degree list: {degree_list}')
     b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane)
-
+    # print(f'b1 arrays: {[np.array(b1s),np.array(b1s_loc)]}')
     return [np.array(b1s),np.array(b1s_loc)]
 
 def calc_sterimol(bonded_atoms_df,extended_df):
@@ -809,11 +883,12 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_directio
     bonded_atoms_df = get_specific_bonded_atoms_df(bonds_df, connected_from_direction, new_coordinates_df)
     
     extended_df = get_extended_df_for_sterimol(new_coordinates_df, bonds_df, radii)
+    # print(f'extended dataframe: {extended_df}')
     ###calculations
     
     sterimol_df = calc_sterimol(bonded_atoms_df, extended_df)
     sterimol_df= sterimol_df.rename(index={0: str(base_atoms[0]) + '-' + str(base_atoms[1])})
-
+    sterimol_df=sterimol_df.round(2)
     return sterimol_df
 
 
@@ -907,7 +982,7 @@ def vibrations_dict_to_list(vibration_dict: dict, vibration_atom_nums: list[int]
     try:
         vibration_array_list = [vibration_dict[f'vibration_atom_{num}'] for num in vibration_atom_nums]
     except KeyError:
-        return print('there is no vibration for those atoms-pick another one')
+        return print('Error: no vibration for those atoms-pick another one')
     vibration_array_pairs = list(
         zip(vibration_array_list[::2], vibration_array_list[1::2]))  # [::2] means every second element
     return vibration_array_pairs, vibration_array_list  ##optional- do not split to pairs
@@ -955,7 +1030,7 @@ def calc_vibration_dot_product_from_pairs(coordinates_array: npt.ArrayLike,
     extended_df=extended_df_for_vib(vibration_dict,info_df,atom_pair)
     coordinates_vector=coordinates_array[atoms[0]]-coordinates_array[atoms[1]]
     vibration_dot_product = calc_vibration_dot_product(extended_df, coordinates_vector)
-    extended_df['Dot_product']=vibration_dot_product
+    extended_df['Amplitude']=vibration_dot_product
     extended_df.reset_index(drop=True,inplace=True)
     return extended_df
 
@@ -985,7 +1060,7 @@ def calc_max_frequency_gen_vibration(extended_df):  ## fix so 0 is IR and 1 is f
     # df=pd.DataFrame(np.vstack([vibration_dot_product, (info_df)['Frequency']]),
     #                         index=help_functions.XYZConstants.VIBRATION_INDEX.value).T
     
-    index_max=extended_df['Dot_product'].idxmax()
+    index_max=extended_df['Amplitude'].idxmax()
 
     max_frequency_vibration=(pd.DataFrame(extended_df.iloc[index_max]).T)[help_functions.XYZConstants.VIBRATION_INDEX.value]
 
@@ -1011,33 +1086,43 @@ def vibration_ring_array_list_to_vector(vibration_array_list: List[np.ndarray]) 
     return vec_sum_1_3_5, vec_sum_2_4_6
 
 
+# def get_data_for_ring_vibration(info_df: pd.DataFrame, vibration_array_list: List[np.ndarray],
+#                                 coordinates_vector: np.ndarray) -> pd.DataFrame:
+#     """
+#     Get the data needed to analyze ring vibrations.
+
+#     Parameters
+#     ----------
+#     info_df: pd.DataFrame
+#         a dataframe with the frequency values of the vibrations
+
+#     vibration_array_list: list of np.ndarray
+#         a list containing arrays of the vibration vectors for each atom in the ring
+
+#     coordinates_vector: np.ndarray
+#         a vector representing the ring in three dimensions
+
+#     Returns
+#     -------
+#     data_df: pd.DataFrame
+#         a dataframe with the product, frequency, and sin(angle) values for each vibration in the ring
+
+#         data_df.T:
+#           product  frequency  sin_angle
+#         0    0.0000    20.3253        NaN
+#         1    0.0000    25.3713   0.811000
+#         2    0.0062    29.0304   0.969047
+#     """
+    
+#     product = [np.dot(row_1, row_2) for row_1, row_2 in zip(*vibration_ring_array_list_to_vector(vibration_array_list))]
+#     _, vibration_array_list = vibration_ring_array_list_to_vector(vibration_array_list)
+#     sin_angle = [abs(math.sin(calc_angle(row, coordinates_vector))) for row in vibration_array_list]
+#     data_df = pd.DataFrame(np.vstack([product, (info_df)['Frequency'], sin_angle]),index=['Product','Frequency','Sin_angle'] )
+#     return data_df.T
+
 def get_data_for_ring_vibration(info_df: pd.DataFrame, vibration_array_list: List[np.ndarray],
                                 coordinates_vector: np.ndarray) -> pd.DataFrame:
-    """
-    Get the data needed to analyze ring vibrations.
-
-    Parameters
-    ----------
-    info_df: pd.DataFrame
-        a dataframe with the frequency values of the vibrations
-
-    vibration_array_list: list of np.ndarray
-        a list containing arrays of the vibration vectors for each atom in the ring
-
-    coordinates_vector: np.ndarray
-        a vector representing the ring in three dimensions
-
-    Returns
-    -------
-    data_df: pd.DataFrame
-        a dataframe with the product, frequency, and sin(angle) values for each vibration in the ring
-
-        data_df.T:
-          product  frequency  sin_angle
-        0    0.0000    20.3253        NaN
-        1    0.0000    25.3713   0.811000
-        2    0.0062    29.0304   0.969047
-    """
+    
     product = [np.dot(row_1, row_2) for row_1, row_2 in zip(*vibration_ring_array_list_to_vector(vibration_array_list))]
     _, vibration_array_list = vibration_ring_array_list_to_vector(vibration_array_list)
     sin_angle = [abs(math.sin(calc_angle(row, coordinates_vector))) for row in vibration_array_list]
@@ -1045,46 +1130,26 @@ def get_data_for_ring_vibration(info_df: pd.DataFrame, vibration_array_list: Lis
     return data_df.T
 
 
+
 def get_filter_ring_vibration_df(data_df: pd.DataFrame, prods_threshhold: float = 0.1,
-                                 frequency_min_threshhold: float = 1500,
+                                 frequency_min_threshhold: float = 1400,
                                  frequency_max_threshhold: float = 1700) -> pd.DataFrame:
-    """
-    Returns a filtered dataframe based on thresholds for product value, minimum and maximum frequency.
+    # Filter based on product value
+    filter_prods = (abs(data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]]) > prods_threshhold) | \
+                   (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]] != 0)
 
-    Parameters
-    ----------
-    data_df: pd.DataFrame
-        DataFrame containing ring vibration data.
+    # Filter based on frequency range
+    filter_frequency = (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]] > frequency_min_threshhold) & \
+                       (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]] < frequency_max_threshhold)
 
-    prods_threshhold: float, optional
-        The minimum threshold for the product value. Default is 0.1.
+    # Apply combined filter
+    filtered_df = data_df[filter_prods & filter_frequency].reset_index()
 
-    frequency_min_threshhold: float, optional
-        The minimum threshold for frequency. Default is 500.
-
-    frequency_max_threshhold: float, optional
-        The maximum threshold for frequency. Default is 700.
-
-    Returns
-    -------
-    pd.DataFrameindex=help_functions.XYZConstants.RING_VIBRATION_INDEX.value
-        Filtered DataFrame containing ring vibration data.
-    """
-    filter_prods_null = (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]] != 0)
-    filter_prods_value = (
-                abs(data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]]) > prods_threshhold)
-    filter_min_frequency = (data_df[
-                                help_functions.XYZConstants.RING_VIBRATION_INDEX.value[
-                                    1]] > frequency_min_threshhold)  # wierd part - check about dot product
-    filtered_df = data_df[filter_prods_null & filter_prods_value][
-        filter_min_frequency].reset_index()  ##randon threshhold to work, no >1500
-    if (filtered_df.shape[0] == 0):
-        filter_max_frequency = (data_df[
-                                    help_functions.XYZConstants.RING_VIBRATION_INDEX.value[
-                                        1]] < frequency_max_threshhold)
-        filtered_df = data_df[filter_prods_null][filter_min_frequency & filter_max_frequency].reset_index()
-        print('Dot products are lower than 0.1 - returning the default 1500 - 1700 1/cm')
+    if filtered_df.empty:
+        print('No data within the specified thresholds. Adjust your thresholds.')
+    
     return filtered_df
+
 
 
 def get_filtered_ring_df(info_df: pd.DataFrame, coordinates_array: np.ndarray, vibration_dict: dict,
@@ -1117,6 +1182,7 @@ def get_filtered_ring_df(info_df: pd.DataFrame, coordinates_array: np.ndarray, v
     _, vibration_array_list = vibrations_dict_to_list(vibration_dict, vibration_atom_nums)
     data_df = get_data_for_ring_vibration(info_df, vibration_array_list, coordinates_vector)
     filtered_df = get_filter_ring_vibration_df(data_df)
+    
     return filtered_df
 
 
@@ -1145,6 +1211,7 @@ def calc_min_max_ring_vibration(filtered_df: pd.DataFrame) -> pd.DataFrame:
                 180 / np.pi)
     df = pd.DataFrame((max_vibration_frequency, asin_max, min_vibration_frequency, asin_min),
                       index=help_functions.XYZConstants.RING_VIBRATION_COLUMNS.value)
+    print(f'vib df: {df}')
     return df
 
 ### bending vibration
@@ -1209,6 +1276,49 @@ def reindex_and_preserve(df, new_index_order):
 
         # Concatenate the two parts
         return pd.concat([reindexed_part, non_reindexed_part])
+
+def get_benzene_ring_indices(bonds_df, atom1_idx, atom2_idx):
+    # Create a graph from the bonds dataframe
+    # atom1_idx, atom2_idx = int(atom1_idx)-1, int(atom2_idx)-1
+    graph = {}
+    for _, row in bonds_df.iterrows():
+        atom1, atom2 = int(row[0]), int(row[1])
+        if atom1 not in graph:
+            graph[atom1] = []
+        if atom2 not in graph:
+            graph[atom2] = []
+        graph[atom1].append(atom2)
+        graph[atom2].append(atom1)
+
+    # Perform a depth-first search to find the benzene ring atoms
+    visited = set()
+    ring_indices = []
+    
+    def dfs(atom_idx, prev_idx, depth):
+        visited.add(atom_idx)
+        ring_indices.append(atom_idx)
+
+        if depth == 5 and atom_idx in graph[atom1_idx]:
+            return True
+
+        for neighbor_idx in graph[atom_idx]:
+            if neighbor_idx != prev_idx and neighbor_idx not in visited:
+                if dfs(neighbor_idx, atom_idx, depth + 1):
+                    return True
+
+        ring_indices.pop()
+        return False
+
+    dfs(atom1_idx, -1, 0)
+    
+    if len(ring_indices) == 6:
+        if atom2_idx in ring_indices:
+            return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
+        else:
+            print('The second atom is not in the benzene ring. it found a ring - check structure')
+            return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
+    # Return the indices of the four different atoms in the ring
+    
 
 class Molecule():
 
@@ -1370,41 +1480,46 @@ class Molecule():
         xyz_df.iloc[pairs[1]] = temp
         return xyz_df
 
-    def get_nbo_df(self, atoms_indices: List[int], diff_indices: List[int] = None) -> pd.DataFrame:
+    
+    def get_nbo_df(self, atoms_indices: List[int]) -> pd.DataFrame:
         """
         Returns a DataFrame with the NBO charges for the specified atoms.
 
         Args:
             atoms_indices (List[int]): The indices of the atoms to include in the DataFrame.
-            diff_indices (List[int], optional): The indices of the atoms to calculate charge differences for.
-                If None, no charge differences are calculated. Defaults to None.
 
         Returns:
-            pd.DataFrame: A DataFrame with the NBO charges and charge differences (if specified).
-        input: molecule.get_nbo_df([5,7,3,4],[[1,2],[3,4]])
-        output: 	atom_5	atom_7	atom_3	atom_4	diff_1-2	diff_3-4
-    	-0.26153	-0.28229	-0.03702	-0.19552	0.13263	0.1585
+            pd.DataFrame: A DataFrame with the NBO charges.
         """
-        atoms_indices=adjust_indices(atoms_indices)
-        nbo_df=(self.charge_df.iloc[atoms_indices]).rename(index=lambda x: f'atom_{x + 1}').T
-        if diff_indices is not None:
-            diff_list=[]
-            if isinstance(diff_indices, list) and all(isinstance(elem, list) for elem in diff_indices):
-                for atoms in diff_indices:
-                    atoms=adjust_indices(atoms)
-                    diff_list.append(pd.DataFrame(self.charge_df.iloc[atoms[0]]-self.charge_df.iloc[atoms[1]],columns=[f'diff_{atoms[0]+1}-{atoms[1]+1}']))
-                diff_df=pd.concat(diff_list,axis=1)
-                nbo_df=pd.concat([nbo_df,diff_df],axis=1)
-            else:
-                diff_indices=adjust_indices(diff_indices)
-                diff=pd.DataFrame(self.charge_df.iloc[diff_indices[0]]-self.charge_df.iloc[diff_indices[1]],columns=[f'diff_{diff_indices[0]+1}-{diff_indices[1]+1}'])
-                nbo_df=pd.concat([nbo_df,diff],axis=1)
+        atoms_indices = adjust_indices(atoms_indices)
+        nbo_df = (self.charge_df.iloc[atoms_indices]).rename(index=lambda x: f'atom_{x + 1}').T
         return nbo_df
-    
 
+    def get_nbo_diff_df(self, diff_indices: List[List[int]]) -> pd.DataFrame:
+        """
+        Returns a DataFrame with the NBO charge differences for specified atom pairs.
 
-         
+        Args:
+            diff_indices (List[List[int]]): The indices of the atoms to calculate charge differences for.
 
+        Returns:
+            pd.DataFrame: A DataFrame with the NBO charge differences.
+        """
+        diff_list = []
+        if isinstance(diff_indices[0], list):
+            for atoms in diff_indices:
+                atoms = adjust_indices(atoms)
+                diff = pd.DataFrame(self.charge_df.iloc[atoms[0]] - self.charge_df.iloc[atoms[1]], columns=[f'diff_{atoms[0]+1}-{atoms[1]+1}'])
+                diff_list.append(diff)
+            diff_df = pd.concat(diff_list, axis=1)
+        else:
+            diff_indices = adjust_indices(diff_indices)
+            diff = pd.DataFrame(self.charge_df.iloc[diff_indices[0]] - self.charge_df.iloc[diff_indices[1]], columns=[f'diff_{diff_indices[0]+1}-{diff_indices[1]+1}'])
+            diff_df = diff
+            
+        return diff_df
+
+ 
     def get_coordination_transformation_df(self, base_atoms_indices: List[int]) -> pd.DataFrame:
         """
         Returns a new DataFrame with the coordinates transformed based on the specified base atoms.
@@ -1462,12 +1577,12 @@ class Molecule():
         return npa_df
 
     
-    def get_dipole_gaussian_df_single(self, atoms):
-        dipole_df = calc_dipole_gaussian(self.coordinates_array, np.array(self.gauss_dipole_df), atoms)
+    def get_dipole_gaussian_df_single(self, atoms, sub_atoms):
+        dipole_df = calc_dipole_gaussian(self.coordinates_array, np.array(self.gauss_dipole_df), atoms, sub_atoms)
         dipole_df = dipole_df.rename(index={0: f'dipole_{atoms[0]}-{atoms[1]}-{atoms[2]}'})
         return dipole_df
 
-    def get_dipole_gaussian_df(self, base_atoms_indices: List[int]) -> pd.DataFrame:
+    def get_dipole_gaussian_df(self, base_atoms_indices: List[int], sub_atoms: List[int]) -> pd.DataFrame:
         """
         Returns a DataFrame with the dipole moments calculated based on the specified base atoms.
 
@@ -1479,11 +1594,11 @@ class Molecule():
         """
         if isinstance(base_atoms_indices[0], list):
             # If base_atoms_indices is a list of lists, process each group individually and concatenate the results
-            dipole_list = [self.get_dipole_gaussian_df_single(atoms) for atoms in base_atoms_indices]
+            dipole_list = [self.get_dipole_gaussian_df_single(atoms,sub) for atoms,sub in zip(base_atoms_indices,sub_atoms)]
             dipole_df = pd.concat(dipole_list, axis=0)
         else:
             # If base_atoms_indices is a single group, just process that group
-            dipole_df = self.get_dipole_gaussian_df_single(base_atoms_indices)
+            dipole_df = self.get_dipole_gaussian_df_single(base_atoms_indices, sub_atoms)
         return dipole_df
 
 
@@ -1544,13 +1659,18 @@ class Molecule():
                     self.coordinates_array, self.vibration_dict, atom_pair, self.info_df
                 )
             except TypeError:
-                print('Error: no vibration array for the molecule')
+                print(f'Error: no vibration array for the molecule {self.molecule_name} - check atom numbering in molecule')
                 return None
             vibration_df, idx = calc_max_frequency_gen_vibration(extended_vib_df)
             return vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
         else:
-            print('Error: the following bonds do not exist-check atom numbering')
-            return None
+            print(f'Error: the following bonds do not exist-check atom numbering in molecule: \n {self.molecule_name} \nBonds:{self.bonds_df}')
+            
+            df=pd.DataFrame([[np.nan,np.nan]],columns=[['Frequency','Amplitude']])
+            df.rename(index={0: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'},inplace=True)
+            
+            
+            return df
     
     def get_stretch_vibration(self, atom_pairs: List[int])-> pd.DataFrame:
         """
@@ -1580,7 +1700,9 @@ class Molecule():
             return vibration_df
         else:
             # If atom_pairs is a single pair, just process that pair
-            return self.get_stretch_vibration_single(atom_pairs)
+            vibration_df=self.get_stretch_vibration_single(atom_pairs)
+            
+            return vibration_df
         
     
     def get_ring_vibrations(self,ring_atom_indices: List[List[int]])-> pd.DataFrame:
@@ -1602,10 +1724,12 @@ class Molecule():
         0  657.3882    81.172063  834.4249   40.674833
 
         """
+        z,x,c,v,b,n=get_benzene_ring_indices(self.bonds_df, ring_atom_indices)
+        ring_atom_indices=[[z,x],[c,v],[b,n]]
         try:
             filtered_df=get_filtered_ring_df(self.info_df,self.coordinates_array,self.vibration_dict,ring_atom_indices)
         except FileNotFoundError:
-            return print('no vibration data file exists for this atom')
+            return print(f'No vibration - Check atom numbering in molecule {self.molecule_name}')
         # bool_check=filtered_df[2].duplicated().any() #check for duplicates in calc, is it needed ?? slim chances
         return calc_min_max_ring_vibration(filtered_df)
     
@@ -1614,7 +1738,7 @@ class Molecule():
         adjacency_dict = create_adjacency_dict_for_pair(self.bonds_df, atom_pair)
         center_atom_exists = find_center_atom(atom_pair[0], atom_pair[1], adjacency_dict)
         if not center_atom_exists:
-            print('Atoms do not share a center')
+            print(f'Atoms do not share a center in molecule {self.molecule_name} - check atom numbering in molecule')
             return None
         else:
             # Create the extended DataFrame for the vibration modes
@@ -1812,10 +1936,15 @@ class Molecules():
             sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(base_atoms)
         return sterimol_dict
     
-    def get_npa_dict(self,base_atoms):
+    def get_npa_dict(self,base_atoms,sub_atoms):
         npa_dict={}
         for molecule in self.molecules:
-            npa_dict[molecule.molecule_name]=molecule.get_npa_df(base_atoms)
+            try:
+                npa_dict[molecule.molecule_name]=molecule.get_npa_df(base_atoms,sub_atoms)
+            except:
+                print(f'Error: {molecule.molecule_name} could not be processed')
+                pass
+            
         return npa_dict
     
     # def get_stretch_dict(self,atom_pairs):
@@ -1827,48 +1956,89 @@ class Molecules():
     def get_ring_vibration_dict(self,ring_atom_indices):
         ring_dict={}
         for molecule in self.molecules:
+            
             ring_dict[molecule.molecule_name]=molecule.get_ring_vibrations(ring_atom_indices)
+            
+
         return ring_dict
     
-    def get_dipole_dict(self,base_atoms):
+    def get_dipole_dict(self,base_atoms, sub_atoms=None):
         dipole_dict={}
         for molecule in self.molecules:
-            dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(base_atoms)
+            try:
+                dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(base_atoms, sub_atoms)
+            except:
+                print(f'Error: {molecule.molecule_name} could not be processed')
+                pass
         return dipole_dict
     
     def get_bond_angle_dict(self,atom_indices):
         bond_angle_dict={}
         for molecule in self.molecules:
-            bond_angle_dict[molecule.molecule_name]=molecule.get_bond_angle(atom_indices)
+            try:
+                bond_angle_dict[molecule.molecule_name]=molecule.get_bond_angle(atom_indices)
+            except:
+                print(f'Error: {molecule.molecule_name} could not be processed')
+                pass
         return bond_angle_dict
     
     def get_bond_length_dict(self,atom_pairs):
         bond_length_dict={}
         for molecule in self.molecules:
-            bond_length_dict[molecule.molecule_name]=molecule.get_bond_length(atom_pairs)
+            try:
+                bond_length_dict[molecule.molecule_name]=molecule.get_bond_length(atom_pairs)
+            except:
+                print(f'Error: {molecule.molecule_name} could not be processed')
+                pass
         return bond_length_dict
     
     def get_stretch_vibration_dict(self,atom_pairs):
         stretch_vibration_dict={}
         for molecule in self.molecules:
-            stretch_vibration_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs)
+            try:
+                stretch_vibration_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs)
+            except:
+                print(f'Error: could not calculate strech vibration for {molecule.molecule_name} ')
+
         return stretch_vibration_dict
     
-    def get_nbo_dict(self,atoms_indices,diff_indices=None):
+    def get_nbo_df_dict(self,atoms_indices):
         nbo_dict={}
         for molecule in self.molecules:
-            nbo_dict[molecule.molecule_name]=molecule.get_nbo_df(atoms_indices,diff_indices)
+            try:
+                nbo_dict[molecule.molecule_name]=molecule.get_nbo_df(atoms_indices)
+            except:
+                print(f'Error: could not calculate nbo value for {molecule.molecule_name} ')
+                pass
         return nbo_dict
+    
+    def get_nbo_diff_df_dict(self,diff_indices):
+        nbo_diff_dict={}
+        for molecule in self.molecules:
+            try:
+                nbo_diff_dict[molecule.molecule_name]=molecule.get_nbo_diff_df(diff_indices)
+            except:
+                print(f'Error: could not calculate nbo difference for {molecule.molecule_name} ')
+                pass
+        return nbo_diff_dict
     
     def get_bend_vibration_dict(self,atom_pairs,threshold=1300):
         bending_dict={}
         for molecule in self.molecules:
-            bending_dict[molecule.molecule_name]=molecule.get_bend_vibration(atom_pairs,threshold)
+            try:
+                bending_dict[molecule.molecule_name]=molecule.get_bend_vibration(atom_pairs,threshold)
+            except:
+                print(f'Error: could not calculate bend vibration for {molecule.molecule_name} ')
+                pass
         return bending_dict
     
-    def visualize_molecules(self):
-        for molecule in self.molecules:
-            molecule.visualize_molecule()
+    def visualize_molecules(self,indices=None):
+        if indices is not None:
+            for idx in indices:
+                self.molecules[idx].visualize_molecule()
+        else:
+            for molecule in self.molecules:
+                molecule.visualize_molecule()
         
     def visualize_smallest_molecule(self):
         idx=0
@@ -1879,6 +2049,22 @@ class Molecules():
                 idx=id
         html=self.molecules[idx].visualize_molecule()
         return html
+    
+    def visualize_smallest_molecule_morfeus(self, indices=None):
+        idx=0
+        
+        smallest= len(self.molecules[0].xyz_df)
+        for id, molecule in enumerate(self.molecules[1:]):
+            if len(molecule.xyz_df)<smallest:
+                smallest=len(molecule.xyz_df)
+                idx=id
+        mol=self.molecules[idx]
+        elements=mol.xyz_df['atom'].values
+        coordinates=mol.xyz_df[['x','y','z']].values
+        sterimol=Sterimol(elements, coordinates, indices[0], indices[1], radii_type='crc')
+        
+        sterimol.draw_3D()
+        
     
     def get_molecules_comp_set_app(self,answers_dict: dict,
                                    dipole_mode = 'gaussian', radii = 'bondi', export_csv=False, answers_list_load=None):
@@ -1902,81 +2088,87 @@ class Molecules():
             
         """
         answers_list=[]
-        print(f'answers dict:{answers_dict}')
+        
         for question, answer in answers_dict.items():
             if answer is not None:
-                #TODO chagne so if its only one set of atoms it will be a list and not a list of lists for first parameter
-                if question.split(' ')[0]=='NBO':
-                    try:
-                        if ' ' in answer:
-                            single_numbers_str, pairs_str = answer.split(' ', 1)
-                            # Convert the second part into pairs and convert each pair to a list of numbers
-                            pairs = [[int(num) for num in pair.split(',')] for pair in pairs_str.split(' ')]
-                        else:
-                            single_numbers_str = answer
-
-                        # Convert the first part to a list of numbers
-                        single_numbers = [int(num) for num in single_numbers_str.split(',')]
-
-                        # Depending on whether pairs exist, add to the dictionary
-                        if ' ' in answer:
-                            answers_dict[question] = [single_numbers, pairs]
-                        else:
-                            answers_dict[question] = [single_numbers]
-
-                        answers_list.append(answers_dict[question])
-                    except ValueError:
-                        answers_list.append([])
-                else:
+                if answer==[]:
+                    answers_list.append([])
+                else:    
                     answers_dict[question]=help_functions.convert_to_list_or_nested_list(answer)
                     answers_list.append(answers_dict[question])
-            else:
-                answers_list.append([])
-            
+           
         if answers_list_load is not None:
             answers_list=answers_list_load
         
-        if len(answers_list) != 8:
-            answers_list.insert(4, [])
-            
-        print(f'answers list:{answers_list}')
+      
         res_df=pd.DataFrame()
+        
         if answers_list[0] != []:
-          
-            res_df=help_functions.dict_to_horizontal_df(self.get_ring_vibration_dict(answers_list[0])) ### get_ring_vibration_dict change all of them later
+            try:
+                res_df=help_functions.dict_to_horizontal_df(self.get_ring_vibration_dict(answers_list[0][0])) ### get_ring_vibration_dict change all of them later
+            except :
+                pass
         if answers_list[1] and answers_list[1]!= []:
-            res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_stretch_vibration_dict(answers_list[1]))],axis=1)
+            try:
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_stretch_vibration_dict(answers_list[1]))],axis=1)
+            except :
+                
+                pass
         if answers_list[2] and answers_list[2]!= []:
             try:
                 res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bend_vibration_dict(answers_list[2]))],axis=1)
-            except AttributeError:
+            except :
                 pass
         if answers_list[3] and answers_list[3]!= []:
-            if dipole_mode=='compute':
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_npa_dict(answers_list[3]))],axis=1)
-            elif dipole_mode=='gaussian':
-                print(f'params:{answers_list[3]}')
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_dipole_dict(answers_list[3]))],axis=1)
-        if answers_list[4] and answers_list[4]!= []:
-            print(f'params:{answers_list[4]}')
-            res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_nbo_dict(answers_list[4][0],answers_list[4][1]))],axis=1)
+            try:
+                if dipole_mode=='compute':
+                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_npa_dict(answers_list[4],answers_list[3]))],axis=1)
+                elif dipole_mode=='gaussian':
+                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_dipole_dict(answers_list[4],answers_list[3]))],axis=1)
+            except :
+                pass
+                
         if answers_list[5] and answers_list[5]!= []:
-            print(f'params sterimol:{answers_list[5]}')
-            if radii=='CPK':
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df((self.get_sterimol_dict(answers_list[5])))],axis=1) ## add cpk and bondi
-            else:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df((self.get_sterimol_dict(answers_list[5])))],axis=1)
+            try:
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_nbo_df_dict(answers_list[5]))],axis=1)
+            except :
+                pass
         if answers_list[6] and answers_list[6]!= []:
-            res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_length_dict(answers_list[6]))],axis=1)
+            try:
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_nbo_diff_df_dict(answers_list[6]))],axis=1)
+            except :
+                pass
+
         if answers_list[7] and answers_list[7]!= []:
-            res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_angle_dict(answers_list[7]))],axis=1)
+            try:
+                if radii=='CPK':
+                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df((self.get_sterimol_dict(answers_list[7])))],axis=1) ## add cpk and bondi
+                else:
+                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df((self.get_sterimol_dict(answers_list[7])))],axis=1)
+            except :
+                pass
+
+        if answers_list[8] and answers_list[8]!= []:
+            try:
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_length_dict(answers_list[8]))],axis=1)
+            except :
+                pass
+        if answers_list[9] and answers_list[9]!= []:
+            try:
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_angle_dict(answers_list[9]))],axis=1)
+            except :
+                pass
+
         self.polarizability_df_concat=pd.DataFrame()
         for molecule in self.molecules:
             info=molecule.polarizability_df
             info=info.rename(index={0:molecule.molecule_name})
             self.polarizability_df_concat=pd.concat([self.polarizability_df_concat,info],axis=0)
         res_df=pd.concat([res_df,self.polarizability_df_concat],axis=1)
-        
+        # Create a scaler object
+        # scaler = MinMaxScaler()
+        # # Fit the scaler and transform the DataFrame
+        # res_df_scaled = pd.DataFrame(scaler.fit_transform(res_df), columns=res_df.columns, index=res_df.index)
         return res_df
 
             
@@ -1991,11 +2183,18 @@ class Molecules():
             molecule.write_xyz_file()
             molecule.write_csv_files()
             os.chdir('../')
-        # os.mkdir('xyz_files')
-        # os.chdir('xyz_files')
-        # for molecule in self.molecules:
-        #     dataframe_to_xyz(molecule.xyz_df,(molecule.molecule_name+'.xyz'))
+        
+    
+    def extract_all_xyz(self):
+        os.chdir(self.molecules_path)
+        try:
+            os.mkdir('xyz_files')
+        except FileExistsError:
+            pass
+        os.chdir('xyz_files')
+        for molecule in self.molecules:
+            help_functions.data_to_xyz(molecule.xyz_df,(molecule.molecule_name+'.xyz'))
+        os.chdir('../')
 
 if __name__=='__main__':
-    os.chdir(r'C:\Users\edens\Documents\GitHub\Automation_code-main\M2_data_extractor\gauss_log')
-    molecules=Molecule('gauss_output.feather')
+    pass

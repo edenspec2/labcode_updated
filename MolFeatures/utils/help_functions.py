@@ -35,7 +35,7 @@ class XYZConstants(Enum):
     DIPOLE_COLUMNS = ['dip_x', 'dip_y', 'dip_z', 'total_dipole']
     RING_VIBRATION_COLUMNS = ['cross', 'cross_angle', 'para', 'para_angle']
     RING_VIBRATION_INDEX=['Product','Frequency','Sin_angle']
-    VIBRATION_INDEX = ['Frequency', 'Dot_product']
+    VIBRATION_INDEX = ['Frequency', 'Amplitude']
     BONDED_COLUMNS = ['atom_1', 'atom_2', 'index_1', 'index_2']
     NOF_ATOMS = ['N', 'O', 'F']
     STERIC_PARAMETERS = ['B1', 'B5', 'L', 'loc_B1', 'loc_B5','RMSD']
@@ -528,19 +528,41 @@ def move_files_to_directories():
             shutil.move(file_name, os.path.join(destination_dir, file_name))
 
     
-def convert_to_list_or_nested_list(input_str):
-    split_by_space = input_str.split(' ')
+# def convert_to_list_or_nested_list(input_str):
+#     split_by_space = input_str.split(' ')
     
-    # If there are no spaces, return a flat list
-    if len(split_by_space) == 1:
-        return list(map(int, filter(lambda x: x.strip(), split_by_space[0].split(','))))
+#     # If there are no spaces, return a flat list
+#     if len(split_by_space) == 1:
+#         return list(map(int, filter(lambda x: x.strip(), split_by_space[0].split(','))))
+    
+#     # Otherwise, return a nested list
+#     nested_list = []
+#     for sublist_str in split_by_space:
+#         sublist = list(map(int, sublist_str.split(',')))
+#         nested_list.append(sublist)
+#     return nested_list
+
+def convert_to_list_or_nested_list(input_str):
+    # Remove trailing spaces
+    input_str = input_str.rstrip()
+
+    # Use regular expression to split by space, dash, or underscore
+    split_by_delimiter = re.split(' |-|_', input_str)
+    
+    # Filter out empty strings
+    split_by_delimiter = list(filter(None, split_by_delimiter))
+
+    # If there's only one element, return a flat list
+    if len(split_by_delimiter) == 1:
+        return list(map(int, filter(None, re.split(',', split_by_delimiter[0]))))
     
     # Otherwise, return a nested list
     nested_list = []
-    for sublist_str in split_by_space:
-        sublist = list(map(int, sublist_str.split(',')))
+    for sublist_str in split_by_delimiter:
+        sublist = list(map(int, filter(None, re.split(',', sublist_str))))
         nested_list.append(sublist)
     return nested_list
+
 
 def dict_to_horizontal_df(data_dict):
     # Initialize an empty DataFrame to store the transformed data
@@ -550,6 +572,7 @@ def dict_to_horizontal_df(data_dict):
         transformed_data = {}
         # Loop through each row and column in the DataFrame
         for index, row in df.iterrows():
+            
             index_words = set(index.split('_'))
             for col in df.columns:
                 # Create a new key using the format: col_index
