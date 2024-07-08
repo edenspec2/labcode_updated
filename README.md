@@ -35,8 +35,8 @@ Expect the following message, indicating everything worked fine.
 
 #### Step 2 - Get molecular features
 
-# This can be done in two ways, either from the GUI which is the prefered option when trying to extract a complete csv with many features.
-# The second option is to extract features separately from the command line.
+This can be done in two ways, either from the GUI which is the prefered option when trying to extract a complete csv with many features.
+The second option is to extract features separately from the command line.
 
  ```
 python -m MolFeatures interactive
