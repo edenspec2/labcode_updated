@@ -39,8 +39,9 @@ This can be done in two ways, either from the GUI which is the prefered option w
 The second option is to extract features separately from the command line.
 
  ```
-python -m MolFeatures interactive
+python -m MolFeatures gui # for GUI usage 
+python -m MolFeatures interactive # for command line usage
 
 ```
-
+For detailed instructions go to Command line usage  or Getting started with examples for GUI usage.
 
