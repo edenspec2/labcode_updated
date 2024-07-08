@@ -1,4 +1,4 @@
-# LabCode
+# MolFeatures
 
 **A Python package for the physical-organic chemist - designed for easy, chemical-intuition based molecular features extraction - This package is modeled after the R package MoleculaR.**
 **See moleculaR's [web page](https://barkais.github.io/) for detailed guides and  documenntation**
