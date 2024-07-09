@@ -24,6 +24,8 @@ try:
     from PIL import Image , ImageTk
     import morfeus
     from datetime import datetime
+    import argparse
+    from .M2_data_extractor.cube_sterimol import cube_many
     
 
 
@@ -56,7 +58,9 @@ except ImportError or ModuleNotFoundError as e:
         "seaborn",
         'PIL',
         'morfeus-ml',
+        'scipy'
     ]
+
     def install(package):
             # Replace 'your_python_path' with the path of the Python executable used in CMD
         result = subprocess.run([sys.executable, "-m", "pip", "install", package], capture_output=True, text=True)
@@ -94,6 +98,8 @@ except ImportError or ModuleNotFoundError as e:
     from tkinter import ttk
     import morfeus
     from datetime import datetime
+    import argparse
+    from .M2_data_extractor.cube_sterimol import cube_many
     
 
 def get_package_version():
@@ -247,9 +253,9 @@ class MoleculeApp:
         self.visualize_button.grid(row=5, column=0, padx=20, pady=10)
         createToolTip(self.visualize_button, "Select Molecules to visualize.")
 
-        self.model_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Model Data", command=self.run_model_in_directory)
-        self.model_button.grid(row=5, column=1, padx=20, pady=10)
-        createToolTip(self.model_button, "Run a model in a specified directory using provided CSV filepaths.\n Choose between classification and regression \n Choose between 2-4 features and provide a features with target CSV file.")
+        # self.model_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Model Data", command=self.run_model_in_directory)
+        # self.model_button.grid(row=5, column=1, padx=20, pady=10)
+        # createToolTip(self.model_button, "Run a model in a specified directory using provided CSV filepaths.\n Choose between classification and regression \n Choose between 2-4 features and provide a features with target CSV file.")
 
         # Separate button for Export Data
         self.export_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Extract DataFrames", command=self.export_data)
@@ -279,8 +285,8 @@ class MoleculeApp:
         self.save_txt_button.grid(row=5, column=1, sticky='e')
         createToolTip(self.save_txt_button, "Save the output text from the box to a .txt file.")
 
-        self.renumber_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Renumber xyz Directory", command=self.renumber_directory)
-        self.renumber_button.grid(row=4, column=1, padx=20, pady=10)
+        # self.renumber_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Renumber xyz Directory", command=self.renumber_directory)
+        # self.renumber_button.grid(row=4, column=1, padx=20, pady=10)
 
     def print_description(self):
         # Path to README.md file from the MolFeatures directory
@@ -501,8 +507,8 @@ class MoleculeApp:
 
         
         # Function to open a new window with the parameters of the given function
-        def open_parameter_window():
-            window = Toplevel(root)
+        def open_parameter_window(self):
+            window = Toplevel(self.master)
             window.title("Parameters")
             window.grab_set()
             frame = Frame(window)
@@ -568,7 +574,7 @@ class MoleculeApp:
 
 
         # Create a new window
-        self.new_window = Toplevel(root)
+        self.new_window = Toplevel(self.master)
         self.new_window.title("Questions")
         # self.new_window.geometry("600x600")
         canvas = Canvas(self.new_window)
@@ -586,7 +592,7 @@ class MoleculeApp:
         chosen_parameters = Label(canvas, text=f"Chosen Parameters: {self.parameters}")
         chosen_parameters.pack(pady=10)
         questions = [
-            "Ring Vibration atoms - by order -> Pick only primary atom: \n example: 13",
+            "Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13 17",
             "Strech Vibration atoms- enter atom pairs that have a common atom: \n example: 1,2 4,5",
             "Bending Vibration atoms - enter first atom, middle atom and last atom: \n example: 4,7,2",
             "Dipole atoms - indices for coordination transformation: \n example: 4,5,6 - origin, y-axis, new xy plane",
@@ -613,7 +619,7 @@ class MoleculeApp:
             entry = Entry(self.frame, width=30)
             entry.pack(side="left", padx=5)
             # choose parameters button
-            if question=="Ring Vibration atoms - by order -> Pick only primary atom: \n example: 13":
+            if question=="Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13 17":
                 show_button = Button(self.frame, text="Show", command=lambda: self.open_image(pictures[0]))
                 show_button.pack(side="left", padx=5)
             elif question=="Sterimol atoms - Primary axis along: \n example: 7,8":
@@ -646,7 +652,7 @@ class MoleculeApp:
             entry_widgets = load_answers(questions)
             
             self.new_window.destroy()
-            self.new_window = Toplevel(root)
+            self.new_window = Toplevel(self.master)
             
             self.new_window.title("Questions")
             canvas = Canvas(self.new_window)
@@ -674,7 +680,7 @@ class MoleculeApp:
                 entry.pack(side="left", padx=5)
                 entry.insert(0, entry_widgets[question])
                 
-                if question=="Ring Vibration atoms - by order -> Pick only primary atom: \n example: 13":
+                if question=="Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13 17":
                     show_button = Button(self.frame, text="Show", command=lambda: self.open_image(pictures[0]))
                     show_button.pack(side="left", padx=5)
                 elif question=="Sterimol atoms - Primary axis along: \n example: 7,8 2,3":
@@ -1127,13 +1133,137 @@ class MoleculeApp:
         self.molecules.export_all_xyz()
         self.show_result(f"XYZ files exported.")
 
+import inspect
+import ast
+import importlib   
+
+def get_function_args(function):
+    sig = inspect.signature(function)
+    return sig.parameters
+
+def prompt_for_args(args):
+    values = {}
+    for arg in args:
+        user_input = input(f"Enter value for {arg}: ")
+        try:
+            values[arg] = ast.literal_eval(user_input)
+        except (ValueError, SyntaxError):
+            values[arg] = user_input
+    return values
     
+def run_gui_app():
+    print("Running GUI app...")
+    root = Tk()
+    app = MoleculeApp(root)
+    root.mainloop()
+    # Your code to launch the GUI app goes here
 
+
+def load_molecules(molecules_dir_name, renumber=False):
+    return Molecules(molecules_dir_name, renumber=renumber)
+
+def interactive_cli(molecules):
+    exclude_methods = ['get_molecules_comp_set_app', 'visualize_smallest_molecule_morfeus','visualize_molecules','visualize_smallest_molecule' 'filter_molecules', 'renumber_molecules']
+    methods = [method for method in dir(molecules) if callable(getattr(molecules, method)) and not method.startswith("__") and method not in exclude_methods]
+    print("\nAvailable methods:")
+    for method in methods:
+        print(f"- {method}")
+
+    while True:
+        command = input("\nEnter method to invoke (or 'help method_name' to see documentation, or 'exit' to quit): ")
+        if command.lower() == 'exit':
+            break
+        
+        if command.startswith('help '):
+            method_name = command.split(' ')[1]
+            if hasattr(molecules, method_name):
+                method = getattr(molecules, method_name)
+                help(method)
+            else:
+                print(f"Unknown method: {method_name}")
+            continue
+        
+        if not hasattr(molecules, command):
+            print(f"Unknown method: {command}")
+            continue
+
+
+        method = getattr(molecules, command)
+        func_args = get_function_args(method)
+        # params = input(f"Enter parameters for {command} (comma-separated, or leave empty if none): ")
+        if func_args:
+            user_values = prompt_for_args(func_args)
+        else:
+            user_values = []
+        # if params:
+        #     try:
+        #         params = convert_to_list_or_nested_list(params)
+        #     except Exception as e:
+        #         print(f"Error parsing parameters: {e}")
+        #         continue
+        # else:
+        #     params = []
+
+        try:
+            # result = method(params)
+            user_values[0]=convert_to_list_or_nested_list(user_values[0])
+            print(*user_values)
+            result = method(*user_values)
+            # If the method returns a dictionary of DataFrames, print them
+            if isinstance(result, dict):
+                for name, df in result.items():
+                    print(f"\nResults for {name}:\n{df}\n")
+            elif isinstance(result, pd.DataFrame):
+                print(f"\n{result}\n")
+            elif result is not None:
+                print(result)
+        except Exception as e:
+            print(f"Error invoking {command}: {e}")
+            continue
+
+
+def main():
+    parser = argparse.ArgumentParser(description="MolFeatures Package")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Subcommand for running the GUI app
+    gui_parser = subparsers.add_parser("gui", help="Run the GUI app")
 
     
+    interactive_parser = subparsers.add_parser("interactive", help="Start interactive CLI for Molecules class")
+    conver_parser = subparsers.add_parser("convert", help="Convert log files to feather files")
+    cube_parser = subparsers.add_parser("cube", help="Convert cube files to feather files")
+    # interactive_parser.add_argument("molecules_dir_name", help="Directory containing molecule files")
+    # interactive_parser.add_argument("--renumber", action="store_true", help="Renumber molecules")
 
-root = Tk()
+    args = parser.parse_args()
 
-app = MoleculeApp(root)
-root.mainloop()
+    if args.command == "gui":
+        run_gui_app()
 
+    elif args.command == "interactive":
+        feather_dir = input("Enter the path to the feather files directory: ")
+        molecules = load_molecules(feather_dir)
+        interactive_cli(molecules)
+        
+    elif args.command == "convert":
+        log_dir = input("Enter the path to the log files directory: ")
+        logs_to_feather(log_dir)
+        print('Done!')
+
+    elif args.command == "cube":
+        while True:
+            cube_file_path = input("Enter the full path to directory with cube files: ")
+            base_atoms = input("Enter the base atoms: ")
+            base_atoms=convert_to_list_or_nested_list(base_atoms)
+            sterimol=cube_many(cube_file_path, base_atoms)
+            print(sterimol.sterimol_dict)
+
+            another_dir = input("Do you want to input another directory? (yes/no): ").strip().lower()
+            if another_dir != 'yes':
+                break
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

@@ -285,17 +285,7 @@ def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLik
         output:            dip_x     dip_y     dip_z     total
                        0  0.097437 -0.611775  0.559625  0.834831
     """
-    # what is NPA here??
-    # indices=adjust_indices(base_atoms_indices)
-    # transformed_coordinates=calc_coordinates_transformation(coordinates_array, indices)
-    # if sub_atoms:
-    #     atom_mask=sub_atoms
-    # else:
-    #     atom_mask=range(len(charge_array))
-    # atom_mask=range(charge_array) if sub_atoms==None else sub_atoms
-#TODO: Add option for sub_atoms!
-    # Apply geometric transformation if specified
-    # print(geom_transform_indices)
+
     if geom_transform_indices is not None:
         geometric_center = np.mean(coordinates_array[geom_transform_indices], axis=0)
         coordinates_array -= geometric_center
@@ -1202,7 +1192,7 @@ def calc_min_max_ring_vibration(filtered_df: pd.DataFrame) -> pd.DataFrame:
     """
 
     max_vibration_frequency = filtered_df.iloc[filtered_df[
-        help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]].idxmax()][2]  # [1] is product
+        help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]].idxmax()][2]  
     asin_max = math.asin(filtered_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[2]].max()) * (
                 180 / np.pi)
     min_vibration_frequency = filtered_df.iloc[filtered_df[
@@ -1211,7 +1201,7 @@ def calc_min_max_ring_vibration(filtered_df: pd.DataFrame) -> pd.DataFrame:
                 180 / np.pi)
     df = pd.DataFrame((max_vibration_frequency, asin_max, min_vibration_frequency, asin_min),
                       index=help_functions.XYZConstants.RING_VIBRATION_COLUMNS.value)
-    print(f'vib df: {df}')
+    
     return df
 
 ### bending vibration
@@ -1277,9 +1267,11 @@ def reindex_and_preserve(df, new_index_order):
         # Concatenate the two parts
         return pd.concat([reindexed_part, non_reindexed_part])
 
-def get_benzene_ring_indices(bonds_df, atom1_idx, atom2_idx):
+def get_benzene_ring_indices(bonds_df, ring_atoms):
     # Create a graph from the bonds dataframe
     # atom1_idx, atom2_idx = int(atom1_idx)-1, int(atom2_idx)-1
+    atom1_idx=ring_atoms[0]
+    atom2_idx=ring_atoms[1]
     graph = {}
     for _, row in bonds_df.iterrows():
         atom1, atom2 = int(row[0]), int(row[1])
@@ -1664,7 +1656,7 @@ class Molecule():
             vibration_df, idx = calc_max_frequency_gen_vibration(extended_vib_df)
             return vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
         else:
-            print(f'Error: the following bonds do not exist-check atom numbering in molecule: \n {self.molecule_name} \nBonds:{self.bonds_df}')
+            print(f'Error: the following bonds do not exist-check atom numbering in molecule: \n {self.molecule_name} \n')
             
             df=pd.DataFrame([[np.nan,np.nan]],columns=[['Frequency','Amplitude']])
             df.rename(index={0: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'},inplace=True)
@@ -1707,16 +1699,14 @@ class Molecule():
     
     def get_ring_vibrations(self,ring_atom_indices: List[List[int]])-> pd.DataFrame:
         """
-
         Parameters
         ----------
-        ring_atom_indices :working example: molecule_1.get_ring_vibrations([[19,20],[19,21],[20,22]]) 
-            a list of atom pairs, there must be a vibration file with a corresponding number to work.
+        ring_atom_indices :working example: molecule_1.get_ring_vibrations([[8,11],[9,12]]) 
             
-            # Enter a list of ring atoms with the order: primary axis - para followed by primary,
-            # ortho - ortho atoms relative to primary atom and meta - meta atoms relative to primary.
-            # For example - for a ring of atoms 1-6 where 4 is connected to the main group and 1 is para to it
-            # (ortho will be 3 & 5 and meta will be 2 & 6) - enter the input [[1,4],[3,5],[2,6]].
+        enter a list of the primary axis atom and the para atom to it.
+        For example - for a ring of atoms 1-6 where 4 is connected to the main group and 1 is para to it
+        (ortho will be 3 & 5 and meta will be 2 & 6) - enter the input [1,4].
+            
         Returns
         -------
         dataframe
@@ -1724,14 +1714,29 @@ class Molecule():
         0  657.3882    81.172063  834.4249   40.674833
 
         """
-        z,x,c,v,b,n=get_benzene_ring_indices(self.bonds_df, ring_atom_indices)
-        ring_atom_indices=[[z,x],[c,v],[b,n]]
-        try:
-            filtered_df=get_filtered_ring_df(self.info_df,self.coordinates_array,self.vibration_dict,ring_atom_indices)
-        except FileNotFoundError:
-            return print(f'No vibration - Check atom numbering in molecule {self.molecule_name}')
-        # bool_check=filtered_df[2].duplicated().any() #check for duplicates in calc, is it needed ?? slim chances
-        return calc_min_max_ring_vibration(filtered_df)
+        if isinstance(ring_atom_indices[0], list):
+            df_list= []
+            for atoms in ring_atom_indices:
+                z,x,c,v,b,n=get_benzene_ring_indices(self.bonds_df, atoms)
+                ring_atom_indices=[[z,x],[c,v],[b,n]]
+                try:
+                    filtered_df=get_filtered_ring_df(self.info_df,self.coordinates_array,self.vibration_dict,ring_atom_indices)
+                except FileNotFoundError:
+                    return print(f'No vibration - Check atom numbering in molecule {self.molecule_name}')
+                df=calc_min_max_ring_vibration(filtered_df)
+                ## edit the index to include the atom numbers
+                df.rename(index={'cross': f'cross_{atoms}','cross_angle':f'cross_angle{atoms}', 'para': f'para{atoms}','para_angle': f'para_angle_{atoms}'},inplace=True)
+                df_list.append(df)
+            return pd.concat(df_list, axis=0)
+        else:
+            z,x,c,v,b,n=get_benzene_ring_indices(self.bonds_df, ring_atom_indices)
+            ring_atom_indices=[[z,x],[c,v],[b,n]]
+            try:
+                filtered_df=get_filtered_ring_df(self.info_df,self.coordinates_array,self.vibration_dict,ring_atom_indices)
+            except FileNotFoundError:
+                return print(f'No vibration - Check atom numbering in molecule {self.molecule_name}')
+        
+            return calc_min_max_ring_vibration(filtered_df)
     
     def get_bend_vibration_single(self, atom_pair: List[int], threshold: float = 1300)-> pd.DataFrame:
         # Create the adjacency dictionary for the pair of atoms
@@ -1897,16 +1902,15 @@ class Molecules():
         else:
             os.chdir('xyz_files')
             [mol.write_xyz_file() for mol in self.molecules]
-            # renumbered_indices=[list(df.index) for df in renumbered_list]
+  
             renumbering.batch_renumbering(os.getcwd())
             os.chdir('../')
             directories = [d for d in os.listdir(os.getcwd()) if os.path.isdir(os.path.join(os.getcwd(), d)) and d[-1].isdigit()]
             os.chdir(directories[0])
-        ## enter the new dir by searching for it
-        # directories = [d for d in os.listdir(os.getcwd()) if os.path.isdir(os.path.join(os.getcwd(), d)) and d[-1].isdigit()]
+   
         xyz_files=[file for file in os.listdir() if file.endswith('.xyz')]
         xyz_dfs=[help_functions.get_df_from_file(file) for file in xyz_files] 
-        # self.molecules=[Molecule(log_file) for log_file in os.listdir() if log_file.endswith('.log')]
+
         self.molecules=[]
         self.failed_molecules=[]
         os.chdir(self.molecules_path)
@@ -1930,13 +1934,58 @@ class Molecules():
         self.molecules = [self.molecules[i] for i in indices]
         self.molecules_names = [self.molecules_names[i] for i in indices]
 
-    def get_sterimol_dict(self,base_atoms):
+    def get_sterimol_dict(self,base_atoms, radii='bondi'):
+        """
+        Returns a dictionary with the Sterimol parameters calculated based on the specified base atoms.
+
+        Args:
+            base_atoms (Union[None, List[int, int], List[List[int, int]]]): The indices of the base atoms to use for the Sterimol calculation.
+            radii (str, optional): The radii to use for the Sterimol calculation. Defaults to 'bondi'.
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the Sterimol parameters.
+        
+        input example: molecules.get_sterimol_dict([[1,6],[3,4]])
+        output example: 
+        Results for LS1716_optimized:
+            B1    B5     L  loc_B1  loc_B5
+        1-2  1.91  8.12  8.89    5.35    6.51
+        3-4  1.70  5.25  9.44    1.70   -1.65
+
+
+        Results for LS1717_optimized:
+            B1    B5     L  loc_B1  loc_B5
+        1-2  1.9  7.98  9.02    3.64    6.68
+        3-4  1.7  6.45  9.45    1.70   -1.97
+        """
         sterimol_dict={}
         for molecule in self.molecules:
-            sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(base_atoms)
+            sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(base_atoms, radii)
         return sterimol_dict
     
-    def get_npa_dict(self,base_atoms,sub_atoms):
+    def get_npa_dict(self,base_atoms,sub_atoms=None):
+        """
+        Returns a dictionary with the Natural Population Analysis (NPA) charges calculated for the specified base atoms and sub atoms.
+
+        Args:
+            base_atoms (List[int]): The indices of the base atoms to use for the NPA calculation.
+            sub_atoms (Union[List[int], None], optional): The indices of the sub atoms to use for the NPA calculation. Defaults to None.
+        
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the NPA charges.
+        
+        input example: molecules.get_npa_dict([1, 2, 3], [5, 6, 7])
+        output example: 
+        Results for LS1716_optimized:
+                    dip_x     dip_y     dip_z  total_dipole
+            NPA_1-2-3  0.092108  0.181346 -0.300763      0.363082
+            NPA_5-6-7  0.191986  0.297839  0.079456      0.363153
+
+        Results for LS1717_optimized:
+                    dip_x     dip_y     dip_z  total_dipole
+            NPA_1-2-3  0.126370  0.271384  0.354595      0.464065
+            NPA_5-6-7  0.225257  0.399616 -0.069960      0.464035
+        """
+        
         npa_dict={}
         for molecule in self.molecules:
             try:
@@ -1947,18 +1996,36 @@ class Molecules():
             
         return npa_dict
     
-    # def get_stretch_dict(self,atom_pairs):
-    #     stretch_dict={}
-    #     for molecule in self.molecules:
-    #         stretch_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs)
-    #     return stretch_dict
+
     
     def get_ring_vibration_dict(self,ring_atom_indices):
+        """
+        Parameters
+        ----------
+        ring_atom_indices :working example: molecule_1.get_ring_vibrations([[8,11],[9,12]]) 
+            
+        enter a list of the primary axis atom and the para atom to it.
+        For example - for a ring of atoms 1-6 where 4 is connected to the main group and 1 is para to it
+        (ortho will be 3 & 5 and meta will be 2 & 6) - enter the input [1,4].
+            
+        Returns
+        -------
+        dataframe
+        Results for LS1717_optimized:
+                              0
+        cross_[8, 11]       1666.188400
+        cross_angle[8, 11]    89.079604
+        para[8, 11]         1462.659400
+        para_angle_[8, 11]    20.657101
+        cross_[7, 10]       1666.188400
+        cross_angle[7, 10]    86.888386
+        para[7, 10]         1462.659400
+        para_angle_[7, 10]     8.628947
+
+        """
         ring_dict={}
         for molecule in self.molecules:
-            
             ring_dict[molecule.molecule_name]=molecule.get_ring_vibrations(ring_atom_indices)
-            
 
         return ring_dict
     
@@ -1973,6 +2040,26 @@ class Molecules():
         return dipole_dict
     
     def get_bond_angle_dict(self,atom_indices):
+        """
+        Returns a dictionary with the bond angles calculated for the specified atom indices.
+
+        Args:
+            atom_indices (List[List[int, int]]) or : The indices of the atoms to use for the bond angle calculation.
+        
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the bond angle data.
+        
+        input example: molecules.get_bond_angle_dict([1, 2, 3])
+        output example: 
+        Results for LS1716_optimized:
+                        Angle
+            Angle_1-2-3  109.5
+
+        Results for LS1717_optimized:
+                        Angle
+            Angle_1-2-3  108.7
+        """
+
         bond_angle_dict={}
         for molecule in self.molecules:
             try:
@@ -1983,6 +2070,29 @@ class Molecules():
         return bond_angle_dict
     
     def get_bond_length_dict(self,atom_pairs):
+        """
+        Returns a dictionary with the bond lengths calculated for the specified atom pairs.
+
+        Args:
+            atom_pairs  (List[List[int, int]]) : The pairs of atoms to use for the bond length calculation.
+        
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the bond length data.
+        
+        input example: molecules.get_bond_length_dict([[1, 2], [3, 4]])
+        output example: 
+        Results for LS1716_optimized:
+                        0
+        bond_length_1-2  1.529754
+        bond_length_3-4  1.466212
+
+
+        Results for LS1717_optimized:
+                                0
+        bond_length_1-2  1.511003
+        bond_length_3-4  1.466089
+        """
+
         bond_length_dict={}
         for molecule in self.molecules:
             try:
@@ -1993,6 +2103,27 @@ class Molecules():
         return bond_length_dict
     
     def get_stretch_vibration_dict(self,atom_pairs):
+        """
+        Returns a dictionary with the stretch vibrations calculated for the specified atom pairs.
+
+        Args:
+            atom_pairs (List[Tuple[int, int]]): The pairs of atoms to use for the stretch vibration calculation.
+        
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the stretch vibration data.
+        
+        input example: molecules.get_stretch_vibration_dict([[1, 2], [3, 4]])
+        output example: 
+        Results for LS1716_optimized:
+                        Frequency  Amplitude
+            Stretch_1_2  3174.3565   0.330304
+            Stretch_3_4  3242.4530   0.170556
+
+        Results for LS1717_optimized:
+                        Frequency  Amplitude
+            Stretch_1_2  3242.4465   0.252313
+            Stretch_3_4  3175.4029   0.443073
+    """
         stretch_vibration_dict={}
         for molecule in self.molecules:
             try:
@@ -2003,6 +2134,26 @@ class Molecules():
         return stretch_vibration_dict
     
     def get_nbo_df_dict(self,atoms_indices):
+        """
+        Returns a dictionary with the Natural Bond Orbital (NBO) charges for the specified atoms.
+
+        Args:
+            atoms_indices (List[int]): The indices of the atoms to include in the NBO charge calculation.
+        
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the NBO charges.
+        
+        input example: molecules.get_nbo_df_dict([3, 5, 7, 9])
+        output example: 
+        Results for LS1716_optimized:
+                    atom_3   atom_5   atom_7   atom_9
+            charge -0.12768 -0.39006  0.14877 -0.00656
+
+        Results for LS1717_optimized:
+                    atom_3   atom_5   atom_7   atom_9
+            charge -0.12255 -0.38581  0.14691 -0.00681
+        """
+
         nbo_dict={}
         for molecule in self.molecules:
             try:
@@ -2013,6 +2164,26 @@ class Molecules():
         return nbo_dict
     
     def get_nbo_diff_df_dict(self,diff_indices):
+        """
+        Returns a dictionary with the differences in Natural Bond Orbital (NBO) charges for the specified pairs of atoms.
+
+        Args:
+            diff_indices (List[List[int]]): The indices of the atom pairs to calculate the NBO charge differences for.
+        
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the NBO charge differences.
+        
+        input example: molecules.get_nbo_diff_df_dict([[1, 2], [3, 4]])
+        output example: 
+        Results for LS1716_optimized:
+                        diff_1-2  diff_3-4
+            charge -0.12768 -0.39006  0.14877 -0.00656
+
+
+            Results for LS1717_optimized:
+                        diff_1-2  diff_3-4
+            charge -0.12255 -0.38581  0.14691 -0.00681
+        """
         nbo_diff_dict={}
         for molecule in self.molecules:
             try:
@@ -2023,6 +2194,28 @@ class Molecules():
         return nbo_diff_dict
     
     def get_bend_vibration_dict(self,atom_pairs,threshold=1300):
+        """
+        Returns a dictionary with the bending vibrations calculated for the specified pairs of atoms.
+
+        Args:
+            atom_pairs (List[Tuple[int, int]]): The pairs of atoms to use for the bending vibration calculation.
+            threshold (float, optional): The frequency threshold for selecting vibration modes. Defaults to 1300.
+        
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the bending vibration data.
+        
+        input example: molecules.get_bend_vibration_dict([[1, 2], [3, 4]])
+        output example: 
+        Results for LS1716_optimized:
+                        Frequency  Cross_mag
+            Bending_1-2  1300.6785    0.123456
+            Bending_3-4  1400.5678    0.234567
+
+        Results for LS1717_optimized:
+                        Frequency  Cross_mag
+            Bending_1-2  1350.1234    0.345678
+            Bending_3-4  1450.2345    0.456789
+        """
         bending_dict={}
         for molecule in self.molecules:
             try:
@@ -2041,6 +2234,20 @@ class Molecules():
                 molecule.visualize_molecule()
         
     def visualize_smallest_molecule(self):
+        """
+        Visualizes the smallest molecule based on the number of atoms.
+
+        Args:
+            None
+        
+        Returns:
+            None
+        
+        input example: molecules.visualize_smallest_molecule()
+        output example: 
+        # This will open a visualization window or generate a visualization file for the smallest molecule.
+
+        """
         idx=0
         smallest= len(self.molecules[0].xyz_df)
         for id, molecule in enumerate(self.molecules[1:]):
@@ -2165,10 +2372,7 @@ class Molecules():
             info=info.rename(index={0:molecule.molecule_name})
             self.polarizability_df_concat=pd.concat([self.polarizability_df_concat,info],axis=0)
         res_df=pd.concat([res_df,self.polarizability_df_concat],axis=1)
-        # Create a scaler object
-        # scaler = MinMaxScaler()
-        # # Fit the scaler and transform the DataFrame
-        # res_df_scaled = pd.DataFrame(scaler.fit_transform(res_df), columns=res_df.columns, index=res_df.index)
+
         return res_df
 
             
