@@ -12,83 +12,34 @@ For user convenience, we demonstrate usage with a small number of molecules, suc
 
 <center><img src="figures/logs_to_feather.jpg" class="center"></center>
 
-#### Choosing log files location
-
-<center><img src="figures/ex_1.png" class="center"></center>
-
-
-**Choose the location (the directory and not a specific file) of the log files**
+## A directory named 'feather_files' will be created inside the logs directory with the feather files inside it.
+## Now that we extracted the files we can run the GUI for easy feature extraction.
 
 
-#### Naming the directory
 
-<center><img src="figures/ex_2.png" class="center"></center>
-
-
-**Name your directroy - this directory will contain the resulting .feather files.**
-
-#### Allowing moleculaR workflow
-
-<center><img src="figures/ex_3.png" class="center"></center>
-
-**Unless it is a real deal breaker, allow moleculaR do its thing - will make your life easier (and mine)**
-
-**In case you decide not to - answer "no" and choose a location that will make sense**
-
-This is the slowest part of the process, and it a takes a few seconds per molecule - be patient, if the program doesn't collapse with an error message, it means its running!
-
-Once done, you will receive a message on your console:
-
-`Done!`
-` `      
-`Current working directory is set to path/to/example_log_files/Name_Chosen_By_User`
-
-##### Usually, this is the folder you should transfer (assuming you wish to run locally) to your local. 
-
-## Run unwRapper
-
-```{r un, eval=FALSE}
-# Run unwRapper (no need to change working directory - unwRapper does it for you)
-unwRapper()
-```
-
-#### Choose the location of the .feather files directory
-
-<center><img src="figures/un_1.png" class="center"></center>
-
-**As long as you allowed extRactoR do what it wanted, you will only need to confirm your location**
-
-#### unwRapper's message
-
-Running `unwRapper` results in the creation of two new folders
-
-<center><img src="figures/un_2.png" class="center"></center>
-
-Once finished, the function suggests to change your working directory. It is recommended to allow. 
-
-<center><img src="figures/un_3.png" class="center"></center>
-
-**If you do not allow - note that you will have to in order to work with `moleculaR()`**
-
-## Run moleculaR
-
-Assuming everything went fine, and your working directory is set to *moleculaR_csv_files*
 
 ```{r mol, eval=FALSE}
-# Run moleuclaR 
-moleculaR()
+# Run MolFeatures 
+python -m MolFeatures gui
 ```
 
-<center><img src="figures/mol_1.png" class="center"></center>
+<center><img src="figures/gui_dashboard.jpg" class="center"></center>
 
-**Users are then presented with the option to quit, and to generate a 3D visualization of one of**
-**the molecules in the set. It is crucial you have such a visualization, whether you choose to use a different**
-**software or moleculaR's `plot_molecule`**
+**Users are then presented with the option menu.**
+**By clicking Browse to feather files directory users can choose a directory with feather files to load them**
+**once loaded a list with file names will appear to let you know which files were successful
 
-<center><img src="figures/mol_2.png" class="center"></center>
+```{r mol, eval=FALSE}
+Molecules initialized : ['basic', 'm_Br', 'm_Cl', 'm_F', 'm_I', 'm_nitro', 'o_Br', 'o_Cl', 'o_F', 'o_I', 'o_nitro', 'penta_F', 'p_amine', 'p_azide', 'p_boc', 'p_Br', 'p_Cl', 'p_F', 'p_I', 'p_Me', 'p_nitro', 'p_OEt', 'p_OH', 'p_OMe', 'p_Ph', 'p_tfm']
+
+Failed to load Molecules: []
+```
 
 For instance, in the presented example, we have chosen to visualize *Et.xyz* from the *Optimized_structures_xyz* folder. 
 This image will serve us in answering moleculaR's questions - as the entire process depends on atom indexing.
+
+Now we can start preforming other actions, lets start with visualizing one of the structures we loaded.
+This image will help us select atoms for the process of feature extraction.
 
 <center><img src="figures/plot_mol.png" width="500" height="450"></center>
 
