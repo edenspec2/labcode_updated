@@ -64,4 +64,4 @@ in addition a csv file will be saved with the features extracted**
 The inputs file is saved in a text format. users can edit the file manualy by changing the indices inside the brackets.
 By choosing Load input users can load the file, the indices will appear in the corresponding rubrics.
 
-<center><img src="figures/input_file.jpg" width="800" height="500"></center>
+<center><img src="figures/input_file.jpg" width="600" height="500"></center>
