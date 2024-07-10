@@ -38,17 +38,17 @@ Failed to load Molecules: []
 Now we can start preforming other actions, lets start with visualizing one of the structures we loaded.
 This image will help us select atoms for the process of feature extraction.
 
-<center><img src="figures/visualize.jpg" width="200" height="200"></center>
+<center><img src="figures/visualize.jpg" width="250" height="300"></center>
 
 <center><img src="figures/vis_example.jpg" width="500" height="450"></center>
 
 ## Features
 
-**Once we open the Feature Extraction window, we'll be presented with many questions allowing us to extract the different features.
+Once we open the Feature Extraction window, we'll be presented with many questions allowing us to extract the different features.
 
 Each of the features and their options are described with an example of what the input should look like.
 
-<center><img src="figures/extract_features.jpg" width="500" height="450"></center>
+<center><img src="figures/extract_features.jpg" width="800" height="500"></center>
 
 
 #### steRimol - B5, B1, L, loc.B1 and loc.B5 (the location of B1 and B5 vectors along the primary axis L)
