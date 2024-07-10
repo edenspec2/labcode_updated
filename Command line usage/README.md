@@ -10,52 +10,35 @@ Note that there are some additional features that were not included in the GUI a
 # to see package options
 python -m MolFeatures
 ```
-***
-
-## Molecule Visualization 
-
-moleculaR's visual aid is accessible from the command line (for Mac and Windows installations).
+<center><img src="figures/cmd_use.jpg" class="center"></center>
 
 ```
-# To generate a plot of an xyz file, use:
-
-plot_molecule(xyz_file)
+# to start interactive mode
+python -m MolFeatures interactive
 ```
+
+<center><img src="figures/cmd_interactive.jpg" class="center"></center>
+
+Use help method_name to see clear instruction for each method.
+Once picked the appropriate parameters will be asked from the user.
 ***
 
->**All functions (but `steRimol.xyz` functions) require users to set the working directory to _moleculaR_csv_files_**
+## Sterimol from xyz files 
 
-**Throughout the text, command-line usage will be regarded as CLU**
+Sterimol parameters can be extracted from xyz files without the need for logs or feather files.
 
-**Generally - moleculaR's CLU functions have suffixes .df and .multi:**
-  
-  **.df functions return data frames with wanted information**
-  
-  **.multi functions are vectorized versions of .df functions, applied to more than one input.**
-  
-**If there's any logic to a having a .multi function it will be there, but when there isn't, it won't.**
-  
-  
+```
+# To calculate sterimol features:
+
+python -m sterimol
+```
+***
 
 ## steRimol
 
 See `Features - Definitions and Practice` for a detailed definition of sterimol features.
  
-moleculaR's sterimol implementation for the calculation of sterimol values based on xyz structures. 
-
-There are two distinct versions of steRimol, which depend on the task users wish to perform:
-  
-  1. `steRimol.df()` and `steRimol.multi()` - operate on moleculaR's csv files
-
-This is the working function behind `moleculaR()` and the preferred function of use, as the rest of the package functions demand having the working directory set to _moleculaR_csv_files_.   
-
-  2. `steRimol.xyz.df()` and `steRimol.xyz.multi()` - operate directly on xyz files 
-
-Due to popular usage of sterimol values and the fact that the optimized structure is all it requires, this function allows users to have them calculated fast from any given xyz file. 
-
-CLU for both cases is identical, and depends solely on the type of files you have in your current working directory.
-
-#### TL;DR
+sterimol implementation for the calculation of sterimol values based on xyz structures. 
 
 ```
 #Classic Use - for primary axis 1-2 use:
