@@ -2,13 +2,13 @@
 # MolFeatures
 # Command Line Usage - Guide
 
-**This guide will demonstrate the use of moleculaR's stand-alone functionalities.**
+**This guide will demonstrate the use of MolFeatures's stand-alone functionalities.**
 
-Note that there are some additional features that were not included in `moleculaR()` and are only available with interactive use. 
+Note that there are some additional features that were not included in the GUI and are only available with interactive use. 
 
 ```
-# Load moleculaR
-library(moleculaR)
+# to see package options
+python -m MolFeatures
 ```
 ***
 
