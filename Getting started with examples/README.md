@@ -35,20 +35,20 @@ Molecules initialized : ['basic', 'm_Br', 'm_Cl', 'm_F', 'm_I', 'm_nitro', 'o_Br
 Failed to load Molecules: []
 ```
 
-For instance, in the presented example, we have chosen to visualize *Et.xyz* from the *Optimized_structures_xyz* folder. 
-This image will serve us in answering moleculaR's questions - as the entire process depends on atom indexing.
-
 Now we can start preforming other actions, lets start with visualizing one of the structures we loaded.
 This image will help us select atoms for the process of feature extraction.
 
-<center><img src="figures/plot_mol.png" width="500" height="450"></center>
+<center><img src="figures/visualize.jpg" width="500" height="450"></center>
+
+<center><img src="figures/vis_example.jpg" width="500" height="450"></center>
 
 ## Features
 
-**For each possible feature, you will be asked if you would like to use it. In cases where you choose not to,**
-**the program will move on to the next feature. The guide assumes answers to be yes, and excludes the quetion windows.** 
+**Once we open the Feature Extraction window, we'll be presented with many questions allowing us to extract the different features.
 
-Each of the features and their options are depicted in detail in `Features - Definitions and Practice`.
+Each of the features and their options are described with an example of what the input should look like.
+
+<center><img src="figures/extract_features.jpg" width="500" height="450"></center>
 
 
 #### steRimol - B5, B1, L, loc.B1 and loc.B5 (the location of B1 and B5 vectors along the primary axis L)
