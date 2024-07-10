@@ -311,9 +311,9 @@ def preform_coordination_transformation(xyz_df, indices=None):
     if indices is None:
         xyz_copy[['x','y','z']]=calc_coordinates_transformation(coordinates, [1,2,3])
     else:
-        # print('indices', indices)
+      
         xyz_copy[['x','y','z']]=calc_coordinates_transformation(coordinates, indices)
-    # xyz_copy[['x','y','z']]=calc_coordinates_transformation(coordinates, get_indices([1,2,3])
+ 
     return xyz_copy
 
 def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLike,  geom_transform_indices=None):##added option for subunits
@@ -361,7 +361,7 @@ def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLik
     dipole_vector=np.sum(dipole_xyz,axis=0)
     array_dipole=np.hstack([dipole_vector,np.linalg.norm(dipole_vector)])
     dipole_df=pd.DataFrame(array_dipole,index=XYZConstants.DIPOLE_COLUMNS.value).T
-    # print(dipole_df)
+ 
     return dipole_df
 
 def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indices ,geometric_transformation_indices=None):
@@ -535,12 +535,7 @@ def direction_atoms_for_sterimol(bonds_df,base_atoms)->list: #help function for 
             # take the first atom in the bond where the first equeal to the direction, second option
             base_atoms_copy[2]=int(bonds_df[(bonds_df[1]==direction)][0].iloc[1])
     except: 
-        # if (any(bonds_df[0]==direction)):
-        #     print(bonds_df[(bonds_df[0]==direction)][1].iloc[0],'h')
-        #     base_atoms_copy.append(int(bonds_df[(bonds_df[0]==direction)][1].iloc[0])) if int(bonds_df[(bonds_df[0]==direction)][1].iloc[0])!=origin else base_atoms_copy.append(int(bonds_df[(bonds_df[0]==direction)][0].iloc[0]))
-        # else:
-        #     print(bonds_df[(bonds_df[1]==direction)][0].iloc[0],'w')
-        #     base_atoms_copy.append(int(bonds_df[(bonds_df[1]==direction)][0].iloc[0])) if int(bonds_df[(bonds_df[1]==direction)][0].iloc[0])!=origin else base_atoms_copy.append(int(bonds_df[(bonds_df[1]==direction)][1].iloc[0]))
+       
         for _, row in bonds_df.iterrows():
             if row[0] == direction:
                 base_atoms_copy.append(row[1])
@@ -822,7 +817,7 @@ def calc_B1(transformed_plane,avs,edited_coordinates_df,column_index):
             B1.append(np.abs(transformed_plane[idx,column_index]+edited_coordinates_df['radius'].iloc[idx]))
             B1_loc.append(edited_coordinates_df['radius'].iloc[idx])
             
-    # print(f'B1: {B1}, B1_loc: {B1_loc}')      
+        
     return [B1,B1_loc]
 
 def b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane):
@@ -888,16 +883,16 @@ def get_b1s_list(extended_df, scans=90//5):
             front_ang=degree_list[np.where(b1s==min(b1s))[0][0]]+scans
             degree_list=range(back_ang,front_ang+1)
         except:
-            print(np.where(np.isclose(b1s, min(b1s), atol=1e-8)))
+           
             back_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]-scans
             front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
             degree_list=range(back_ang,front_ang+1)
     else:
         print('no b1s found')
         return [np.array(b1s),np.array(b1s_loc)]
-    # print(f'specific degree list: {degree_list}')
+    
     b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane)
-    # print(f'b1 arrays: {[np.array(b1s),np.array(b1s_loc)]}')
+    
     return [np.array(b1s),np.array(b1s_loc)]
 
 def calc_sterimol(bonded_atoms_df,extended_df):
@@ -926,7 +921,7 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_directio
     bonded_atoms_df = get_specific_bonded_atoms_df(bonds_df, connected_from_direction, new_coordinates_df)
     
     extended_df = get_extended_df_for_sterimol(new_coordinates_df, bonds_df, radii)
-    # print(f'extended dataframe: {extended_df}')
+  
     ###calculations
     
     sterimol_df = calc_sterimol(bonded_atoms_df, extended_df)
@@ -1084,7 +1079,7 @@ class Molecule():
 
     
 
-class Molecules():
+class Molecules_xyz():
     
     def __init__(self,molecules_dir_name, renumber=False):
         self.molecules_path=os.path.abspath(molecules_dir_name)
@@ -1108,11 +1103,11 @@ class Molecules():
         self.molecules = [self.molecules[i] for i in indices]
         self.molecules_names = [self.molecules_names[i] for i in indices]
 
-    def get_sterimol_dict(self,base_atoms):
+    def get_sterimol_dict(self,atom_indices,radii='bondi'):
         sterimol_dict={}
         for molecule in self.molecules:
             try:
-                sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(base_atoms)
+                sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices)
             except:
                 print(f'failed to calculate for {molecule.molecule_name}')
                 sterimol_dict[molecule.molecule_name]=np.nan
@@ -1121,10 +1116,6 @@ class Molecules():
    
 
 if __name__=='__main__':
-    os.chdir(r'C:\Users\edens\Documents\Random_molecules\lucas_xyz\after_easy_calc')
-    mol=Molecule('LS1621_optimized.xyz')
-    print(mol.get_sterimol([1,2]))
+    pass
 
-    # mols=Molecules(r'C:\Users\edens\Documents\Random_molecules\lucas_xyz\after_easy_calc')
-    # x=mols.get_sterimol_dict([1,2])
-    # print(x)
+ 

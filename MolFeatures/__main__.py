@@ -26,7 +26,7 @@ try:
     from datetime import datetime
     import argparse
     from .M2_data_extractor.cube_sterimol import cube_many
-    
+    from .M2_data_extractor.sterimol_standalone import Molecules_xyz
 
 
 
@@ -100,6 +100,7 @@ except ImportError or ModuleNotFoundError as e:
     from datetime import datetime
     import argparse
     from .M2_data_extractor.cube_sterimol import cube_many
+    from .M2_data_extractor.sterimol_standalone import Molecules_xyz
     
 
 def get_package_version():
@@ -1179,11 +1180,8 @@ def load_molecules(molecules_dir_name, renumber=False):
     return Molecules(molecules_dir_name, renumber=renumber)
 
 def interactive_cli(molecules):
-    exclude_methods = ['get_molecules_comp_set_app', 'visualize_smallest_molecule_morfeus','visualize_molecules','visualize_smallest_molecule' 'filter_molecules', 'renumber_molecules']
+    exclude_methods = ['get_molecules_comp_set_app', 'visualize_smallest_molecule_morfeus','visualize_smallest_molecule', 'filter_molecules', 'renumber_molecules']
     methods = [method for method in dir(molecules) if callable(getattr(molecules, method)) and not method.startswith("__") and method not in exclude_methods]
-    # print("\nAvailable methods:")
-    # for method in methods:
-    #     print(f"- {method}")
 
     while True:
         print("\nAvailable methods:")
@@ -1229,11 +1227,10 @@ def main():
 
     # Subcommand for running the GUI app
     gui_parser = subparsers.add_parser("gui", help="Run the GUI app")
-
-    
-    interactive_parser = subparsers.add_parser("interactive", help="Start interactive CLI for Molecules class")
+    interactive_parser = subparsers.add_parser("interactive", help="Start interactive CLI for cmd line operations")
     conver_parser = subparsers.add_parser("logs_to_feather", help="Convert log files to feather files")
-    cube_parser = subparsers.add_parser("cube", help="Convert cube files to feather files")
+    cube_parser = subparsers.add_parser("cube", help="Calculates cube sterimol from cube files")
+    sterimol_parser = subparsers.add_parser("sterimol", help="Calculate sterimol values from xyz files")
     # interactive_parser.add_argument("molecules_dir_name", help="Directory containing molecule files")
     # interactive_parser.add_argument("--renumber", action="store_true", help="Renumber molecules")
 
@@ -1255,7 +1252,7 @@ def main():
     elif args.command == "cube":
         while True:
             cube_file_path = input("Enter the full path to directory with cube files: ")
-            base_atoms = input("Enter the base atoms: ")
+            base_atoms = input("Enter the atom indices: ")
             base_atoms=convert_to_list_or_nested_list(base_atoms)
             sterimol=cube_many(cube_file_path, base_atoms)
             print(sterimol.sterimol_dict)
@@ -1263,6 +1260,23 @@ def main():
             another_dir = input("Do you want to input another directory? (yes/no): ").strip().lower()
             if another_dir != 'yes':
                 break
+    elif args.command == "sterimol":
+        while True:
+            xyz_dir = input("Enter the path to the xyz files directory: ")
+            base_atoms = input("Enter the atom indices: ")
+            params = inspect.signature(Molecules_xyz.get_sterimol_dict)
+            radii=list(params.parameters.values())[2].default
+            radius_input = input(f"Enter the radii (default: {radii}): ")
+            if radius_input=='':
+                radius_input=radii
+            base_atoms=convert_to_list_or_nested_list(base_atoms)
+            sterimol=Molecules_xyz(xyz_dir)
+            print(sterimol.get_sterimol_dict(base_atoms, radii=radius_input))
+
+            another_dir = input("Do you want to input another directory? (yes/no): ").strip().lower()
+            if another_dir != 'yes':
+                break
+
     else:
         parser.print_help()
 
