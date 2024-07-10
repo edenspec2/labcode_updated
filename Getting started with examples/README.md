@@ -8,7 +8,7 @@ Once downloaded and unzipped, you are ready to go!
 
 For user convenience, we demonstrate usage with a small number of molecules, such that downloading the log files directly to a local machine will stay within memory-usage reason. As stated on the home page, it is generally not the case. 
 
-## Run extRactoR
+## Run logs to feather converter
 
 <center><img src="figures/logs_to_feather.jpg" class="center"></center>
 
