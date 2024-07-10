@@ -507,7 +507,7 @@ class MoleculeApp:
 
         
         # Function to open a new window with the parameters of the given function
-        def open_parameter_window(self):
+        def open_parameter_window():
             window = Toplevel(self.master)
             window.title("Parameters")
             window.grab_set()
@@ -593,13 +593,13 @@ class MoleculeApp:
         chosen_parameters.pack(pady=10)
         questions = [
             "Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13 17",
-            "Strech Vibration atoms- enter atom pairs that have a common atom: \n example: 1,2 4,5",
-            "Bending Vibration atoms - enter first atom, middle atom and last atom: \n example: 4,7,2",
+            "Strech Vibration atoms- enter bonded atom pairs: \n example: 1,2 4,5",
+            "Bending Vibration atoms - enter atom pairs that have a common atom: \n example: 4,7",
             "Dipole atoms - indices for coordination transformation: \n example: 4,5,6 - origin, y-axis, new xy plane",
             "NBO values - Insert atoms to show NBO: \n example: 1,2,3,4",
             "NBO difference - Insert atoms to show NBO difference: \n example: 1,2 3,4",
             "Sterimol atoms - Primary axis along: \n example: 7,8",
-            "Bond lenght - Atom pairs to calculate difference: \n example: 1,2 4,5",
+            "Bond length - Atom pairs to calculate difference: \n example: 1,2 4,5",
             "Bond Angle - Insert a list of atom triads/quartets for which you wish to have angles/dihedrals: \n example: 1,3,4 5,6,7,4"
         ]
 
