@@ -1934,7 +1934,7 @@ class Molecules():
         self.molecules = [self.molecules[i] for i in indices]
         self.molecules_names = [self.molecules_names[i] for i in indices]
 
-    def get_sterimol_dict(self,base_atoms, radii='bondi'):
+    def get_sterimol_dict(self,atom_indices, radii='bondi'):
         """
         Returns a dictionary with the Sterimol parameters calculated based on the specified base atoms.
 
@@ -1959,10 +1959,10 @@ class Molecules():
         """
         sterimol_dict={}
         for molecule in self.molecules:
-            sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(base_atoms, radii)
+            sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii)
         return sterimol_dict
     
-    def get_npa_dict(self,base_atoms,sub_atoms=None):
+    def get_npa_dict(self,atom_indices,sub_atoms=None):
         """
         Returns a dictionary with the Natural Population Analysis (NPA) charges calculated for the specified base atoms and sub atoms.
 
@@ -1989,7 +1989,7 @@ class Molecules():
         npa_dict={}
         for molecule in self.molecules:
             try:
-                npa_dict[molecule.molecule_name]=molecule.get_npa_df(base_atoms,sub_atoms)
+                npa_dict[molecule.molecule_name]=molecule.get_npa_df(atom_indices,sub_atoms)
             except:
                 print(f'Error: {molecule.molecule_name} could not be processed')
                 pass
@@ -2029,11 +2029,11 @@ class Molecules():
 
         return ring_dict
     
-    def get_dipole_dict(self,base_atoms, sub_atoms=None):
+    def get_dipole_dict(self,atom_indices, sub_atoms=None):
         dipole_dict={}
         for molecule in self.molecules:
             try:
-                dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(base_atoms, sub_atoms)
+                dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(atom_indices, sub_atoms)
             except:
                 print(f'Error: {molecule.molecule_name} could not be processed')
                 pass
@@ -2133,7 +2133,7 @@ class Molecules():
 
         return stretch_vibration_dict
     
-    def get_nbo_df_dict(self,atoms_indices):
+    def get_nbo_df_dict(self,atom_indices):
         """
         Returns a dictionary with the Natural Bond Orbital (NBO) charges for the specified atoms.
 
@@ -2157,13 +2157,13 @@ class Molecules():
         nbo_dict={}
         for molecule in self.molecules:
             try:
-                nbo_dict[molecule.molecule_name]=molecule.get_nbo_df(atoms_indices)
+                nbo_dict[molecule.molecule_name]=molecule.get_nbo_df(atom_indices)
             except:
                 print(f'Error: could not calculate nbo value for {molecule.molecule_name} ')
                 pass
         return nbo_dict
     
-    def get_nbo_diff_df_dict(self,diff_indices):
+    def get_nbo_diff_df_dict(self,atom_indices):
         """
         Returns a dictionary with the differences in Natural Bond Orbital (NBO) charges for the specified pairs of atoms.
 
@@ -2187,7 +2187,7 @@ class Molecules():
         nbo_diff_dict={}
         for molecule in self.molecules:
             try:
-                nbo_diff_dict[molecule.molecule_name]=molecule.get_nbo_diff_df(diff_indices)
+                nbo_diff_dict[molecule.molecule_name]=molecule.get_nbo_diff_df(atom_indices)
             except:
                 print(f'Error: could not calculate nbo difference for {molecule.molecule_name} ')
                 pass

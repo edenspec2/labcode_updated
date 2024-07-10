@@ -1141,16 +1141,32 @@ def get_function_args(function):
     sig = inspect.signature(function)
     return sig.parameters
 
-def prompt_for_args(args):
-    values = {}
-    for arg in args:
-        user_input = input(f"Enter value for {arg}: ")
-        try:
-            values[arg] = ast.literal_eval(user_input)
-        except (ValueError, SyntaxError):
-            values[arg] = user_input
-    return values
+def prompt_for_args(method):
+    sig = inspect.signature(method)
+    values = []
+    for param in sig.parameters.values():
+        param_name = param.name.replace("_", " ").capitalize()
+        if param.default != inspect.Parameter.empty:
+            
+            prompt = f"Enter value for {param_name} (default: {param.default}): "
+        else:
+            prompt = f"Enter value for {param_name}: "
+        user_input = input(prompt) #.strip()
+        
+        if user_input == "":
+            # Use default value if input is empty
+            values.append(param.default)
+        else:
+            try:
+                # values.append(ast.literal_eval(user_input))
+                values.append(user_input)
+            except (ValueError, SyntaxError):
+
+                values.append(user_input)
     
+    return values
+
+
 def run_gui_app():
     print("Running GUI app...")
     root = Tk()
@@ -1165,11 +1181,14 @@ def load_molecules(molecules_dir_name, renumber=False):
 def interactive_cli(molecules):
     exclude_methods = ['get_molecules_comp_set_app', 'visualize_smallest_molecule_morfeus','visualize_molecules','visualize_smallest_molecule' 'filter_molecules', 'renumber_molecules']
     methods = [method for method in dir(molecules) if callable(getattr(molecules, method)) and not method.startswith("__") and method not in exclude_methods]
-    print("\nAvailable methods:")
-    for method in methods:
-        print(f"- {method}")
+    # print("\nAvailable methods:")
+    # for method in methods:
+    #     print(f"- {method}")
 
     while True:
+        print("\nAvailable methods:")
+        for method in methods:
+            print(f"- {method}")
         command = input("\nEnter method to invoke (or 'help method_name' to see documentation, or 'exit' to quit): ")
         if command.lower() == 'exit':
             break
@@ -1186,28 +1205,10 @@ def interactive_cli(molecules):
         if not hasattr(molecules, command):
             print(f"Unknown method: {command}")
             continue
-
-
         method = getattr(molecules, command)
-        func_args = get_function_args(method)
-        # params = input(f"Enter parameters for {command} (comma-separated, or leave empty if none): ")
-        if func_args:
-            user_values = prompt_for_args(func_args)
-        else:
-            user_values = []
-        # if params:
-        #     try:
-        #         params = convert_to_list_or_nested_list(params)
-        #     except Exception as e:
-        #         print(f"Error parsing parameters: {e}")
-        #         continue
-        # else:
-        #     params = []
-
+        user_values = prompt_for_args(method)
         try:
-            # result = method(params)
             user_values[0]=convert_to_list_or_nested_list(user_values[0])
-            print(*user_values)
             result = method(*user_values)
             # If the method returns a dictionary of DataFrames, print them
             if isinstance(result, dict):
@@ -1231,7 +1232,7 @@ def main():
 
     
     interactive_parser = subparsers.add_parser("interactive", help="Start interactive CLI for Molecules class")
-    conver_parser = subparsers.add_parser("convert", help="Convert log files to feather files")
+    conver_parser = subparsers.add_parser("logs_to_feather", help="Convert log files to feather files")
     cube_parser = subparsers.add_parser("cube", help="Convert cube files to feather files")
     # interactive_parser.add_argument("molecules_dir_name", help="Directory containing molecule files")
     # interactive_parser.add_argument("--renumber", action="store_true", help="Renumber molecules")
@@ -1246,7 +1247,7 @@ def main():
         molecules = load_molecules(feather_dir)
         interactive_cli(molecules)
         
-    elif args.command == "convert":
+    elif args.command == "logs_to_feather":
         log_dir = input("Enter the path to the log files directory: ")
         logs_to_feather(log_dir)
         print('Done!')

@@ -422,7 +422,7 @@ def save_to_feather(df, filename):
     # Define column names that correspond to the data in string_list
     # column_names = ['Standard_Orientation', 'Dipole', 'Polarizability', 'Frequency', 'Charge', 'Energy']
 
-    
+    df['atom'] = df['atom'].astype(str)
     feather_filename = filename + '.feather'
     # df=df.astype(str)
     # Set each column name to a string representation of its index
@@ -453,6 +453,7 @@ def logs_to_feather(dir_path):
                 continue  # Skip to the next file
 
             os.chdir('feather_files')
+            
             string_report+=save_to_feather(df, file.split('.')[0])  # Assuming you want to remove the .log extension
             os.chdir('..')
         else:
