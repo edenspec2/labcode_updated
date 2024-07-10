@@ -38,7 +38,7 @@ Failed to load Molecules: []
 Now we can start preforming other actions, lets start with visualizing one of the structures we loaded.
 This image will help us select atoms for the process of feature extraction.
 
-<center><img src="figures/visualize.jpg" width="500" height="450"></center>
+<center><img src="figures/visualize.jpg" width="200" height="200"></center>
 
 <center><img src="figures/vis_example.jpg" width="500" height="450"></center>
 
