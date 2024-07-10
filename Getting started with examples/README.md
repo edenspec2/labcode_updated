@@ -12,8 +12,8 @@ For user convenience, we demonstrate usage with a small number of molecules, suc
 
 <center><img src="figures/logs_to_feather.jpg" class="center"></center>
 
-# A directory named 'feather_files' will be created inside the logs directory with the feather files inside it.
-# Now that we extracted the files we can run the GUI for easy feature extraction.
+**A directory named 'feather_files' will be created inside the logs directory with the feather files inside it.**
+**Now that we extracted the files we can run the GUI for easy feature extraction.**
 
 
 
@@ -27,7 +27,7 @@ python -m MolFeatures gui
 
 **Users are then presented with the option menu.**
 **By clicking Browse to feather files directory users can choose a directory with feather files to load them**
-**once loaded a list with file names will appear to let you know which files were successful
+**once loaded a list with file names will appear to let you know which files were successful**
 
 ```{r mol, eval=FALSE}
 Molecules initialized : ['basic', 'm_Br', 'm_Cl', 'm_F', 'm_I', 'm_nitro', 'o_Br', 'o_Cl', 'o_F', 'o_I', 'o_nitro', 'penta_F', 'p_amine', 'p_azide', 'p_boc', 'p_Br', 'p_Cl', 'p_F', 'p_I', 'p_Me', 'p_nitro', 'p_OEt', 'p_OH', 'p_OMe', 'p_Ph', 'p_tfm']
