@@ -12,8 +12,8 @@ For user convenience, we demonstrate usage with a small number of molecules, suc
 
 <center><img src="figures/logs_to_feather.jpg" class="center"></center>
 
-## A directory named 'feather_files' will be created inside the logs directory with the feather files inside it.
-## Now that we extracted the files we can run the GUI for easy feature extraction.
+# A directory named 'feather_files' will be created inside the logs directory with the feather files inside it.
+# Now that we extracted the files we can run the GUI for easy feature extraction.
 
 
 
