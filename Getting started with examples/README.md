@@ -11,8 +11,7 @@ For user convenience, we demonstrate usage with a small number of molecules, suc
 ## Run extRactoR
 
 ```{r ex, eval=FALSE}
-# Run extRactoR (no need to change working directory - extRactoR does it for you)
-extRactoR()
+<center><img src="figures/logs_to_feather.jpg" class="center"></center>
 ```
 
 #### Choosing log files location
