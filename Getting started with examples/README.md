@@ -51,8 +51,10 @@ Each of the features and their options are described with an example of what the
 <center><img src="figures/extract_features.jpg" width="800" height="500"></center>
 
 Visualize Basic Structure - Visalizes the smallest structure in the set.
+
 Choose Parameters - lets you choose 1) radii type that will be used for sterimol.
 There are two radii systems implemented in this version, the first being Pyykko's covalent radii and the second being CPK (VDW radii). The default is set to covalent radii as it holds a definitive value for all elements of the periodic table, while CPK is only defined for a small subset of them.
+
 2) Dipole calculation type - either directly from gaussian input or explicitly from the NBO values.
 
 **Once all parameters are entered users can click submit for instant results which will be presented on the GUI dashboard.**
