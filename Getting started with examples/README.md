@@ -10,9 +10,7 @@ For user convenience, we demonstrate usage with a small number of molecules, suc
 
 ## Run extRactoR
 
-```{r ex, eval=FALSE}
-![Example Image](figures/logs_to_feather.jpg)
-```
+<center><img src="figures/logs_to_feather.jpg" class="center"></center>
 
 #### Choosing log files location
 
