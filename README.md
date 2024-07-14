@@ -24,8 +24,8 @@ Make sure the common substructure is numbered correctly.
 Make sure all log files you want to analyze are in one location. 
 This can be done either from the command line or the GUI.
 ```
-# Run python -m MolFeatures convert
- add picture
+# Run python -m MolFeatures logs_to_feather
+ 
 ```
 Expect the following message, indicating everything worked fine. 
 
