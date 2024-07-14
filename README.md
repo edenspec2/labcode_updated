@@ -44,6 +44,6 @@ python -m MolFeatures gui # for GUI usage
 python -m MolFeatures interactive # for command line usage
 
 ```
-For detailed instructions go to Command line usage  or Getting started with examples for GUI usage.
+For detailed instructions go to Getting started with examples for GUI usage.
 
 
