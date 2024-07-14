@@ -171,31 +171,18 @@ def calc_angle(p1, p2, degrees: bool=False) -> float: ###works, name in R: 'angl
 def vec_organizer(block, density, blocks, x_steps, y_steps, z_steps):
     
     start_index = blocks[block] 
- 
     end_index = start_index + int(np.ceil(z_steps / 6)) -1
-    # end_index = min(end_index, density.shape[0] - 1)  # Ensure not exceeding bounds
-
-    # Selecting and transposing the block of data
     vec = density.iloc[start_index:end_index + 1].values.flatten()
-    
-    # Print vector for debugging
-    # print(vec)
-
     # Calculate the required vector length
     target_length = int(np.ceil(cbrt(x_steps * y_steps * z_steps)))-1
-    
     # Append zeros if the vector is shorter than the required length
     if len(vec) < target_length:
         vec = np.append(vec, np.zeros(target_length - len(vec)))
-    # print(vec)
-    
     return vec
 
 def pt_space_block(non_zero,x_blocks):
-    # x_blocks is the list of dataframes
-    # x_block_index is the index for the dataframe to process
+
     df = x_blocks[non_zero]
-    
     # Get indices of non-zero elements, np.argwhere returns a 2D array of indices
     non_zero_indices = np.argwhere(df.to_numpy() != 0)
     # Create a DataFrame from non-zero indices
@@ -470,11 +457,9 @@ class cube():
         if isinstance(self.base_atoms[0], list):
             sterimol_list=[]
             for base_atom in self.base_atoms:
-                print(base_atom)
                 sterimol_list.append(self.calc_sterimol(base_atom))
             self.sterimol_df=pd.concat(sterimol_list)
         else:
-            print(self.base_atoms)
             self.sterimol_df=self.calc_sterimol(self.base_atoms)
 
     def calc_sterimol(self,base_atoms_indices):      
@@ -576,7 +561,7 @@ class cube():
 
 class cube_many():
 
-    def __init__(self, path=None, base_atoms=[1,2]):
+    def __init__(self, path, base_atoms):
         self.path=path
         os.chdir(path)
         self.file_names=[file for file in os.listdir(path) if file.endswith('.cube')]
@@ -586,11 +571,11 @@ class cube_many():
     def get_sterimol_many(self):
         self.sterimol_dict={}
         for file in self.file_names:
-            # try:
-            cube_file=cube(file,self.base_atoms)
-            self.sterimol_dict[f'{file}']=(cube_file.sterimol_df)
-            # except:
-            #     print(f'file {file} failed')
+            try:
+                cube_file=cube(file,self.base_atoms)
+                self.sterimol_dict[f'{file}']=(cube_file.sterimol_df)
+            except:
+                print(f'file {file} failed')
         
     
 if __name__ == "__main__":
