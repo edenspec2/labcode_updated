@@ -40,6 +40,7 @@ class XYZConstants(Enum):
     NOF_ATOMS = ['N', 'O', 'F']
     STERIC_PARAMETERS = ['B1', 'B5', 'L', 'loc_B1', 'loc_B5','RMSD']
     ELECTROSTATIC_PARAMETERS = ['dip_x', 'dip_y', 'dip_z', 'total_dipole','energy']
+    CHARGE_TYPE = ['nbo', 'hirshfeld', 'cm5']
 
 class LinuxCommands(Enum):
     COPY='cp'

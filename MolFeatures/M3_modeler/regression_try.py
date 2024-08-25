@@ -8,6 +8,8 @@ from sklearn.metrics import r2_score, mean_absolute_error
 from sklearn.model_selection import KFold, cross_val_predict, cross_validate
 from sklearn.preprocessing import StandardScaler
 import numpy as np
+import cProfile
+import pstats
 
 def set_max_features_limit(total_features_num, max_features_num=None):
     if max_features_num is None:
@@ -16,9 +18,25 @@ def set_max_features_limit(total_features_num, max_features_num=None):
 
 def get_feature_combinations(features, min_features_num=2, max_features_num=None):
     max_features_num = set_max_features_limit(len(features), max_features_num)
+    print(f"len features: {len(features)}")  # Print the number of features
+    print(f"Min features: {min_features_num}")
+    print(f"Max features: {max_features_num}")
+    
+    total_combinations = 0  # Counter to track the total number of combinations generated
+    
     for current_features_num in range(min_features_num, max_features_num + 1):
+        count_combinations = 0  # Counter for each specific number of features
         for combo in combinations(features, current_features_num):
+            count_combinations += 1
+            total_combinations += 1
             yield combo
+        
+        # Print the count of combinations for each number of features
+        print(f"Combinations with {current_features_num} features: {count_combinations}")
+    
+    # Print the total count of combinations after all have been generated
+    print(f"Total combinations generated: {total_combinations}")
+    print(combo)
 
 def fit_and_evaluate_single_combination(model, combination, r2_threshold=0.5):
     selected_features = model.features_df[list(combination)]
@@ -97,6 +115,8 @@ class LinearRegressionModel:
         df = pd.read_csv(csv_filepath)
         self.features_df = df.drop(columns=['Unnamed: 0'])
         self.target_vector = df[output_name]
+        self.features_df= self.features_df.drop(columns=[output_name])
+       
         self.features_list = self.features_df.columns.tolist()
         self.molecule_names = df.index.tolist()
 
@@ -114,6 +134,7 @@ class LinearRegressionModel:
 
     def get_feature_combinations(self):
         self.features_combinations = list(get_feature_combinations(self.features_list, self.min_features_num, self.max_features_num))
+   
 
     def calculate_q2_and_mae(self, X, y):
         """
@@ -188,6 +209,7 @@ class LinearRegressionModel:
 
     def fit_and_evaluate_combinations(self, n_jobs=-1):
         print(f"Number of calculated iterations: {len(self.features_combinations)}")
+        print(self.features_combinations)
         ## check that the len of combination is between min and max features
         
         # results = Parallel(n_jobs=n_jobs)(delayed(fit_and_evaluate_single_combination)(self, combination) for combination in self.features_combinations)
@@ -199,7 +221,7 @@ import os
 # Usage
 os.chdir(r'C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\feather_example')
 csv_filepaths = {
-'features_csv_filepath': 'output_test.csv',
+'features_csv_filepath': 'output_1.csv',
 'target_csv_filepath': ''
 }
 
@@ -214,12 +236,20 @@ model = LinearRegressionModel(
     return_coefficients=True
 )
 
-model.get_feature_combinations()
-results = model.fit_and_evaluate_combinations(n_jobs=-1)
+
+if __name__ == "__main__":
+
+    results = model.fit_and_evaluate_combinations(n_jobs=-1)
+
+    for result in results[0:50]:
+        print(f"Combination: {result['combination']}")
+        print(f"Scores: {result['scores']}")
+        print(f"Intercept: {result['intercept']}")
+        print(f"Coefficients: {result['coefficients']}\n")
 
 
-for result in results[0:50]:
-    print(f"Combination: {result['combination']}")
-    print(f"Scores: {result['scores']}")
-    print(f"Intercept: {result['intercept']}")
-    print(f"Coefficients: {result['coefficients']}\n")
+
+
+
+
+

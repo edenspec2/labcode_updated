@@ -10,7 +10,7 @@ class Names(Enum):
     
     DIPOLE_COLUMNS=['dip_x','dip_y','dip_z','total_dipole']
     STANDARD_ORIENTATION_COLUMNS=['atom','x','y','z']
-    DF_LIST=['standard_orientation_df', 'dipole_df', 'pol_df','charge_df', 'info_df', 'energy_value']
+    DF_LIST=['standard_orientation_df', 'dipole_df', 'pol_df', 'info_df']
 
 
 
@@ -29,21 +29,24 @@ def feather_file_handler(feather_file):
     xyz = data.iloc[:, 0:4].dropna()
     dipole_df = data.iloc[:, 4:8].dropna()
     pol_df = data.iloc[:, 8:10].dropna()
-    charge_df = data.iloc[:, 10:11].dropna()
+    nbo_charge_df = data.iloc[:, 10:11].dropna()
     info_df = data.iloc[:, 11:13].dropna()
-    vectors = data.iloc[:, 13:].dropna()
-    last_col = vectors.iloc[:, -1].replace('nan', np.nan)
-    non_nan_count = last_col.notna().sum()
-    if non_nan_count==1 :
-        energy=data.iloc[:, -1].dropna().values[0]
-        energy = pd.DataFrame([energy], columns=['energy'])
-        energy=energy.astype(float)
-        vectors = vectors.iloc[:, :-1]
+    vectors = data.iloc[:, 13:]#.dropna()
+    
+    last_col = vectors.iloc[:, -1].dropna()
+    
+    if len(last_col) == len(nbo_charge_df):
+        hirshfeld_charge_df = vectors.iloc[:, -2].dropna().reset_index(drop=True)
+        cm5_charge_df = last_col.reset_index(drop=True)
+
     else:
-        energy = pd.DataFrame([np.nan], columns=['energy']) 
+        hirshfeld_charge_df = None
+        cm5_charge_df = None
+        
     xyz.rename(columns={xyz.columns[0]: 'atom', xyz.columns[1]: 'x', xyz.columns[2]: 'y', xyz.columns[3]: 'z'}, inplace=True)
         # Remove the first two rows
-    xyz = xyz.iloc[2:].reset_index(drop=True)
+    xyz = xyz.reset_index(drop=True)
+
     xyz[['x', 'y', 'z']] = xyz[['x', 'y', 'z']].astype(float)
     xyz=xyz.dropna()
     # Calculate the length of the DataFrame
@@ -51,10 +54,14 @@ def feather_file_handler(feather_file):
     dipole_df=dipole_df.astype(float)
     dipole_df=dipole_df.dropna()
     dipole_df=dipole_df.reset_index(drop=True)
-    charge_df.rename(columns={charge_df.columns[0]: 'charge'}, inplace=True)
-    charge_df=charge_df.astype(float)
-    charge_df=charge_df.dropna()
-    charge_df=charge_df.reset_index(drop=True)
+    nbo_charge_df.rename(columns={nbo_charge_df.columns[0]: 'charge'}, inplace=True)
+    nbo_charge_df=nbo_charge_df.astype(float)
+    nbo_charge_df=nbo_charge_df.dropna()
+    nbo_charge_df=nbo_charge_df.reset_index(drop=True)
+
+    charge_dict={'nbo':nbo_charge_df, 'hirshfeld':hirshfeld_charge_df, 'cm5':cm5_charge_df}
+
+
     pol_df.rename(columns={pol_df.columns[0]: 'aniso', pol_df.columns[1]: 'iso'}, inplace=True)
     pol_df=pol_df.astype(float)
     pol_df=pol_df.dropna()
@@ -65,6 +72,7 @@ def feather_file_handler(feather_file):
     info_df=info_df.reset_index(drop=True)
     
     def split_to_dict(dataframe):
+        
         num_columns = dataframe.shape[1]
         num_dfs = num_columns // 3  # Integer division to get the number of 3-column dataframes
 
@@ -78,9 +86,9 @@ def feather_file_handler(feather_file):
         return dfs_dict
     
     vib_dict=split_to_dict(vectors)
-    df_list=[xyz ,dipole_df, pol_df, charge_df, info_df, energy]
+    df_list=[xyz ,dipole_df, pol_df, info_df]
     df_list=[df.dropna(how='all') for df in df_list if not df.empty]
     df_dict=df_list_to_dict(df_list)
-    dict_list=[df_dict,vib_dict]
+    dict_list=[df_dict,vib_dict,charge_dict]
 
     return dict_list

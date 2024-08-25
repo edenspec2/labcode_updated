@@ -4,14 +4,15 @@ import sys
 import pandas as pd
 from typing import *
 from enum import Enum
-# sys.path.append(r'C:\Users\edens\Documents\GitHub\Automation_code-main\utils')
-# from help_functions import *
-# import numpy as np
-# sys.path.append(r'C:\Users\edens\Documents\GitHub\Mol_align')
-# from renumbering import *
+import os
 import numpy as np
-from ..Mol_align import renumbering
-from . import help_functions as hf
+
+# Add the parent directory to the sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils  import help_functions as hf
+# Now you can import from the parent directory
+from Mol_align import renumbering
+
 
 class GeneralConstants(Enum):
     """
@@ -46,6 +47,13 @@ class GeneralConstants(Enum):
             'Fr': 2.60, 'Ra': 2.21, 'Ac': 2.15, 'Th': 2.06,
             'Pa': 2.00, 'U': 1.96, 'Np': 1.90, 'Pu': 1.87,
             'Am': 1.80, 'Cm': 1.69
+    }
+    BONDI_RADII={
+        'H': 1.10, 'C': 1.70, 'F': 1.47,
+        'S': 1.80, 'B': 1.92, 'I': 1.98, 
+        'N': 1.55, 'O': 1.52, 'Co': 2.00, 
+        'Br': 1.83, 'Si': 2.10,'Ni': 2.00,
+        'P': 1.80, 'Cl': 1.75, 
     }
 
 def plot_interactions(xyz_df,color):
@@ -109,7 +117,7 @@ def plot_interactions(xyz_df,color):
         return trace
 
     bonds = get_bonds()
-
+    print(bonds)
     zipped = zip(atom_ids, x_coordinates, y_coordinates, z_coordinates)
     annotations_id = [dict(text=num+1, x=x, y=y, z=z, showarrow=False, yshift=15, font=dict(color="blue"))
                       for num, x, y, z in zipped]

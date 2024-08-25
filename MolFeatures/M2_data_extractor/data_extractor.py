@@ -1,3 +1,20 @@
+# import pandas as pd
+# import numpy as np
+# import os
+# import sys
+# import math
+# from enum import Enum
+# import igraph as ig
+# from .gaussian_handler import feather_file_handler
+# from typing import *
+# from ..utils import visualize
+# import warnings
+# from scipy.spatial.distance import pdist, squareform
+# from ..utils import help_functions
+# from ..Mol_align import renumbering
+# from sklearn.preprocessing import MinMaxScaler
+# from morfeus import Sterimol, read_xyz
+
 import pandas as pd
 import numpy as np
 import os
@@ -5,15 +22,25 @@ import sys
 import math
 from enum import Enum
 import igraph as ig
-from .gaussian_handler import feather_file_handler
 from typing import *
-from ..utils import visualize
 import warnings
 from scipy.spatial.distance import pdist, squareform
-from ..utils import help_functions
-from ..Mol_align import renumbering
 from sklearn.preprocessing import MinMaxScaler
 from morfeus import Sterimol, read_xyz
+
+# Add the parent directory to the sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+# Now you can import from the parent directory
+    from gaussian_handler import feather_file_handler
+    from utils import visualize, help_functions
+    from Mol_align import renumbering
+except:
+    from .gaussian_handler import feather_file_handler
+    from ..utils import visualize
+    from ..utils import help_functions
+
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 class GeneralConstants(Enum):
@@ -23,7 +50,8 @@ class GeneralConstants(Enum):
     2. atomic numbers
     2. atomic weights
     """
-    COVALENT_RADII= {
+    
+    PYYKKO_RADII= {
             'H': 0.31, 'He': 0.28, 'Li': 1.28,
             'Be': 0.96, 'B': 0.84, 'C': 0.76, 
             'N': 0.71, 'O': 0.66, 'F': 0.57, 'Ne': 0.58,
@@ -78,17 +106,7 @@ class GeneralConstants(Enum):
     'X': 1.92,
     'F': 1.35
 }
-    # CPK_RADII={
-    #     'C':1.50,   'H':1.00,   'S.O':1.70,  'Si':2.10,
-    #     'C2':1.60,  'N':1.50,   'S1':1.00,   'Co':2.00,
-    #     'C3':1.60,  'C66':1.70, 'F':1.35,    'Ni':2.00,
-    #     'C4':1.50,  'N4':1.45,  'Cl':1.75,
-    #     'C5/N5':1.70, 'O':1.35, 'S4':1.40,
-    #     'C6/N6':1.70, 'O2':1.35, 'Br':1.95,
-    #     'C7':1.70,    'P':1.40,  'I':2.15,
-    #     'C8':1.50,    'S':1.70,  'B':1.92,
-    
-    # }
+
 
     REGULAR_BOND_TYPE = {
 
@@ -148,18 +166,42 @@ class GeneralConstants(Enum):
 
 import numpy.typing as npt
 
+def compare_cosine_distance_matrices(matrix1, matrix2):
+    def cosine_distance(matrix):
+        # Calculate norms
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        # Avoid division by zero
+        norms[norms == 0] = np.finfo(float).eps
+        # Normalize the rows to unit length
+        norm_matrix = matrix / norms
+        # Use dot product to find cosine similarity and subtract from 1 to get cosine distance
+        similarity = np.dot(norm_matrix, norm_matrix.T)
+        return 1 - similarity
 
-def adjust_indices(indices: npt.ArrayLike, adjustment_num: int=1) -> npt.ArrayLike:
-    """
-    adjust indices by adjustment_num
-    """
-    return np.array(indices)-adjustment_num
+    # Calculate the cosine distance matrices
+    matrix1_distances = cosine_distance(matrix1)
+    matrix2_distances = cosine_distance(matrix2)
+    
+    # Calculate differences between the two distance matrices
+    differences = matrix1_distances - matrix2_distances
+    average_difference = np.mean(np.abs(differences))
 
-def adjust_indices_xyz(indices: npt.ArrayLike) -> npt.ArrayLike:
-    """
-    adjust indices by adjustment_num
-    """
-    return adjust_indices(indices, adjustment_num=1)
+    return average_difference
+
+
+def adjust_indices(element):
+    
+    if isinstance(element, list):
+        return [adjust_indices(sub_element) for sub_element in element]
+    elif isinstance(element, int):
+        return element - 1
+    elif isinstance(element, np.ndarray):
+        return element - 1
+    else:
+        raise ValueError("Unsupported element type")
+
+
+
 
 def calc_angle(p1: npt.ArrayLike, p2: npt.ArrayLike, degrees: bool=False) -> float: ###works, name in R: 'angle' , radians
     dot_product=np.dot(p1, p2)
@@ -173,13 +215,15 @@ def calc_angle(p1: npt.ArrayLike, p2: npt.ArrayLike, degrees: bool=False) -> flo
 def calc_new_base_atoms(coordinates_array: npt.ArrayLike, atom_indices: npt.ArrayLike):  #help function for calc_coordinates_transformation
     """
     a function that calculates the new base atoms for the transformation of the coordinates.
-    optional: if the atom_indices is 4, the origin will be the middle of the first two atoms.
+    optional: if the atom_indices[0] is list, compute the new origin as the middle of the first atoms.
     """
-    new_origin=coordinates_array[atom_indices[0]]
-    if (len(atom_indices)==4):
-        new_origin=(new_origin+coordinates_array[atom_indices[1]])/2
-    new_y=(coordinates_array[atom_indices[-2]]-new_origin)/np.linalg.norm((coordinates_array[atom_indices[-2]]-new_origin))
-    coplane=((coordinates_array[atom_indices[-1]]-new_origin)/np.linalg.norm((coordinates_array[atom_indices[-1]]-new_origin)+0.00000001))
+    if isinstance(atom_indices[0], list):
+        new_origin=np.mean(coordinates_array[atom_indices[0]], axis=0)
+    else:
+        new_origin=coordinates_array[atom_indices[0]]
+    new_y=(coordinates_array[atom_indices[1]]-new_origin)/np.linalg.norm((coordinates_array[atom_indices[1]]-new_origin))
+    coplane=((coordinates_array[atom_indices[2]]-new_origin)/np.linalg.norm((coordinates_array[atom_indices[2]]-new_origin)+0.00000001))
+    
     return (new_origin,new_y,coplane)
 
 def np_cross_and_vstack(plane_1, plane_2):
@@ -193,17 +237,14 @@ def calc_basis_vector(origin, y: npt.ArrayLike, coplane: npt.ArrayLike):#help fu
     y: y direction of the new basis
     coplane: a vector that is coplanar with the new y direction
     """
-    # cross_y_plane=np.cross(coplane,y)
-    # coef_mat=np.vstack([y, coplane, cross_y_plane])
+
     coef_mat=np_cross_and_vstack(coplane, y)
     angle_new_y_coplane=calc_angle(coplane,y)
     cop_ang_x=angle_new_y_coplane-(np.pi/2)
-    # result_vector=[0,np.cos(cop_ang_x),0]
     result_vector=[np.cos(cop_ang_x), 0, 0]
     new_x,_,_,_=np.linalg.lstsq(coef_mat,result_vector,rcond=None)
     new_basis=np_cross_and_vstack(new_x, y)
-    # new_z=np.cross(new_x,y)
-    # new_basis=np.vstack([new_x, y, new_z])
+
     return new_basis
 
 def transform_row(row_array, new_basis, new_origin, round_digits):
@@ -237,7 +278,7 @@ def calc_coordinates_transformation(coordinates_array: npt.ArrayLike, base_atoms
       1    B     0.0     0.0     0.0
       2    B    -0.0  1.5257     0.0
     """
-    indices=adjust_indices_xyz(base_atoms_indices)
+    indices=adjust_indices(base_atoms_indices)
     new_basis=calc_basis_vector(*calc_new_base_atoms(coordinates_array,indices))    
     if origin is None:
         new_origin=coordinates_array[indices[0]]
@@ -260,7 +301,7 @@ def preform_coordination_transformation(xyz_df, indices=None):
     # xyz_copy[['x','y','z']]=calc_coordinates_transformation(coordinates, get_indices([1,2,3])
     return xyz_copy
 
-def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLike,  geom_transform_indices=None):##added option for subunits
+def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLike):##added option for subunits
     """
     a function that recives coordinates and npa charges, transform the coordinates
     by the new base atoms and calculates the dipole in each axis
@@ -286,33 +327,28 @@ def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLik
                        0  0.097437 -0.611775  0.559625  0.834831
     """
 
-    if geom_transform_indices is not None:
-        geometric_center = np.mean(coordinates_array[geom_transform_indices], axis=0)
-        coordinates_array -= geometric_center
 
     dipole_xyz = np.vstack([(row[0] * row[1])for row in
                             list(zip(coordinates_array, charge_array))])
     dipole_vector=np.sum(dipole_xyz,axis=0)
     array_dipole=np.hstack([dipole_vector,np.linalg.norm(dipole_vector)])
     dipole_df=pd.DataFrame(array_dipole,index=help_functions.XYZConstants.DIPOLE_COLUMNS.value).T
-    # print(dipole_df)
+ 
     return dipole_df
 
-def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indices ,geometric_transformation_indices=None):
+def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indices ):
     """
     a function that recives coordinates and gaussian dipole, transform the coordinates
     by the new base atoms and calculates the dipole in each axis
     """
-    if geometric_transformation_indices:
-        # Calculate the geometric center of specified indices
-        geometric_center = np.mean(coordinates_array[geometric_transformation_indices], axis=0)
-        # Translate all coordinates
-        coordinates_array -= geometric_center
+
+   
 
     indices=adjust_indices(base_atoms_indices)
     basis_vector=calc_basis_vector(*calc_new_base_atoms(coordinates_array, indices))
-    gauss_dipole_array[0,0:3]=np.matmul(basis_vector,gauss_dipole_array[0,0:3])
+    gauss_dipole_array = [np.concatenate((np.matmul(basis_vector, gauss_dipole_array[0, 0:3]), [gauss_dipole_array[0, 3]]))]
     dipole_df=pd.DataFrame(gauss_dipole_array,columns=['dipole_x','dipole_y','dipole_z','total'])
+
     # print(geometric_transformation_indices, dipole_df)
     return dipole_df
 
@@ -327,17 +363,39 @@ def indices_to_coordinates_vector(coordinates_array,indices):
     a function that recives coordinates_array and indices of two atoms
     and returns the bond vector between them
     """
+    try:
+        if  isinstance(indices[0], (list, np.ndarray, tuple)):
+            bond_vector=[(coordinates_array[index[1]]-coordinates_array[index[0]]) for index in indices]
+            
+        else:
+            bond_vector= coordinates_array[indices[1]]-coordinates_array[indices[0]]
+    except:
+        if  isinstance(indices[0], tuple):
+            bond_vector=[(coordinates_array[index[0]]-coordinates_array[index[1]]) for index in indices]
+        else:
+            bond_vector= coordinates_array[indices[0]]-coordinates_array[indices[1]]
 
-    if  isinstance(indices[0], tuple):
-        bond_vector=[(coordinates_array[index[0]]-coordinates_array[index[1]]) for index in indices]
-    else:
-        bond_vector= coordinates_array[indices[0]]-coordinates_array[indices[1]]
-
+       
     return bond_vector
+
+
+# def indices_to_coordinates_vector(coordinates_array,indices):
+#     """
+#     a function that recives coordinates_array and indices of two atoms
+#     and returns the bond vector between them
+#     """
+#     print('indices', indices)
+#     if  isinstance(indices[0], tuple):
+#         bond_vector=[(coordinates_array[index[0]]-coordinates_array[index[1]]) for index in indices]
+#     else:
+#         bond_vector= coordinates_array[indices[0]]-coordinates_array[indices[1]]
+#     print('bond_vector', bond_vector)
+#     return bond_vector
+
 
 def get_bonds_vector_for_calc_angle(coordinates_array,atoms_indices): ##for calc_angle_between_atoms
 
-    indices=adjust_indices(atoms_indices)#three atoms-angle four atoms-dihedral
+    indices=adjust_indices(atoms_indices)#t
     augmented_indices=[indices[0],indices[1],indices[1],indices[2]]
     if len(indices)==4:
         augmented_indices.extend([indices[2],indices[3]])
@@ -365,7 +423,7 @@ def calc_angle_between_atoms(coordinates_array,atoms_indices): #gets a list of a
     """
     bonds_list=get_bonds_vector_for_calc_angle(coordinates_array,atoms_indices)
     if len(atoms_indices)==3:
-      
+ 
         angle=calc_angle(bonds_list[0], bonds_list[1]*(-1), degrees=True)
     else:
         first_cross=np.cross(bonds_list[0],bonds_list[1]*(-1))
@@ -561,7 +619,7 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82):
     dist_df[['min_col', 'max_col']] = pd.DataFrame(np.sort(dist_df[['a1', 'a2']], axis=1), index=dist_df.index)
     dist_df = dist_df.drop(columns=['a1', 'a2']).rename(columns={'min_col': 0, 'max_col': 1})
     dist_df = dist_df.drop_duplicates(subset=[0, 1])
-    return pd.DataFrame(dist_df[[0,1]]+1)
+    return pd.DataFrame(dist_df[[0,1]]+1) ## should be +1 
 
 def get_center_of_mass(xyz_df):
     coordinates=np.array(xyz_df[['x','y','z']].values,dtype=float)
@@ -835,7 +893,7 @@ def get_b1s_list(extended_df, scans=90//5):
             front_ang=degree_list[np.where(b1s==min(b1s))[0][0]]+scans
             degree_list=range(back_ang,front_ang+1)
         except:
-            print(np.where(np.isclose(b1s, min(b1s), atol=1e-8)))
+            
             back_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]-scans
             front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
             degree_list=range(back_ang,front_ang+1)
@@ -859,7 +917,14 @@ def calc_sterimol(bonded_atoms_df,extended_df):
     return sterimol_df.T
 
 
-def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_direction, radii='bondi', sub_structure=True):
+def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_direction, radii='bondi', sub_structure=True, drop_atoms=None):
+
+    if drop_atoms is not None:
+        drop_atoms=adjust_indices(drop_atoms)
+        for atom in drop_atoms:
+            bonds_df = bonds_df[~((bonds_df[0] == atom) | (bonds_df[1] == atom))]
+            ## drop the rows from coordinates_df
+            coordinates_df = coordinates_df.drop(atom)
 
     bonds_direction = direction_atoms_for_sterimol(bonds_df, base_atoms)
     new_coordinates_df = preform_coordination_transformation(coordinates_df, bonds_direction)
@@ -870,6 +935,8 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_directio
             connected_from_direction = connected_from_direction
     else:
         connected_from_direction = None
+    
+
     bonded_atoms_df = get_specific_bonded_atoms_df(bonds_df, connected_from_direction, new_coordinates_df)
     
     extended_df = get_extended_df_for_sterimol(new_coordinates_df, bonds_df, radii)
@@ -970,8 +1037,8 @@ def vibrations_dict_to_list(vibration_dict: dict, vibration_atom_nums: list[int]
 
     """
     try:
-        vibration_array_list = [vibration_dict[f'vibration_atom_{num}'] for num in vibration_atom_nums]
-    except KeyError:
+        vibration_array_list = [vibration_dict[f'vibration_atom_{num}']for num in vibration_atom_nums] 
+    except Exception as e:
         return print('Error: no vibration for those atoms-pick another one')
     vibration_array_pairs = list(
         zip(vibration_array_list[::2], vibration_array_list[1::2]))  # [::2] means every second element
@@ -996,7 +1063,7 @@ def extended_df_for_vib(vibration_dict: dict, info_df:pd.DataFrame,atom_pair,thr
 
 def calc_vibration_dot_product_from_pairs(coordinates_array: npt.ArrayLike,
                                           vibration_dict: dict,
-                                          atom_pair: list, info_df: pd.DataFrame, operation:str='dot') -> List[float]:
+                                          atom_pair: list, info_df: pd.DataFrame, operation:str='dot',threshold=3000) -> List[float]:
     """
     Calculates the dot product between a vibration mode vector and the bond vector between two atoms.
 
@@ -1017,7 +1084,7 @@ def calc_vibration_dot_product_from_pairs(coordinates_array: npt.ArrayLike,
         in each pair in `atom_pairs`.
     """
     atoms = adjust_indices(atom_pair)
-    extended_df=extended_df_for_vib(vibration_dict,info_df,atom_pair)
+    extended_df=extended_df_for_vib(vibration_dict,info_df,atom_pair,threshold)
     coordinates_vector=coordinates_array[atoms[0]]-coordinates_array[atoms[1]]
     vibration_dot_product = calc_vibration_dot_product(extended_df, coordinates_vector)
     extended_df['Amplitude']=vibration_dot_product
@@ -1071,8 +1138,12 @@ def vibration_ring_array_list_to_vector(vibration_array_list: List[np.ndarray]) 
     Tuple[np.ndarray, np.ndarray]:
         A tuple containing two np.ndarray vectors representing the ring's vibrations.
     """
-    vec_sum_1_3_5 = (vibration_array_list[0] + vibration_array_list[2] + vibration_array_list[3])
-    vec_sum_2_4_6 = (vibration_array_list[4] + vibration_array_list[1] + vibration_array_list[5])
+    atom_one,atom_two,atom_three=vibration_array_list[0], vibration_array_list[4],vibration_array_list[2]
+    atom_four,atom_five,atom_six=vibration_array_list[1], vibration_array_list[3],vibration_array_list[5]
+    vec_sum_1_3_5 = (atom_one+atom_three+atom_five) ## try
+    vec_sum_2_4_6 = (atom_two+atom_four+atom_six)
+
+  
     return vec_sum_1_3_5, vec_sum_2_4_6
 
 
@@ -1115,19 +1186,24 @@ def get_data_for_ring_vibration(info_df: pd.DataFrame, vibration_array_list: Lis
     
     product = [np.dot(row_1, row_2) for row_1, row_2 in zip(*vibration_ring_array_list_to_vector(vibration_array_list))]
     _, vibration_array_list = vibration_ring_array_list_to_vector(vibration_array_list)
+    # print(vibration_array_list)
+    
     sin_angle = [abs(math.sin(calc_angle(row, coordinates_vector))) for row in vibration_array_list]
+    # print(f'product: {product} ,{len(product)}, frequency: {(info_df)["Frequency"]}, {len((info_df)["Frequency"])}, sin_angle: {sin_angle}, {len(sin_angle)}')
+    
     data_df = pd.DataFrame(np.vstack([product, (info_df)['Frequency'], sin_angle]),index=['Product','Frequency','Sin_angle'] )
+  
     return data_df.T
 
 
 
 def get_filter_ring_vibration_df(data_df: pd.DataFrame, prods_threshhold: float = 0.1,
-                                 frequency_min_threshhold: float = 1400,
-                                 frequency_max_threshhold: float = 1700) -> pd.DataFrame:
+                                 frequency_min_threshhold: float = 1600,
+                                 frequency_max_threshhold: float = 1780) -> pd.DataFrame:
     # Filter based on product value
-    filter_prods = (abs(data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]]) > prods_threshhold) | \
+    filter_prods = (abs(data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]]) > prods_threshhold) & \
                    (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]] != 0)
-
+    # print('filter_prods:',filter_prods,abs(data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]])) 
     # Filter based on frequency range
     filter_frequency = (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]] > frequency_min_threshhold) & \
                        (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]] < frequency_max_threshhold)
@@ -1167,8 +1243,11 @@ def get_filtered_ring_df(info_df: pd.DataFrame, coordinates_array: np.ndarray, v
         A DataFrame that contains the filtered ring vibrations based on their product, frequency, and sin(angle) values.
     """
     ring_indices = adjust_indices(ring_atom_indices)
+    # ring_indices = (ring_indices[0], ring_indices[1])
     coordinates_vector = indices_to_coordinates_vector(coordinates_array, ring_indices)[0]
+
     vibration_atom_nums = help_functions.flatten_list(ring_atom_indices)
+   
     _, vibration_array_list = vibrations_dict_to_list(vibration_dict, vibration_atom_nums)
     data_df = get_data_for_ring_vibration(info_df, vibration_array_list, coordinates_vector)
     filtered_df = get_filter_ring_vibration_df(data_df)
@@ -1190,14 +1269,14 @@ def calc_min_max_ring_vibration(filtered_df: pd.DataFrame) -> pd.DataFrame:
     df : pd.DataFrame
         A DataFrame containing the minimum and maximum vibration frequency and the angle between the vibration vector and the plane of the ring.
     """
-
+    # filtered_df['Product']=filtered_df['Product'].abs()
     max_vibration_frequency = filtered_df.iloc[filtered_df[
-        help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]].idxmax()][2]  
-    asin_max = math.asin(filtered_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[2]].max()) * (
+        help_functions.XYZConstants.RING_VIBRATION_INDEX.value[2]].idxmin()][2]  
+    asin_max = math.asin(filtered_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[2]].min()) * (
                 180 / np.pi)
     min_vibration_frequency = filtered_df.iloc[filtered_df[
-        help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]].idxmin()][2]
-    asin_min = math.asin(filtered_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[2]].min()) * (
+        help_functions.XYZConstants.RING_VIBRATION_INDEX.value[2]].idxmax()][2]
+    asin_min = math.asin(filtered_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[2]].max()) * (
                 180 / np.pi)
     df = pd.DataFrame((max_vibration_frequency, asin_max, min_vibration_frequency, asin_min),
                       index=help_functions.XYZConstants.RING_VIBRATION_COLUMNS.value)
@@ -1285,7 +1364,7 @@ def get_benzene_ring_indices(bonds_df, ring_atoms):
     # Perform a depth-first search to find the benzene ring atoms
     visited = set()
     ring_indices = []
-    
+   
     def dfs(atom_idx, prev_idx, depth):
         visited.add(atom_idx)
         ring_indices.append(atom_idx)
@@ -1305,12 +1384,52 @@ def get_benzene_ring_indices(bonds_df, ring_atoms):
     
     if len(ring_indices) == 6:
         if atom2_idx in ring_indices:
+
+            # return ring_indices[3], ring_indices[0], ring_indices[-1], ring_indices[1], ring_indices[4], ring_indices[2]
             return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
         else:
             print('The second atom is not in the benzene ring. it found a ring - check structure')
             return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
     # Return the indices of the four different atoms in the ring
-    
+
+def calculate_bond_lengths_matrix(coords, connections_df):
+    num_atoms = coords.shape[0]
+    bond_lengths = np.zeros((num_atoms, num_atoms))
+
+    for _, row in connections_df.iterrows():
+        atom1 = int(row[0])
+        atom2 = int(row[1])
+        length = np.linalg.norm(coords[atom1] - coords[atom2])
+        bond_lengths[atom1, atom2] = length
+        bond_lengths[atom2, atom1] = length  # Symmetric matrix
+
+    return bond_lengths
+
+def calculate_angles_matrix(coords, connections_df):
+    num_atoms = coords.shape[0]
+    angles = np.zeros((num_atoms, num_atoms, num_atoms))
+
+    for i in range(num_atoms):
+        for j in range(num_atoms):
+            for k in range(num_atoms):
+                if i != j and j != k and i != k:
+                    if (connections_df[(connections_df[0] == i) & (connections_df[1] == j)].empty == False or 
+                        connections_df[(connections_df[0] == j) & (connections_df[1] == i)].empty == False) and (
+                        connections_df[(connections_df[0] == i) & (connections_df[1] == k)].empty == False or 
+                        connections_df[(connections_df[0] == k) & (connections_df[1] == i)].empty == False):
+                        
+                        v1 = coords[j] - coords[i]
+                        v2 = coords[k] - coords[i]
+                        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+                        angles[i, j, k] = np.arccos(np.clip(cos_angle, -1.0, 1.0))
+
+    return angles
+
+# Example usage:
+# coords = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]])
+# connections_df = pd.DataFrame({'atom_1': [0, 0, 1], 1: [1, 2, 3]})
+# angles_matrix = calculate_angles_matrix(coords, connections_df)
+
 
 class Molecule():
 
@@ -1334,31 +1453,10 @@ class Molecule():
         self.bonds_df = extract_connectivity(self.xyz_df)
         self.atype_list = nob_atype(self.xyz_df, self.bonds_df)
         self.info_df = self.parameter_list[0]['info_df']
-        self.charge_df = self.parameter_list[0]['charge_df']
-        self.energy_value=self.parameter_list[0]['energy_value']
+        self.charge_dict = self.parameter_list[2]
+ 
         self.vibration_dict = self.parameter_list[1]
-        if self.new_index_order is not None:
-            self.renumber_dfs(new_xyz_df)
-            
-    def renumber_dfs(self, new_xyz_df):
-        # Reindexing DataFrames
-        
-        self.xyz_df = new_xyz_df
-        self.coordinates_array = np.array(self.xyz_df[['x', 'y', 'z']].astype(float))
-        
-        self.gauss_dipole_df = self.gauss_dipole_df.reindex(self.new_index_order).reset_index(drop=True)
-        # self.polarizability_df = self.polarizability_df.reindex(new_index_order)
-        self.bonds_df = extract_connectivity(self.xyz_df)
-        
-        self.atype_list = nob_atype(self.xyz_df, self.bonds_df)
-        
-        self.info_df = self.info_df
-        self.charge_df = self.charge_df.reindex(self.new_index_order).reset_index(drop=True)
-        # For scalar values like `energy_value`, no reindexing is needed
-        self.energy_value = self.parameter_list[0]['energy_value']
-        self.vibration_dict = self.reindex_vibration_dict()
-        
-        print(f'successfully reindexed {self.molecule_name} ')
+      
 
 
     def reindex_vibration_dict(self):
@@ -1418,15 +1516,16 @@ class Molecule():
         """
         Visualizes the molecule using the `visualize` module.
         """
+        
         visualize.show_single_molecule(molecule_name=self.molecule_name, xyz_df=self.xyz_df)
 
 
-    def process_sterimol_atom_group(self, atoms, radii):
+    def process_sterimol_atom_group(self, atoms, radii, sub_structure=True, drop_atoms=None) -> pd.DataFrame:
 
         connected = get_molecule_connections(self.bonds_df, atoms[0], atoms[1])
-        return get_sterimol_df(self.xyz_df, self.bonds_df, atoms, connected, radii)
+        return get_sterimol_df(self.xyz_df, self.bonds_df, atoms, connected, radii, sub_structure=sub_structure, drop_atoms=drop_atoms)
 
-    def get_sterimol(self, base_atoms: Union[None, Tuple[int, int]] = None, radii: str = 'bondi') -> pd.DataFrame:
+    def get_sterimol(self, base_atoms: Union[None, Tuple[int, int]] = None, radii: str = 'bondi',sub_structure=True, drop_atoms=None) -> pd.DataFrame:
         """
         Returns a DataFrame with the Sterimol parameters calculated based on the specified base atoms and radii.
 
@@ -1438,7 +1537,7 @@ class Molecule():
             pd.DataFrame: A DataFrame with the Sterimol parameters.
             
             to add
-            - only_sub- sterimol of only one part - i only have that.
+            - only_sub- sterimol of only one part.
             - drop some atoms.
         """
         if base_atoms is None:
@@ -1446,12 +1545,12 @@ class Molecule():
 
         if isinstance(base_atoms[0], list):
             # If base_atoms is a list of lists, process each group individually and concatenate the results
-            sterimol_list = [self.process_sterimol_atom_group(atoms, radii) for atoms in base_atoms]
+            sterimol_list = [self.process_sterimol_atom_group(atoms, radii, sub_structure=sub_structure, drop_atoms=drop_atoms) for atoms in base_atoms]
             sterimol_df = pd.concat(sterimol_list, axis=0)
 
         else:
             # If base_atoms is a single group, just process that group
-            sterimol_df = self.process_sterimol_atom_group(base_atoms, radii)
+            sterimol_df = self.process_sterimol_atom_group(base_atoms, radii,sub_structure=sub_structure, drop_atoms=drop_atoms)
         return sterimol_df
 
 
@@ -1473,7 +1572,7 @@ class Molecule():
         return xyz_df
 
     
-    def get_nbo_df(self, atoms_indices: List[int]) -> pd.DataFrame:
+    def get_charge_df(self, atoms_indices: List[int],type='nbo') -> pd.DataFrame:
         """
         Returns a DataFrame with the NBO charges for the specified atoms.
 
@@ -1484,10 +1583,10 @@ class Molecule():
             pd.DataFrame: A DataFrame with the NBO charges.
         """
         atoms_indices = adjust_indices(atoms_indices)
-        nbo_df = (self.charge_df.iloc[atoms_indices]).rename(index=lambda x: f'atom_{x + 1}').T
+        nbo_df = (self.charge_dict[type].iloc[atoms_indices]).rename(index=lambda x: f'atom_{x + 1}').T
         return nbo_df
 
-    def get_nbo_diff_df(self, diff_indices: List[List[int]]) -> pd.DataFrame:
+    def get_charge_diff_df(self, diff_indices: List[List[int]], type='nbo') -> pd.DataFrame:
         """
         Returns a DataFrame with the NBO charge differences for specified atom pairs.
 
@@ -1501,12 +1600,12 @@ class Molecule():
         if isinstance(diff_indices[0], list):
             for atoms in diff_indices:
                 atoms = adjust_indices(atoms)
-                diff = pd.DataFrame(self.charge_df.iloc[atoms[0]] - self.charge_df.iloc[atoms[1]], columns=[f'diff_{atoms[0]+1}-{atoms[1]+1}'])
+                diff = pd.DataFrame(self.charge_dict[type].iloc[atoms[0]] - self.charge_dict[type].iloc[atoms[1]], columns=[f'diff_{atoms[0]+1}-{atoms[1]+1}'])
                 diff_list.append(diff)
             diff_df = pd.concat(diff_list, axis=1)
         else:
             diff_indices = adjust_indices(diff_indices)
-            diff = pd.DataFrame(self.charge_df.iloc[diff_indices[0]] - self.charge_df.iloc[diff_indices[1]], columns=[f'diff_{diff_indices[0]+1}-{diff_indices[1]+1}'])
+            diff = pd.DataFrame(self.charge_dict[type].iloc[diff_indices[0]] - self.charge_dict[type].iloc[diff_indices[1]], columns=[f'diff_{diff_indices[0]+1}-{diff_indices[1]+1}'])
             diff_df = diff
             
         return diff_df
@@ -1528,27 +1627,17 @@ class Molecule():
     ## not working after renumbering for some reason
     
     
-    def get_npa_df_single(self, atoms: List[int], sub_atoms):
-                ## activate this option - the origin vector should change not the index
-        # if sub_atoms is not None:
-        #     if isinstance(sub_atoms, list) and all(isinstance(elem, list) for elem in sub_atoms):
-        #         for sub,atoms in zip(sub_atoms,base_atoms_indices):
-        #             sub = adjust_indices(sub)
-        #             origin= center_substructure(self.coordinates_array, sub)
-        #             atoms[0]=origin
-        #     else:
-        #         sub_atoms = adjust_indices(sub_atoms)
-        #         origin = center_substructure(self.coordinates_array, sub_atoms)
-        #         base_atoms_indices[0] = origin
+    def get_npa_df_single(self, atoms: List[int], type='nbo') -> pd.DataFrame:
+ 
         coordinates_array = np.array(
             self.get_coordination_transformation_df(atoms)[['x', 'y', 'z']].astype(float))
-        charges = np.array(self.charge_df)
-        # print(f'len of charges is {len(charges)}, len of coordinates is {len(coordinates_array)}')
-        npa_df = calc_npa_charges(coordinates_array, charges, sub_atoms)
+        charges = np.array(self.charge_dict[type])
+     
+        npa_df = calc_npa_charges(coordinates_array, charges)
         npa_df = npa_df.rename(index={0: f'NPA_{atoms[0]}-{atoms[1]}-{atoms[2]}'})
         return npa_df
 
-    def get_npa_df(self, base_atoms_indices: List[int], sub_atoms: Union[List[int], None] = None) -> pd.DataFrame:
+    def get_npa_df(self, base_atoms_indices: List[int],type='nbo') -> pd.DataFrame:
         """
         Returns a DataFrame with the NPA charges calculated based on the specified base atoms and sub atoms.
 
@@ -1559,22 +1648,23 @@ class Molecule():
         Returns:
             pd.DataFrame: A DataFrame with the NPA charges.
         """
-        if isinstance(base_atoms_indices[0], list):
+        if isinstance(base_atoms_indices[1], list):
             # If base_atoms_indices is a list of lists, process each group individually and concatenate the results
-            npa_list = [self.get_npa_df_single(atoms, sub_atoms) for atoms in base_atoms_indices]
+            npa_list = [self.get_npa_df_single(atoms,type) for atoms in base_atoms_indices]
             npa_df = pd.concat(npa_list, axis=0)
         else:
             # If base_atoms_indices is a single group, just process that group
-            npa_df = self.get_npa_df_single(base_atoms_indices, sub_atoms)
+            npa_df = self.get_npa_df_single(base_atoms_indices,type)
         return npa_df
 
     
-    def get_dipole_gaussian_df_single(self, atoms, sub_atoms):
-        dipole_df = calc_dipole_gaussian(self.coordinates_array, np.array(self.gauss_dipole_df), atoms, sub_atoms)
+    def get_dipole_gaussian_df_single(self, atoms):
+        
+        dipole_df = calc_dipole_gaussian(self.coordinates_array, np.array(self.gauss_dipole_df), atoms)
         dipole_df = dipole_df.rename(index={0: f'dipole_{atoms[0]}-{atoms[1]}-{atoms[2]}'})
         return dipole_df
 
-    def get_dipole_gaussian_df(self, base_atoms_indices: List[int], sub_atoms: List[int]) -> pd.DataFrame:
+    def get_dipole_gaussian_df(self, base_atoms_indices: List[int]) -> pd.DataFrame:
         """
         Returns a DataFrame with the dipole moments calculated based on the specified base atoms.
 
@@ -1584,13 +1674,13 @@ class Molecule():
         Returns:
             pd.DataFrame: A DataFrame with the dipole moments.
         """
-        if isinstance(base_atoms_indices[0], list):
+        if isinstance(base_atoms_indices[1], list):
             # If base_atoms_indices is a list of lists, process each group individually and concatenate the results
-            dipole_list = [self.get_dipole_gaussian_df_single(atoms,sub) for atoms,sub in zip(base_atoms_indices,sub_atoms)]
+            dipole_list = [self.get_dipole_gaussian_df_single(atoms) for atoms in zip(base_atoms_indices)]
             dipole_df = pd.concat(dipole_list, axis=0)
         else:
             # If base_atoms_indices is a single group, just process that group
-            dipole_df = self.get_dipole_gaussian_df_single(base_atoms_indices, sub_atoms)
+            dipole_df = self.get_dipole_gaussian_df_single(base_atoms_indices)
         return dipole_df
 
 
@@ -1644,12 +1734,14 @@ class Molecule():
         vibration_array: Union[List[float], None] = self.vibration_dict.get('vibration_atom_{}'.format(str(vibration_atom_num)))
         return calc_max_frequency_magnitude(vibration_array, self.info_df.T)
 
-    def get_stretch_vibration_single(self, atom_pair: List[int])-> pd.DataFrame:
+    def get_stretch_vibration_single(self, atom_pair: List[int],threshold=3000)-> pd.DataFrame:
+       
         if check_pair_in_bonds(atom_pair, self.bonds_df) == True:
             try:
                 extended_vib_df = calc_vibration_dot_product_from_pairs(
-                    self.coordinates_array, self.vibration_dict, atom_pair, self.info_df
+                    self.coordinates_array, self.vibration_dict, atom_pair, self.info_df,threshold=threshold
                 )
+               
             except TypeError:
                 print(f'Error: no vibration array for the molecule {self.molecule_name} - check atom numbering in molecule')
                 return None
@@ -1664,7 +1756,7 @@ class Molecule():
             
             return df
     
-    def get_stretch_vibration(self, atom_pairs: List[int])-> pd.DataFrame:
+    def get_stretch_vibration(self, atom_pairs: List[int],threshold=3000)-> pd.DataFrame:
         """
         Parameters
         ----------
@@ -1685,14 +1777,14 @@ class Molecule():
         """
         if isinstance(atom_pairs[0], list):
             # If atom_pairs is a list of lists, process each pair individually and concatenate the results
-            vibration_list = [self.get_stretch_vibration_single(pair) for pair in atom_pairs]
+            vibration_list = [self.get_stretch_vibration_single(pair,threshold) for pair in atom_pairs]
             # Filter out None results
             vibration_list = [vib for vib in vibration_list if vib is not None]
             vibration_df = pd.concat(vibration_list, axis=0)
             return vibration_df
         else:
             # If atom_pairs is a single pair, just process that pair
-            vibration_df=self.get_stretch_vibration_single(atom_pairs)
+            vibration_df=self.get_stretch_vibration_single(atom_pairs,threshold)
             
             return vibration_df
         
@@ -1714,9 +1806,12 @@ class Molecule():
         0  657.3882    81.172063  834.4249   40.674833
 
         """
+        
         if isinstance(ring_atom_indices[0], list):
             df_list= []
+            
             for atoms in ring_atom_indices:
+                
                 z,x,c,v,b,n=get_benzene_ring_indices(self.bonds_df, atoms)
                 ring_atom_indices=[[z,x],[c,v],[b,n]]
                 try:
@@ -1729,10 +1824,15 @@ class Molecule():
                 df_list.append(df)
             return pd.concat(df_list, axis=0)
         else:
+            
             z,x,c,v,b,n=get_benzene_ring_indices(self.bonds_df, ring_atom_indices)
             ring_atom_indices=[[z,x],[c,v],[b,n]]
+           
             try:
+                
                 filtered_df=get_filtered_ring_df(self.info_df,self.coordinates_array,self.vibration_dict,ring_atom_indices)
+                
+
             except FileNotFoundError:
                 return print(f'No vibration - Check atom numbering in molecule {self.molecule_name}')
         
@@ -1758,6 +1858,7 @@ class Molecule():
             extended_df['Cross_mag'] = cross_mag_list
             extended_df.reset_index(drop=True, inplace=True)
             # Find the row with the maximum cross magnitude and extract the bending frequency and cross magnitude
+
             index_max = extended_df['Cross_mag'].idxmax()
             max_frequency_vibration = (pd.DataFrame(extended_df.iloc[index_max]).T)[['Frequency', 'Cross_mag']]
             max_frequency_vibration = max_frequency_vibration.rename(index={index_max: f'Bending_{atom_pair[0]}-{atom_pair[1]}'})
@@ -1877,56 +1978,56 @@ class Molecules():
                     self.failed_molecules.append(feather_file)
                     print(f'Error: {feather_file} could not be processed')
                     failed_file = feather_file.rsplit('.feather', 1)[0] + '.feather_fail'
-                # self.molecules.append(Molecule(log_file))
+                
         self.molecules_names=[molecule.molecule_name for molecule in self.molecules]
         self.old_molecules=self.molecules
         self.old_molecules_names=self.molecules_names
         os.chdir('../')
 
-        if renumber:
-            self.renumber_molecules()
+    #     if renumber:
+    #         self.renumber_molecules()
 
     
 
-    def renumber_molecules(self):
+    # def renumber_molecules(self):
         
-        os.chdir(self.molecules_path)
-        try:
-            os.mkdir('xyz_files')
-        except FileExistsError:
-            pass
-        directories = [d for d in os.listdir(os.getcwd()) if os.path.isdir(os.path.join(os.getcwd(), d)) and d[-1].isdigit()]
-        if directories:
-            os.chdir(directories[0])
-            print(f'renumbering files exist {os.getcwd(),os.listdir()}')
-        else:
-            os.chdir('xyz_files')
-            [mol.write_xyz_file() for mol in self.molecules]
+    #     os.chdir(self.molecules_path)
+    #     try:
+    #         os.mkdir('xyz_files')
+    #     except FileExistsError:
+    #         pass
+    #     directories = [d for d in os.listdir(os.getcwd()) if os.path.isdir(os.path.join(os.getcwd(), d)) and d[-1].isdigit()]
+    #     if directories:
+    #         os.chdir(directories[0])
+    #         print(f'renumbering files exist {os.getcwd(),os.listdir()}')
+    #     else:
+    #         os.chdir('xyz_files')
+    #         [mol.write_xyz_file() for mol in self.molecules]
   
-            renumbering.batch_renumbering(os.getcwd())
-            os.chdir('../')
-            directories = [d for d in os.listdir(os.getcwd()) if os.path.isdir(os.path.join(os.getcwd(), d)) and d[-1].isdigit()]
-            os.chdir(directories[0])
+    #         renumbering.batch_renumbering(os.getcwd())
+    #         os.chdir('../')
+    #         directories = [d for d in os.listdir(os.getcwd()) if os.path.isdir(os.path.join(os.getcwd(), d)) and d[-1].isdigit()]
+    #         os.chdir(directories[0])
    
-        xyz_files=[file for file in os.listdir() if file.endswith('.xyz')]
-        xyz_dfs=[help_functions.get_df_from_file(file) for file in xyz_files] 
+    #     xyz_files=[file for file in os.listdir() if file.endswith('.xyz')]
+    #     xyz_dfs=[help_functions.get_df_from_file(file) for file in xyz_files] 
 
-        self.molecules=[]
-        self.failed_molecules=[]
-        os.chdir(self.molecules_path)
-        for feather_file, df in zip(os.listdir(), xyz_dfs): 
-            if feather_file.endswith('.feather'):
-                try:
-                    self.molecules.append(Molecule(feather_file,parameter_list=None, new_xyz_df=df))
-                except:
-                    self.failed_molecules.append(feather_file)
-                    print(f'Error: {feather_file} could not be processed')
-                # self.molecules.append(Molecule(log_file))
+    #     self.molecules=[]
+    #     self.failed_molecules=[]
+    #     os.chdir(self.molecules_path)
+    #     for feather_file, df in zip(os.listdir(), xyz_dfs): 
+    #         if feather_file.endswith('.feather'):
+    #             try:
+    #                 self.molecules.append(Molecule(feather_file,parameter_list=None, new_xyz_df=df))
+    #             except:
+    #                 self.failed_molecules.append(feather_file)
+    #                 print(f'Error: {feather_file} could not be processed')
+    #             # self.molecules.append(Molecule(log_file))
          
-        self.molecules_names=[molecule.molecule_name for molecule in self.molecules]
-        self.old_molecules=self.molecules
-        self.old_molecules_names=self.molecules_names
-        os.chdir('../')
+    #     self.molecules_names=[molecule.molecule_name for molecule in self.molecules]
+    #     self.old_molecules=self.molecules
+    #     self.old_molecules_names=self.molecules_names
+    #     os.chdir('../')
     
 
 
@@ -1934,13 +2035,13 @@ class Molecules():
         self.molecules = [self.molecules[i] for i in indices]
         self.molecules_names = [self.molecules_names[i] for i in indices]
 
-    def get_sterimol_dict(self,atom_indices, radii='bondi'):
+    def get_sterimol_dict(self,atom_indices, radii='CPK',sub_structure=True, drop_atoms=None):
         """
         Returns a dictionary with the Sterimol parameters calculated based on the specified base atoms.
 
         Args:
             base_atoms (Union[None, List[int, int], List[List[int, int]]]): The indices of the base atoms to use for the Sterimol calculation.
-            radii (str, optional): The radii to use for the Sterimol calculation. Defaults to 'bondi'.
+            radii (str, optional): The radii to use for the Sterimol calculation. Defaults to 'CPK'.
         Returns:
             Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the Sterimol parameters.
         
@@ -1959,7 +2060,7 @@ class Molecules():
         """
         sterimol_dict={}
         for molecule in self.molecules:
-            sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii)
+            sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii, sub_structure=sub_structure, drop_atoms=drop_atoms)
         return sterimol_dict
     
     def get_npa_dict(self,atom_indices,sub_atoms=None):
@@ -1988,11 +2089,11 @@ class Molecules():
         
         npa_dict={}
         for molecule in self.molecules:
-            try:
-                npa_dict[molecule.molecule_name]=molecule.get_npa_df(atom_indices,sub_atoms)
-            except:
-                print(f'Error: {molecule.molecule_name} could not be processed')
-                pass
+            # try:
+                npa_dict[molecule.molecule_name]=molecule.get_npa_df(atom_indices)
+            # except:
+            #     print(f'Error: {molecule.molecule_name} npa could not be processed')
+            #     pass
             
         return npa_dict
     
@@ -2025,17 +2126,18 @@ class Molecules():
         """
         ring_dict={}
         for molecule in self.molecules:
+      
             ring_dict[molecule.molecule_name]=molecule.get_ring_vibrations(ring_atom_indices)
 
         return ring_dict
     
-    def get_dipole_dict(self,atom_indices, sub_atoms=None):
+    def get_dipole_dict(self,atom_indices):
         dipole_dict={}
         for molecule in self.molecules:
             try:
-                dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(atom_indices, sub_atoms)
+                dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(atom_indices)
             except:
-                print(f'Error: {molecule.molecule_name} could not be processed')
+                print(f'Error: {molecule.molecule_name} Dipole could not be processed')
                 pass
         return dipole_dict
     
@@ -2102,7 +2204,7 @@ class Molecules():
                 pass
         return bond_length_dict
     
-    def get_stretch_vibration_dict(self,atom_pairs):
+    def get_stretch_vibration_dict(self,atom_pairs,threshold=3000):
         """
         Returns a dictionary with the stretch vibrations calculated for the specified atom pairs.
 
@@ -2125,15 +2227,16 @@ class Molecules():
             Stretch_3_4  3175.4029   0.443073
     """
         stretch_vibration_dict={}
+        
         for molecule in self.molecules:
             try:
-                stretch_vibration_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs)
+                stretch_vibration_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs,threshold)
             except:
                 print(f'Error: could not calculate strech vibration for {molecule.molecule_name} ')
 
         return stretch_vibration_dict
     
-    def get_nbo_df_dict(self,atom_indices):
+    def get_charge_df_dict(self,atom_indices):
         """
         Returns a dictionary with the Natural Bond Orbital (NBO) charges for the specified atoms.
 
@@ -2143,7 +2246,7 @@ class Molecules():
         Returns:
             Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the NBO charges.
         
-        input example: molecules.get_nbo_df_dict([3, 5, 7, 9])
+        input example: molecules.get_charge_df_dict([3, 5, 7, 9])
         output example: 
         Results for LS1716_optimized:
                     atom_3   atom_5   atom_7   atom_9
@@ -2157,13 +2260,13 @@ class Molecules():
         nbo_dict={}
         for molecule in self.molecules:
             try:
-                nbo_dict[molecule.molecule_name]=molecule.get_nbo_df(atom_indices)
+                nbo_dict[molecule.molecule_name]=molecule.get_charge_df(atom_indices)
             except:
                 print(f'Error: could not calculate nbo value for {molecule.molecule_name} ')
                 pass
         return nbo_dict
     
-    def get_nbo_diff_df_dict(self,atom_indices):
+    def get_charge_diff_df_dict(self,atom_indices,type='nbo'):
         """
         Returns a dictionary with the differences in Natural Bond Orbital (NBO) charges for the specified pairs of atoms.
 
@@ -2173,7 +2276,7 @@ class Molecules():
         Returns:
             Dict[str, pd.DataFrame]: A dictionary where each key is a molecule name and each value is a DataFrame with the NBO charge differences.
         
-        input example: molecules.get_nbo_diff_df_dict([[1, 2], [3, 4]])
+        input example: molecules.get_charge_diff_df_dict([[1, 2], [3, 4]])
         output example: 
         Results for LS1716_optimized:
                         diff_1-2  diff_3-4
@@ -2184,14 +2287,14 @@ class Molecules():
                         diff_1-2  diff_3-4
             charge -0.12255 -0.38581  0.14691 -0.00681
         """
-        nbo_diff_dict={}
+        charge_diff_dict={}
         for molecule in self.molecules:
             try:
-                nbo_diff_dict[molecule.molecule_name]=molecule.get_nbo_diff_df(atom_indices)
+                charge_diff_dict[molecule.molecule_name]=molecule.get_charge_diff_df(atom_indices,type)
             except:
                 print(f'Error: could not calculate nbo difference for {molecule.molecule_name} ')
                 pass
-        return nbo_diff_dict
+        return charge_diff_dict
     
     def get_bend_vibration_dict(self,atom_pairs,threshold=1300):
         """
@@ -2274,7 +2377,7 @@ class Molecules():
         
     
     def get_molecules_comp_set_app(self,answers_dict: dict,
-                                   dipole_mode = 'gaussian', radii = 'bondi', export_csv=False, answers_list_load=None):
+                                   dipole_mode = 'gaussian', radii = 'bondi', export_csv=False, answers_list_load=None, iso=False):
         """
         molecules.get_molecules_comp_set()
         Ring atoms - by order -> primary axis (para first), ortho atoms and meta atoms: 1,3 1,6 3,4
@@ -2303,7 +2406,7 @@ class Molecules():
                 else:    
                     answers_dict[question]=help_functions.convert_to_list_or_nested_list(answer)
                     answers_list.append(answers_dict[question])
-           
+        
         if answers_list_load is not None:
             answers_list=answers_list_load
         
@@ -2311,10 +2414,12 @@ class Molecules():
         res_df=pd.DataFrame()
         
         if answers_list[0] != []:
-            try:
-                res_df=help_functions.dict_to_horizontal_df(self.get_ring_vibration_dict(answers_list[0][0])) ### get_ring_vibration_dict change all of them later
-            except :
-                pass
+            # try:
+                
+            res_df=help_functions.dict_to_horizontal_df(self.get_ring_vibration_dict(answers_list[0])) ### get_ring_vibration_dict change all of them later
+            # except :
+            #     print('Error: could not calculate ring vibration')
+            #     pass
         if answers_list[1] and answers_list[1]!= []:
             try:
                 res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_stretch_vibration_dict(answers_list[1]))],axis=1)
@@ -2329,49 +2434,49 @@ class Molecules():
         if answers_list[3] and answers_list[3]!= []:
             try:
                 if dipole_mode=='compute':
-                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_npa_dict(answers_list[4],answers_list[3]))],axis=1)
+                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_npa_dict(answers_list[3]))],axis=1)
                 elif dipole_mode=='gaussian':
-                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_dipole_dict(answers_list[4],answers_list[3]))],axis=1)
+                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_dipole_dict(answers_list[3]))],axis=1)
             except :
                 pass
                 
-        if answers_list[5] and answers_list[5]!= []:
+        if answers_list[4] and answers_list[4]!= []:
             try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_nbo_df_dict(answers_list[5]))],axis=1)
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_charge_df_dict(answers_list[4]))],axis=1)
             except :
                 pass
+        if answers_list[5] and answers_list[5]!= []:
+            try:
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_charge_diff_df_dict(answers_list[5]))],axis=1)
+            except :
+                pass
+
         if answers_list[6] and answers_list[6]!= []:
             try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_nbo_diff_df_dict(answers_list[6]))],axis=1)
+                if radii=='CPK':
+                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df((self.get_sterimol_dict(answers_list[6])))],axis=1) ## add cpk and bondi
+                else:
+                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df((self.get_sterimol_dict(answers_list[6])))],axis=1)
             except :
                 pass
 
         if answers_list[7] and answers_list[7]!= []:
             try:
-                if radii=='CPK':
-                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df((self.get_sterimol_dict(answers_list[7])))],axis=1) ## add cpk and bondi
-                else:
-                    res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df((self.get_sterimol_dict(answers_list[7])))],axis=1)
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_length_dict(answers_list[7]))],axis=1)
             except :
                 pass
-
         if answers_list[8] and answers_list[8]!= []:
             try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_length_dict(answers_list[8]))],axis=1)
+                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_angle_dict(answers_list[8]))],axis=1)
             except :
                 pass
-        if answers_list[9] and answers_list[9]!= []:
-            try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_angle_dict(answers_list[9]))],axis=1)
-            except :
-                pass
-
-        self.polarizability_df_concat=pd.DataFrame()
-        for molecule in self.molecules:
-            info=molecule.polarizability_df
-            info=info.rename(index={0:molecule.molecule_name})
-            self.polarizability_df_concat=pd.concat([self.polarizability_df_concat,info],axis=0)
-        res_df=pd.concat([res_df,self.polarizability_df_concat],axis=1)
+        if iso:
+            self.polarizability_df_concat=pd.DataFrame()
+            for molecule in self.molecules:
+                info=molecule.polarizability_df
+                info=info.rename(index={0:molecule.molecule_name})
+                self.polarizability_df_concat=pd.concat([self.polarizability_df_concat,info],axis=0)
+            res_df=pd.concat([res_df,self.polarizability_df_concat],axis=1)
 
         return res_df
 

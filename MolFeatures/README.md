@@ -11,7 +11,7 @@ File Creation: The application supports creating .com files, and choose basis se
 
 Comp Set Application:
 
-Ring Vibration atoms: Users can enter atom indices following a specific order of atoms in ring vibrations (p,primary,o,o,m,m).
+Ring Vibration atoms: Users can enter atom indices following a specific order of atoms in ring vibrations (p,primary).
 
 Stretch Vibration atoms: This input field allows users to specify atom pairs connected by a common atom for stretch vibration analysis.
 
@@ -19,7 +19,7 @@ Bending Vibration atoms: In this section, users can input atom pairs to examine 
 
 Dipole atoms: Atom indices entered here are used for coordination transformation analysis, likely to calculate dipole moments.
 
-NBO Difference: Users can input atom indices to show Natural Bond Orbital (NBO) calculations or atom pairs to calculate differences in NBO.
+charge Difference: Users can input atom indices to show Natural Bond Orbital (charge) calculations or atom pairs to calculate differences in charge.
 
 Sterimol atoms: This field is dedicated to entering atom indices to calculate Sterimol parameters along the primary axis.
 

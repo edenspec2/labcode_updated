@@ -8,8 +8,8 @@ import re
 import pandas as pd
 
 class ReExpressions(Enum):
-    FLOAT = r'[-+]?[0-9]*\.?[0-9]+'
-    # FLOAT= r'-?\d*\.\d*'
+    FLOAT = r'[-+]?[0-9]+\.[0-9]+'
+    FLOAT_POL= r'-?\d*\.\d*'
     FLOATS_ONLY= "[-+]?[.]?[\d]+(?:,\d\d\d)*[\.]?\d*(?:[eE][-+]?\d+)?"
     BONDS= r'R\(\d+.\d+'
     FREQUENCY= r'\-{19}'
@@ -26,6 +26,8 @@ class FileFlags(Enum):
     CHARGE_END='====='
     FREQUENCY_START='Harmonic frequencies'
     FREQUENCY_END='Thermochemistry'
+    HIRSH_CHARGE_START='Hirshfeld'
+    HIRSH_CHARGE_END='Hirshfeld charges with hydrogens '
 
 class Names(Enum):
     
@@ -60,8 +62,7 @@ def search_phrase_in_text(text_lines: str, key_phrase: str) :
 
 def extract_lines_from_text(text_lines, re_expression):
     selected_lines=re.findall(re_expression, text_lines)
-    # if strip:
-    #     selected_lines=selected_lines.strip()
+
     return selected_lines
 
 def find_all_matches(log_file_lines, key_phrase):
@@ -87,6 +88,7 @@ def process_gaussian_dipole_text(log_file_lines):
     if dipole_starts and dipole_ends:
         last_dipole_start = dipole_starts[-1].end()
         last_dipole_end = dipole_ends[-1].start()
+       
         text_section = log_file_lines[last_dipole_start:last_dipole_end]
         selected_lines = extract_lines_from_text(text_section, re_expression=ReExpressions.FLOAT.value)
         selected_lines = selected_lines[0:4] 
@@ -143,6 +145,32 @@ def search_phrase_in_text_pol(text: str, key_phrase: str) -> int:
         return match.start()
     return None
 
+def process_hirshfeld_charges(log_file_lines):
+   
+    charges_start = find_all_matches(log_file_lines, key_phrase=FileFlags.HIRSH_CHARGE_START.value)
+    charges_end = find_all_matches(log_file_lines, key_phrase=FileFlags.HIRSH_CHARGE_END.value)
+
+    if charges_start and charges_end:
+        charges_start = charges_start[-2].end()
+        charges_end = charges_end[-1].start()
+        
+        lines=log_file_lines[charges_start:charges_end]
+    
+    selected_lines = (extract_lines_from_text(lines,
+                                             re_expression=ReExpressions.FLOAT.value))
+   
+    charge_array = np.array(selected_lines).reshape(-1,6)
+    # print(lines)
+  
+    hirsh_charge_array=charge_array[:,0]
+    cm5_charge_array=charge_array[:,5]
+
+    
+
+    return pd.DataFrame(hirsh_charge_array, columns=['hirsh_charge']),pd.DataFrame(cm5_charge_array, columns=['cm5_charge'])
+
+
+
 def process_gaussian_pol_text(log_file_lines: List[str]) -> Optional[pd.DataFrame]:
     """
     Processes Gaussian polarization data and returns a DataFrame.
@@ -163,8 +191,8 @@ def process_gaussian_pol_text(log_file_lines: List[str]) -> Optional[pd.DataFram
     pol_end = search_phrase_in_text_pol(log_file_text, key_phrase=FileFlags.POL_END.value)
     
     if pol_start is not None and pol_end is not None:
-        pol = extract_lines_from_text(log_file_lines[pol_start:pol_end], re_expression=ReExpressions.FLOAT.value)
-        pol_df = pd.DataFrame([float(pol[0])*1000, float(pol[6])*1000], index=['iso', 'aniso'], dtype=float).T
+        pol = extract_lines_from_text(log_file_lines[pol_start:pol_end], re_expression=ReExpressions.FLOAT_POL.value)
+        pol_df = pd.DataFrame([float(pol[0])*1000, float(pol[5])*1000], index=['iso', 'aniso'], dtype=float).T
         return pol_df
     else:
         # print("Failed to create.")
@@ -213,32 +241,6 @@ def process_gaussian_vibs_string(log_file_lines):
         # Removing the last part that contains '------'
         final_blocks = [block.split('-------------------')[0].strip() for block in frequencies_blocks[1:]]
 
-        # vibs_list=[]
-        # for data in final_blocks:
-        #         match=re.findall(ReExpressions.FLOATS_ONLY.value,data)
-                
-        #         del match[0:12] 
-        #         match=np.array(match)
-                
-        #         try:
-        #             print(match.reshape(-1,11))
-        #             vibs_list.append(match.reshape(-1,11))
-        
-        #         except ValueError:
-        #                         try:
-        #                             match=remove_floats_until_first_int(match)
-        #                             vibs_list.append(np.array(match).reshape(-1,11))
-                        
-        #                         except ValueError:
-        #                             match=np.delete(match,[-1,-2,-3],0)
-        #                             vibs_list.append(np.array(match).reshape(-1,11))
-
-        # vibs=np.vstack(vibs_list).astype(float)
-        # vibs=vibs[vibs[:,0].argsort()]
-        # ordered_vibs_list=[vibs[i:i + len(vibs_list)] for i in range(0, len(vibs), len(vibs_list))]
-        # vibs_dict = vib_array_list_to_dict(ordered_vibs_list) if ordered_vibs_list else None
-        # # final_blocks_result = final_blocks if final_blocks else None
-        # print(final_blocks)
         return final_blocks
     
 def process_gaussian_info(frequency_string):
@@ -260,40 +262,91 @@ def vib_array_list_to_df(array_list):
     for array in array_list:
         new_array=np.delete(array,[0,1],axis=1).reshape(-1,3)
         new_df=pd.DataFrame(new_array)
-        
+        ## reverse the order of the columns
+        # new_df=new_df.iloc[:, ::-1]  ## correct but not like shahar's
         array_list_df.append(new_df)
     
     vibs_df=pd.concat(array_list_df,axis=1)
     vibs_df=vibs_df.astype(float)
     return vibs_df
 
+# def process_gaussian_frequency_string(final_blocks):
+#     vibs_list=[]
+    
+#     for data in final_blocks:
+#             match=re.findall(ReExpressions.FLOATS_ONLY.value,data)
+            
+#             del match[0:12] 
+#             match=np.array(match)
+            
+#             try:
+                
+#                 vibs_list.append(match.reshape(-1,11))
+    
+#             except ValueError:
+#                             try:
+#                                 match=remove_floats_until_first_int(match)
+#                                 vibs_list.append(np.array(match).reshape(-1,11))
+                    
+#                             except ValueError:
+#                                 match=np.delete(match,[-1,-2,-3],0)
+#                                 vibs_list.append(np.array(match).reshape(-1,11))
+
+#     vibs=np.vstack(vibs_list)
+#     vibs=vibs[vibs[:,0].argsort()]
+#     ordered_vibs_list=[vibs[i:i + len(vibs_list)] for i in range(0, len(vibs), len(vibs_list))]
+#     vibs_df=vib_array_list_to_df(ordered_vibs_list) if ordered_vibs_list else None
+#     return vibs_df 
+
 def process_gaussian_frequency_string(final_blocks):
     vibs_list=[]
-    
-    for data in final_blocks:
+    short_list=[]
+    lenght=[]
+    for i,data in enumerate(final_blocks):
             match=re.findall(ReExpressions.FLOATS_ONLY.value,data)
-            
+            # if i == len(final_blocks) - 1:
+            #     del match[0:4]
+            # else:
             del match[0:12] 
             match=np.array(match)
-            
+           ## need to find a way to deal with last match which is not a multiple of 11, planar vibrations
+            # match=remove_floats_until_first_int(match)
+            match=np.array(match)
+            if i==1:
+                match=remove_floats_until_first_int(match)
+            match=np.array(match)
+            lenght.append(len(match))
             try:
-                
-                vibs_list.append(match.reshape(-1,11))
-    
-            except ValueError:
-                            try:
-                                match=remove_floats_until_first_int(match)
-                                vibs_list.append(np.array(match).reshape(-1,11))
-                    
-                            except ValueError:
-                                match=np.delete(match,[-1,-2,-3],0)
-                                vibs_list.append(np.array(match).reshape(-1,11))
-
+                # print(match.reshape(-1,11))
+                vibs_list.append(match.reshape(-1,11))  
+            except ValueError:   
+                    try:
+                        match_try=np.delete(match,[-1],0)
+                        # print(match_try)
+                        vibs_list.append(np.array(match_try).reshape(-1,11))
+                    except Exception as e:
+                        try: 
+                            
+                            match_r=np.delete(match,[-1,-2,-3],0)
+                            # print(match_r)
+                            vibs_list.append(np.array(match_r).reshape(-1,11))
+                        except Exception as e:
+                            raise ValueError(f"Error processing vibrations: {e}")
+                                
     vibs=np.vstack(vibs_list)
-    vibs=vibs[vibs[:,0].argsort()]
-    ordered_vibs_list=[vibs[i:i + len(vibs_list)] for i in range(0, len(vibs), len(vibs_list))]
-    vibs_df=vib_array_list_to_df(ordered_vibs_list) if ordered_vibs_list else None
-    return vibs_df 
+    
+    np.set_printoptions(threshold=np.inf)
+    final_atom=vibs[-1][0]
+    ordered_vibs=[]
+    for i in range(1,int(final_atom)+1):
+        ordered_vibs.append(vibs[vibs[:,0]==str(i)])
+    # print(ordered_vibs)
+    # ordered_vibs_list=[ordered_vibs[i:i + len(vibs_list)] for i in range(0, len(ordered_vibs), len(vibs_list))]
+    # print(ordered_vibs_list)
+    vibs_df=vib_array_list_to_df(ordered_vibs) if ordered_vibs else None
+    # vibs_df=vib_array_list_to_df_5(ordered_vibs_list,new_arrays) if ordered_vibs_list else None
+    
+    return vibs_df
 
 
 def df_list_to_dict(df_list):
@@ -315,30 +368,7 @@ def process_gaussian_energy_text(energy_string):
 
 
 
-# def gauss_file_handler(gauss_filename, export=False):
-#     with open(os.path.abspath(gauss_filename)) as f:
-#         log_file_lines=f.read()
-#         #close file
-#         f.close()
-#     try:
-#         energy_str=process_gaussian_energy_text(log_file_lines)
-#     except IndexError:
-#         energy_str=pd.DataFrame('NaN')
-#     charge_str = process_gaussian_charge_text(log_file_lines)
-#     dipole_str=process_gaussian_dipole_text(log_file_lines) 
-#     pol_str=process_gaussian_pol_text(log_file_lines)
-#     gauss_data=gauss_first_split(log_file_lines)
-#     standard_orientation_str=process_gaussian_standard_orientation_text(gauss_data[2])
-#     frequency_str=process_gaussian_vibs_string(log_file_lines)
-#     # bonds_df=process_gaussian_bonds(gauss_data[8])
-#     # vibs_dict,_=process_gaussian_frequency_string(log_file_lines)
-#     info_df=process_gaussian_info(frequency_str)
-#     vibs_df=process_gaussian_frequency_string(frequency_str)
-#     # print(charge_str,energy_str)
-#     # string_list=[standard_orientation_str, dipole_str, pol_str, frequency_str,charge_str,energy_str]
-#     concatenated_df=pd.concat([standard_orientation_str, dipole_str, pol_str, info_df,charge_str,vibs_df,energy_str],axis=1)
-#     # print(concatenated_df.dtypes)
-#     return concatenated_df
+
 
 def gauss_file_handler(gauss_filename, export=False):
     string_report=''
@@ -347,13 +377,13 @@ def gauss_file_handler(gauss_filename, export=False):
     with open(os.path.abspath(gauss_filename)) as f:
         log_file_lines = f.read()
 
-    try:
-        energy_df = process_gaussian_energy_text(log_file_lines)
-        energy_df=energy_df.astype(float)
-    except IndexError:
-        energy_df = pd.DataFrame()
-        print("{gauss_filename}: Error processing energy.")
-        string_report+="{gauss_filename}: Error processing energy.\n"
+    # try:
+    #     energy_df = process_gaussian_energy_text(log_file_lines)
+    #     energy_df=energy_df.astype(float)
+    # except IndexError:
+    #     energy_df = pd.DataFrame()
+    #     print("{gauss_filename}: Error processing energy.")
+    #     string_report+="{gauss_filename}: Error processing energy.\n"
 
     try:
         charge_df = process_gaussian_charge_text(log_file_lines)
@@ -404,9 +434,22 @@ def gauss_file_handler(gauss_filename, export=False):
         vibs_df = pd.DataFrame() # or some default DataFrame
         print(f"{gauss_filename}: Error processing frequency: {e}")
         string_report+=f"{gauss_filename}: Error processing frequency: {e}\n"
+    
+    try:
+        hirsh_charge_df, cm5_charge_df = process_hirshfeld_charges(log_file_lines)
+        hirsh_charge_df=hirsh_charge_df.astype(float)
+        cm5_charge_df=cm5_charge_df.astype(float)
+        # charge_df={'nbo_charge':charge_df,'hirsh_charge':hirsh_charge_df,'cm5_charge':cm5_charge_df} ### need to edit this -- working
+
+    except Exception as e:
+        hirsh_charge_df = pd.DataFrame()
+        cm5_charge_df = pd.DataFrame()
+        print(f"{gauss_filename}: NBO charge only")
+        string_report+=f"{gauss_filename}: NBO charge only\n"
+
 
     try:
-        concatenated_df = pd.concat([standard_orientation_df, dipole_df, pol_df, charge_df, info_df, vibs_df, energy_df], axis=1)
+        concatenated_df = pd.concat([standard_orientation_df, dipole_df, pol_df, charge_df, info_df, vibs_df, hirsh_charge_df,cm5_charge_df], axis=1)
     except Exception as e:
         concatenated_df = pd.DataFrame()  # or some default DataFrame
         print(f"{gauss_filename}: Error concatenating data: {e}")

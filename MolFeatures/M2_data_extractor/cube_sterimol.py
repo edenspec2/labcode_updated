@@ -525,9 +525,11 @@ class cube():
                     max(tc_plane[:,1]),min(tc_plane[:,1])])
             
             tc_plane=tc_plane.round(3)
-            if np.where(avs==avs.min())[0][0] in [0,1]:
+            
+            if np.where(avs==avs.min())[0][0] in [0,1]: 
 
                 idx=np.where(np.isclose(np.abs(tc_plane[:,0]),(avs.min()).round(3)))[0][0]
+                print(tcs)
                 value_from_tcs = tcs[idx, 1]
                 B1_loc=  value_from_tcs * 0.529177249
                 x_b1 = tcs[idx, 0]
@@ -544,6 +546,7 @@ class cube():
             df=pd.concat([df,b_df])
 
         df=df.reset_index(drop=True)
+        print(f'data frame with b1s: {df}')
         B1=df['b1'].min()
         x_b1=df['x_b1'].iloc[df['b1'].idxmin()]
         z_b1=df['z_b1'].iloc[df['b1'].idxmin()]

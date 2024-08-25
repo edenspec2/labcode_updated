@@ -1,5 +1,5 @@
 try:
-    from tkinter import Tk, Frame, Label, Button, Entry, StringVar, OptionMenu, Toplevel, filedialog, Text, Scrollbar, Checkbutton, IntVar, Canvas, LEFT, SOLID
+    from tkinter import Tk, Frame, Label, Button, Entry, StringVar, OptionMenu, Toplevel, filedialog, Text, Scrollbar, Checkbutton, IntVar, Canvas, LEFT, SOLID,END
     import customtkinter  # Assuming you have this library
     import sys
     import os
@@ -27,6 +27,8 @@ try:
     import argparse
     from .M2_data_extractor.cube_sterimol import cube_many
     from .M2_data_extractor.sterimol_standalone import Molecules_xyz
+    import webbrowser
+
 
 
 
@@ -73,7 +75,7 @@ except ImportError or ModuleNotFoundError as e:
     [install(package) for package in packages]
     print(f'Installed the Following Packages : {packages}\n {len(packages)} in total.')
 
-    from tkinter import Tk, Frame, Label, Button, Entry, StringVar, OptionMenu, Toplevel, filedialog, Text, Scrollbar, Checkbutton, IntVar, Canvas, LEFT, SOLID
+    from tkinter import Tk, Frame, Label, Button, Entry, StringVar, OptionMenu, Toplevel, filedialog, Text, Scrollbar, Checkbutton, IntVar, Canvas, LEFT, SOLID,END
     import customtkinter  # Assuming you have this library
     import sys
     import os
@@ -169,8 +171,9 @@ def createToolTip(widget, text):
     widget.bind('<Leave>', leave)
     
 def convert_to_list_or_nested_list(input_str):
+
     split_by_space = input_str.split(' ')
-    
+
     # If there are no spaces, return a flat list
     if len(split_by_space) == 1:
         return list(map(int, split_by_space[0].split(',')))
@@ -180,6 +183,8 @@ def convert_to_list_or_nested_list(input_str):
     for sublist_str in split_by_space:
         sublist = list(map(int, sublist_str.split(',')))
         nested_list.append(sublist)
+
+
     return nested_list
 
 class MoleculeApp:
@@ -237,7 +242,7 @@ class MoleculeApp:
         self.method_menu = OptionMenu(self.sidebar_frame_left, self.method_var, "Windows Command",
                                     "get_sterimol_dict", "get_npa_dict", "get_stretch_dict", "get_ring_dict",
                                     "get_dipole_dict", "get_bond_angle_dict", "get_bond_length_dict",
-                                    "get_nbo_dict", "get_nbo_diff_dict", "get_bending_dict")
+                                    "get_charge_dict", "get_charge_diff_dict", "get_bending_dict")
         self.method_menu.grid(row=3, column=0, padx=20, pady=10)
         
         # StringVar for dropdown menu selection
@@ -290,12 +295,22 @@ class MoleculeApp:
         # self.renumber_button.grid(row=4, column=1, padx=20, pady=10)
 
     def print_description(self):
-        # Path to README.md file from the MolFeatures directory
-        txt_path =  'description.txt'
+        # Path to description.txt file
+        txt_path = 'description.txt'
         try:
             with open(txt_path, 'r') as txt_file:
-                string=txt_file.read()
+                string = txt_file.read()
+                # Show the description text
                 self.show_result(string)
+                
+                # Insert a clickable HTML link
+                self.output_text.insert(END, "\nFor more information, visit: ")
+                self.output_text.insert(END, "Click Here", "link")
+
+                # Bind the link to open a web browser
+                self.output_text.tag_config("link", foreground="blue", underline=1)
+                self.output_text.tag_bind("link", "<Button-1>", lambda e: webbrowser.open_new("https://github.com/edenspec2/LabCode"))
+
         except FileNotFoundError:
             self.show_result("Description file not found.")
 
@@ -457,19 +472,10 @@ class MoleculeApp:
 
 
     def open_question_window(self):
-        self.parameters={'dipole_mode': 'gaussian', 'radii': 'bondi'}
+        self.parameters={'Dipole_mode': 'gaussian', 'Radii': 'bondi', 'Isotropic': False}
 
         
-        def parse_dipole_indices(text):
-            # Find the part of the string that contains the indices after the word 'dipole'
-            match = re.search(r'Indices to move center:\s*\[([\d,\s]+)\]', text)
-            if match:
-                # Extract and return the indices as a list of integers
-                indices_str = match.group(1)
-                return indices_str
-            else:
-                # Return an empty list if 'dipole' is not found
-                return []
+        
 
         def load_answers(questions): #TODO FIXXX the loading
             file_path = filedialog.askopenfilename(defaultextension=".txt",
@@ -499,8 +505,7 @@ class MoleculeApp:
                             final_strings.append(final_string if final_string else None )  # Add None for empty lists
                 # Create a dictionary to store the transformed lists
                 dict_of_ints = {questions[i]: lst for i, lst in enumerate(final_strings) if lst is not None} #.replace('[', '').replace(']', '')
-                dipole=parse_dipole_indices(lines)
-                dict_of_ints['Indices to move center:'] = dipole
+
                 f.close()
                 
                 
@@ -517,26 +522,34 @@ class MoleculeApp:
             var1.set("Dipole")
             var1.trace_add("write", lambda *args: apply_parameters())
             frame.pack(pady=5)
-            dipole_mode=OptionMenu(frame,var1, 'Gaussian', 'NBO')
+            dipole_mode=OptionMenu(frame,var1, 'gaussian', 'charge')
             dipole_mode.grid(row=0, column=0, padx=5)
             
             var2 = StringVar(frame)
             var2.set("Radii")
             var2.trace_add("write", lambda *args: apply_parameters())
-            radii_mode=OptionMenu(frame, var2 ,'Bondi', 'CPK','Covalent')
+            radii_mode=OptionMenu(frame, var2 ,'Bondi', 'CPK','Pyykko ')
             radii_mode.grid(row=0, column=1, padx=5)
             
-            
+            var3 = StringVar(frame)
+            var3.set("Isotropic")
+            var3.trace_add("write", lambda *args: apply_parameters())
+
+            iso_mode=OptionMenu(frame, var3, 'True', 'False')
+            iso_mode.grid(row=0, column=2, padx=5)
+
             def apply_parameters():
-                self.parameters['dipole_mode']=var1.get()   
-                self.parameters['radii']=var2.get()
+                self.parameters['Dipole_mode']=var1.get()   
+                self.parameters['Radii']=var2.get()
+                self.parameters['Isotropic']=var3.get()
+   
                 chosen_parameters.config(text=f"Chosen Parameters: {self.parameters}")
                 
                 return 
             
             # Create an entry widget for the answer
             apply_button = Button(frame, text="Apply", command=window.destroy)
-            apply_button.grid(row=0, column=2, padx=5)
+            apply_button.grid(row=0, column=3, padx=5)
 
 
         def submit_answers(entry_widgets ,parameters ,save_as=False):
@@ -549,10 +562,11 @@ class MoleculeApp:
                     answers[question] = entry
             
             
-            dipole = self.parameters['dipole_mode'] if 'dipole' in self.parameters else 'gaussian'
-            radii = self.parameters['radii'] if 'radii' in self.parameters else 'Bondi'
-            
-            comp_set=self.molecules.get_molecules_comp_set_app(answers, dipole_mode=dipole, radii=radii)  # For demonstration purposes; replace this with your desired action
+            dipole = self.parameters['Dipole_mode'] if 'Dipole' in self.parameters else 'gaussian'
+            radii = self.parameters['Radii'] if 'Radii' in self.parameters else 'bondi'
+            iso= self.parameters['Isotropic'] if 'Isotropic' in self.parameters else False
+
+            comp_set=self.molecules.get_molecules_comp_set_app(answers, dipole_mode=dipole, radii=radii, iso=iso)  # For demonstration purposes; replace this with your desired action
 
             self.show_result(f"Extracted Features: {comp_set}")
             if save_as :
@@ -580,7 +594,7 @@ class MoleculeApp:
         # self.new_window.geometry("600x600")
         canvas = Canvas(self.new_window)
         scrollbar = Scrollbar(self.new_window, orient='vertical', command=canvas.yview)
-        scrollbar.pack(side='right', fill='y')
+        scrollbar.pack(side='right', fill='x')
         scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
         canvas.pack(side='right', fill='both', expand=False)
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -593,12 +607,12 @@ class MoleculeApp:
         chosen_parameters = Label(canvas, text=f"Chosen Parameters: {self.parameters}")
         chosen_parameters.pack(pady=10)
         questions = [
-            "Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13 17",
+            "Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13,17",
             "Strech Vibration atoms- enter bonded atom pairs: \n example: 1,2 4,5",
             "Bending Vibration atoms - enter atom pairs that have a common atom: \n example: 4,7",
             "Dipole atoms - indices for coordination transformation: \n example: 4,5,6 - origin, y-axis, new xy plane",
-            "NBO values - Insert atoms to show NBO: \n example: 1,2,3,4",
-            "NBO difference - Insert atoms to show NBO difference: \n example: 1,2 3,4",
+            "charge values - Insert atoms to show charge: \n example: 1,2,3,4",
+            "charge difference - Insert atoms to show charge difference: \n example: 1,2 3,4",
             "Sterimol atoms - Primary axis along: \n example: 7,8",
             "Bond length - Atom pairs to calculate difference: \n example: 1,2 4,5",
             "Bond Angle - Insert a list of atom triads/quartets for which you wish to have angles/dihedrals: \n example: 1,3,4 5,6,7,4"
@@ -620,22 +634,17 @@ class MoleculeApp:
             entry = Entry(self.frame, width=30)
             entry.pack(side="left", padx=5)
             # choose parameters button
-            if question=="Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13 17":
+            if question=="Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13,17":
                 show_button = Button(self.frame, text="Show", command=lambda: self.open_image(pictures[0]))
                 show_button.pack(side="left", padx=5)
             elif question=="Sterimol atoms - Primary axis along: \n example: 7,8":
                 show_button = Button(self.frame, text="Show", command=lambda: self.morfeus_visualize())
                 show_button.pack(side="left", padx=5)
-            elif question=="Dipole atoms - indices for coordination transformation: \n example: 4,5,6 - origin, y-axis, new xy plane":
-                label = Label(self.frame, text='Indices to move center:', wraplength=200)
-                label.pack(side="left", padx=5)
-                entry_dip = Entry(self.frame, width=30)
-                entry_dip.pack(side="right", padx=5)
-                entry_widgets['Indices to move center:']=entry_dip
+            
             # Store the entry widget in the dictionary
             entry_widgets[question] = entry
             
-        questions.insert(3,"indices to move center:")
+       
             
         submit_button = Button(canvas, text="Submit", command=lambda: submit_answers(entry_widgets, parameters=self.parameters))
         submit_button.pack(pady=20)
@@ -658,7 +667,7 @@ class MoleculeApp:
             self.new_window.title("Questions")
             canvas = Canvas(self.new_window)
             scrollbar = Scrollbar(self.new_window, orient='vertical', command=canvas.yview)
-            scrollbar.pack(side='right', fill='y')
+            scrollbar.pack(side='right', fill='x')
             scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
             canvas.pack(side='right', fill='both', expand=True)
             canvas.configure(yscrollcommand=scrollbar.set)
@@ -671,8 +680,7 @@ class MoleculeApp:
             chosen_parameters.pack(pady=10)
             for question, entry in entry_widgets.items():
                
-                if question == "indices to move center:" or question == "Indices to move center:":
-                    continue
+  
                 self.frame = Frame(canvas)
                 self.frame.pack(pady=5)
                 label = Label(self.frame, text=question, wraplength=400)
@@ -681,19 +689,13 @@ class MoleculeApp:
                 entry.pack(side="left", padx=5)
                 entry.insert(0, entry_widgets[question])
                 
-                if question=="Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13 17":
+                if question=="Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13,17":
                     show_button = Button(self.frame, text="Show", command=lambda: self.open_image(pictures[0]))
                     show_button.pack(side="left", padx=5)
                 elif question=="Sterimol atoms - Primary axis along: \n example: 7,8 2,3":
                     show_button = Button(self.frame, text="Show", command=lambda: self.morfeus_visualize())
                     show_button.pack(side="left", padx=5)
-                elif question=="Dipole atoms - indices for coordination transformation: \n example: 4,5,6 - origin, y-axis, new xy plane":
-                   
-                    label = Label(self.frame, text='Indices to move center:', wraplength=200)
-                    label.pack(side="left", padx=5)
-                    entry_dip = Entry(self.frame, width=30)
-                    entry_dip.pack(side="right", padx=5)
-                    entry_dip.insert(0,entry_widgets['Indices to move center:'])
+        
 
 
             submit_button = Button(canvas, text="Submit", command=lambda: submit_answers(entry_widgets, parameters=self.parameters))
@@ -712,13 +714,13 @@ class MoleculeApp:
         options_window.title("Conversion Options")
         options_window.grab_set()  # Make the window modal
         gaussian_options = {
-            'functionals': ['HF','b97d3', 'B3LYP', 'PBE', 'M06-2X', 'CAM-B3LYP', 'MP2', 'CCSD','test'],
-            'basis_sets': ['STO-3G', '3-21G', '6-31G', '6-31G(d) int=sg1', '6-31G(d,p)','6-31G(2df,p)','6-31+G(d,p)', '6-311G(d,p)', '6-311+G(d,p)', '6-311++G(d,p)', '6-311++G(2d,p)', '6-311++G(3df,2p)','def2svp int=sg1'],
-            'tasks': ['sp', 'opt']
+            'functionals': ['HF','b97d3', 'B3LYP', 'PBE', 'M06-2X', 'CAM-B3LYP', 'MP2', 'CCSD'],
+            'basis_sets': ['STO-3G', '3-21G', '6-31G', '6-31G(d) int=sg1', '6-31G(d,p)','6-31G(2df,p)','6-31+G(d,p)', '6-311G(d,p)', '6-311+G(d,p)', '6-311++G(d,p)', '6-311++G(2d,p)', '6-311++G(3df,2p)'],
+            'tasks': ['single point', 'optimization']
         }
 
         # Create OptionMenus for functional, basis_set, and task
-        self.functional_var = StringVar(value='HF')
+        self.functional_var = StringVar(value='B3LYP')
         Label(options_window, text='Functional:').pack()
         OptionMenu(options_window, self.functional_var, *gaussian_options['functionals']).pack()
 
@@ -726,14 +728,14 @@ class MoleculeApp:
         Label(options_window, text='Basis Set:').pack()
         OptionMenu(options_window, self.basisset_var, *gaussian_options['basis_sets']).pack()
 
-        self.task_var = StringVar(value='sp')
+        self.task_var = StringVar(value='optimization')
         Label(options_window, text='Task:').pack()
         OptionMenu(options_window, self.task_var, *gaussian_options['tasks']).pack()
 
         # Parameters to be entered by the user
 
         self.charge_var = StringVar(value='0 1')
-        self.nbo_var = StringVar(value='n')
+        self.charge_var = StringVar(value='n')
         self.title_var = StringVar(value='title')
         # Create labels and entry widgets for each parameter
         Label(options_window, text='Spin & Charge:').pack()
@@ -784,31 +786,31 @@ class MoleculeApp:
             self.show_result(f"{question}: {entry.get()}")
 
     def filter_molecules(self):
-            self.new_window = Toplevel(self.master)
-            self.new_window.title("Filter Molecules")
+        self.new_window = Toplevel(self.master)
+        self.new_window.title("Filter Molecules")
 
-            canvas = Canvas(self.new_window)
-            scrollbar = Scrollbar(self.new_window, orient='vertical', command=canvas.yview)
-            scrollbar.pack(side='right', fill='y')
-            scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-            canvas.pack(side='left', fill='both', expand=True)
-            canvas.configure(yscrollcommand=scrollbar.set)
+        canvas = Canvas(self.new_window)
+        scrollbar = Scrollbar(self.new_window, orient='vertical', command=canvas.yview)
+        scrollbar.pack(side='right', fill='y')
+        scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
+        canvas.pack(side='left', fill='both', expand=True)
+        canvas.configure(yscrollcommand=scrollbar.set)
 
-            frame = Frame(canvas)
-            canvas_frame = canvas.create_window((0, 0), window=frame, anchor='nw')
+        frame = Frame(canvas)
+        canvas_frame = canvas.create_window((0, 0), window=frame, anchor='nw')
 
-            self.check_vars = [IntVar(value=1) for _ in self.molecules.old_molecules_names]
-            for index, molecule in enumerate(self.molecules.old_molecules_names):
-                Checkbutton(frame, text=molecule, variable=self.check_vars[index]).pack(anchor='w')
+        self.check_vars = [IntVar(value=1) for _ in self.molecules.old_molecules_names]
+        for index, molecule in enumerate(self.molecules.old_molecules_names):
+            Checkbutton(frame, text=molecule, variable=self.check_vars[index]).pack(anchor='w')
 
-            Button(frame, text="Submit", command=self.get_selected_molecules).pack()
-            Button(frame, text="Uncheck", command=self.uncheck_all_boxes).pack()
-            Button(frame, text="Check", command=self.check_all_boxes).pack()
+        Button(frame, text="Submit", command=self.get_selected_molecules).pack()
+        Button(frame, text="Uncheck", command=self.uncheck_all_boxes).pack()
+        Button(frame, text="Check", command=self.check_all_boxes).pack()
 
-            frame.update_idletasks()
-            canvas.config(scrollregion=canvas.bbox('all'))
-            # allow scrooling with scrollwheel
-            canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
+        frame.update_idletasks()
+        canvas.config(scrollregion=canvas.bbox('all'))
+        # allow scrooling with scrollwheel
+        canvas.bind_all("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
 
     def check_all_boxes(self):
         for var in self.check_vars:
@@ -937,10 +939,10 @@ class MoleculeApp:
             self.show_result(f"Method: {self.molecules.molecules[0].get_bond_angle.__doc__}\n)")
         elif selected_method == "get_bond_length_dict":
             self.show_result(f"Method: {self.molecules.molecules[0].get_bond_length.__doc__}\n)")
-        elif selected_method == "get_nbo_dict":
-            self.show_result(f"Method: {self.molecules.molecules[0].get_nbo_df.__doc__}\n)")
-        elif selected_method == "get_nbo_diff_dict":
-            self.show_result(f"Method: {self.molecules.molecules[0].get_nbo_diff_df.__doc__}\n)")
+        elif selected_method == "get_charge_dict":
+            self.show_result(f"Method: {self.molecules.molecules[0].get_charge_df.__doc__}\n)")
+        elif selected_method == "get_charge_diff_dict":
+            self.show_result(f"Method: {self.molecules.molecules[0].get_charge_diff_df.__doc__}\n)")
         elif selected_method == "get_bending_dict":
             self.show_result(f"Method: {self.molecules.molecules[0].get_bend_vibration.__doc__}\n)")
         
@@ -972,10 +974,10 @@ class MoleculeApp:
             self.get_bond_angle(params) 
         elif method == "get_bond_length_dict":
             self.get_bond_length(params)
-        elif method == "get_nbo_dict":
-            self.get_nbo(params)
-        elif method == "get_nbo_diff_dict":
-            self.get_nbo_diff(params)
+        elif method == "get_charge_dict":
+            self.get_charge(params)
+        elif method == "get_charge_diff_dict":
+            self.get_charge_diff(params)
         elif method == "get_bending_dict":
             self.get_bending(params)
         elif method == "get_molecules_comp_set":
@@ -1039,23 +1041,17 @@ class MoleculeApp:
             bond_length_data = self.molecules.get_bond_length_dict(base_atoms)
             self.show_result(f"Bond Lengths:\n {bond_length_data}\n")
 
-    def get_nbo(self,base_atoms_str):
+    def get_charge(self,base_atoms_str):
         if base_atoms_str:
-            # Split the string into two parts
-            # single_numbers_str, pairs_str = base_atoms_str.split(' ', 1)
-            # Convert the first part to a list of numbers
             single_numbers = [int(num) for num in base_atoms_str.split(',')]
-            # Split the second part into pairs and convert each pair to a list of numbers
-            # pairs = [[int(num) for num in pair.split(',')] for pair in pairs_str.split(' ')]
-            # base_atoms = convert_to_list_or_nested_list(base_atoms_str)
-            nbo_data = self.molecules.get_nbo_df_dict(single_numbers)
-            self.show_result(f"NBO Analysis:\n {nbo_data}\n")
+            charge_data = self.molecules.get_charge_df_dict(single_numbers)
+            self.show_result(f"Charge Analysis:\n {charge_data}\n")
     
-    def get_nbo_diff(self,base_atoms_str):
+    def get_charge_diff(self,base_atoms_str):
         if base_atoms_str:
             base_atoms = convert_to_list_or_nested_list(base_atoms_str)
-            nbo_diff_data = self.molecules.get_nbo_diff_dict(base_atoms)
-            self.show_result(f"NBO Differences:\n {nbo_diff_data}\n")
+            charge_diff_data = self.molecules.get_charge_diff_dict(base_atoms)
+            self.show_result(f"Charge Differences:\n {charge_diff_data}\n")
 
     def get_bending(self,base_atoms_str):
         if base_atoms_str:
@@ -1152,6 +1148,7 @@ def prompt_for_args(method):
             prompt = f"Enter value for {param_name} (default: {param.default}): "
         else:
             prompt = f"Enter value for {param_name}: "
+
         user_input = input(prompt) #.strip()
         
         if user_input == "":
@@ -1164,7 +1161,7 @@ def prompt_for_args(method):
             except (ValueError, SyntaxError):
 
                 values.append(user_input)
-    
+    print(values)
     return values
 
 
@@ -1182,7 +1179,7 @@ def load_molecules(molecules_dir_name, renumber=False):
 def interactive_cli(molecules):
     exclude_methods = ['get_molecules_comp_set_app', 'visualize_smallest_molecule_morfeus','visualize_smallest_molecule', 'filter_molecules', 'renumber_molecules']
     methods = [method for method in dir(molecules) if callable(getattr(molecules, method)) and not method.startswith("__") and method not in exclude_methods]
-
+    
     while True:
         print("\nAvailable methods:")
         for method in methods:
