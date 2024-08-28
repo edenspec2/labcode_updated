@@ -5,7 +5,7 @@
 **See moleculaR's [web page](https://barkais.github.io/) for detailed guides and  documenntation**
 
 ## Installation
-Currently the package is under development so the version may chagne , this package is available with pip running the command - pip install -i https://test.pypi.org/simple/ MolFeatures==0.4007.
+Currently the package is under development so the version may chagne , this package is available with pip running the command - pip install -i https://test.pypi.org/simple/ MolFeatures==0.5000.
 When the package is activated for the first time all necessary supporting packages will be installed on the same enviroment as the  packge itself. 
 
 ## Usage
