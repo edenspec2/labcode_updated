@@ -10,7 +10,8 @@ When the package is activated for the first time all necessary supporting packag
 
 ## Usage
 
-After installing run  **python -m MolFeatures to see the package options and directroy.
+After installing run  
+## python -m MolFeatures to see the package options and directroy.
 to install the packages run python -m MolFeatures install or python -m MolFeatures gui
 
 NOTE:
