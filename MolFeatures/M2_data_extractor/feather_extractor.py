@@ -70,10 +70,15 @@ def find_all_matches(log_file_lines, key_phrase):
 
 
 def process_gaussian_charge_text(log_file_lines):
-    charges_start =search_phrase_in_text(log_file_lines, key_phrase=FileFlags.CHARGE_START.value)
-    charges_end = search_phrase_in_text(log_file_lines, key_phrase=FileFlags.CHARGE_END.value)
-    selected_lines = (extract_lines_from_text(log_file_lines[charges_start.start():charges_end.start()],
-                                             re_expression=ReExpressions.FLOATS_ONLY.value))
+    charges_start =find_all_matches(log_file_lines, key_phrase=FileFlags.CHARGE_START.value)
+    charges_end = find_all_matches(log_file_lines, key_phrase=FileFlags.CHARGE_END.value)
+    if charges_start and charges_end:
+        charges_start = charges_start[-1].end()
+        charges_end = charges_end[-1].start()
+        text=log_file_lines[charges_start:charges_end]
+        selected_lines = extract_lines_from_text(text, re_expression=ReExpressions.FLOATS_ONLY.value)
+    # selected_lines = (extract_lines_from_text(log_file_lines[charges_start.start():charges_end.start()],
+    #                                          re_expression=ReExpressions.FLOATS_ONLY.value))
     charge_array = np.array(selected_lines)
     charge_array=charge_array[1::6]
     return pd.DataFrame(charge_array, columns=['charge'])
@@ -409,6 +414,8 @@ def gauss_file_handler(gauss_filename, export=False):
     try:
         gauss_data = gauss_first_split(log_file_lines)
         standard_orientation_df = process_gaussian_standard_orientation_text(gauss_data[2])
+        print(standard_orientation_df)
+        
     except Exception as e:
         standard_orientation_df = pd.DataFrame()
         print(f"{gauss_filename}: Error processing standard orientation: {e}")
@@ -439,17 +446,18 @@ def gauss_file_handler(gauss_filename, export=False):
         hirsh_charge_df, cm5_charge_df = process_hirshfeld_charges(log_file_lines)
         hirsh_charge_df=hirsh_charge_df.astype(float)
         cm5_charge_df=cm5_charge_df.astype(float)
+        print(f"{gauss_filename}: NBO, Hirshfeld and CM5 charges")
         # charge_df={'nbo_charge':charge_df,'hirsh_charge':hirsh_charge_df,'cm5_charge':cm5_charge_df} ### need to edit this -- working
 
     except Exception as e:
-        hirsh_charge_df = pd.DataFrame()
-        cm5_charge_df = pd.DataFrame()
+        hirsh_charge_df = pd.DataFrame({'NaN_Column': [np.nan] * standard_orientation_df.shape[0]})
+        cm5_charge_df = pd.DataFrame({'NaN_Column': [np.nan] * standard_orientation_df.shape[0]})
         print(f"{gauss_filename}: NBO charge only")
         string_report+=f"{gauss_filename}: NBO charge only\n"
 
 
     try:
-        concatenated_df = pd.concat([standard_orientation_df, dipole_df, pol_df, charge_df, info_df, vibs_df, hirsh_charge_df,cm5_charge_df], axis=1)
+        concatenated_df = pd.concat([standard_orientation_df, dipole_df, pol_df, charge_df, hirsh_charge_df,cm5_charge_df, info_df, vibs_df], axis=1)
     except Exception as e:
         concatenated_df = pd.DataFrame()  # or some default DataFrame
         print(f"{gauss_filename}: Error concatenating data: {e}")
@@ -503,6 +511,8 @@ def logs_to_feather(dir_path):
             continue
     string_report+=failed_files_string + 'Check the log files and reported errors for more information.'
     os.chdir(dir_path)
+    
+    print('Done!')
     return string_report
 
 

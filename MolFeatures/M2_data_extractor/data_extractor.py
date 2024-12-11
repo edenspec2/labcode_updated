@@ -35,7 +35,7 @@ try:
 # Now you can import from the parent directory
     from gaussian_handler import feather_file_handler
     from utils import visualize, help_functions
-    from Mol_align import renumbering
+
 except:
     from .gaussian_handler import feather_file_handler
     from ..utils import visualize
@@ -197,6 +197,8 @@ def adjust_indices(element):
         return element - 1
     elif isinstance(element, np.ndarray):
         return element - 1
+    elif isinstance(element, np.int64):
+        return element - 1
     else:
         raise ValueError("Unsupported element type")
 
@@ -296,9 +298,9 @@ def preform_coordination_transformation(xyz_df, indices=None):
     if indices is None:
         xyz_copy[['x','y','z']]=calc_coordinates_transformation(coordinates, [1,2,3])
     else:
-        # print('indices', indices)
+   
         xyz_copy[['x','y','z']]=calc_coordinates_transformation(coordinates, indices)
-    # xyz_copy[['x','y','z']]=calc_coordinates_transformation(coordinates, get_indices([1,2,3])
+
     return xyz_copy
 
 def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLike):##added option for subunits
@@ -349,7 +351,6 @@ def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indic
     gauss_dipole_array = [np.concatenate((np.matmul(basis_vector, gauss_dipole_array[0, 0:3]), [gauss_dipole_array[0, 3]]))]
     dipole_df=pd.DataFrame(gauss_dipole_array,columns=['dipole_x','dipole_y','dipole_z','total'])
 
-    # print(geometric_transformation_indices, dipole_df)
     return dipole_df
 
 def check_imaginary_frequency(info_df):##return True if no complex frequency, called ground.state in R
@@ -379,18 +380,7 @@ def indices_to_coordinates_vector(coordinates_array,indices):
     return bond_vector
 
 
-# def indices_to_coordinates_vector(coordinates_array,indices):
-#     """
-#     a function that recives coordinates_array and indices of two atoms
-#     and returns the bond vector between them
-#     """
-#     print('indices', indices)
-#     if  isinstance(indices[0], tuple):
-#         bond_vector=[(coordinates_array[index[0]]-coordinates_array[index[1]]) for index in indices]
-#     else:
-#         bond_vector= coordinates_array[indices[0]]-coordinates_array[indices[1]]
-#     print('bond_vector', bond_vector)
-#     return bond_vector
+
 
 
 def get_bonds_vector_for_calc_angle(coordinates_array,atoms_indices): ##for calc_angle_between_atoms
@@ -529,13 +519,17 @@ def direction_atoms_for_sterimol(bonds_df,base_atoms)->list: #help function for 
     except: 
         
         for _, row in bonds_df.iterrows():
+           
             if row[0] == direction:
                 base_atoms_copy.append(row[1])
-                break
-            elif row[1] == direction:
+                return base_atoms_copy
+        
+        for _, row in bonds_df.iterrows():
+
+            if row[1] == direction:
                 base_atoms_copy.append(row[0])
-                break
-    return base_atoms_copy
+                return base_atoms_copy
+    
 
 def get_molecule_connections(bonds_df,source,direction):
     graph=ig.Graph.DataFrame(edges=bonds_df,directed=True)
@@ -592,7 +586,9 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82):
     dist_df['second_atom']=[atoms_symbol[i] for i in dist_df['a2']]
     remove_list=[]
     dist_array=np.array(dist_df)
+   
     remove_list = []
+    
     for idx, row in enumerate(dist_array):
         remove_flag = False
       
@@ -614,7 +610,7 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82):
 
         if remove_flag:
             remove_list.append(idx)
-
+    
     dist_df=dist_df.drop(remove_list)
     dist_df[['min_col', 'max_col']] = pd.DataFrame(np.sort(dist_df[['a1', 'a2']], axis=1), index=dist_df.index)
     dist_df = dist_df.drop(columns=['a1', 'a2']).rename(columns={'min_col': 0, 'max_col': 1})
@@ -635,7 +631,7 @@ def get_closest_atom_to_center(xyz_df,center_of_mass):
     return center_atom
 
 def get_sterimol_base_atoms(center_atom, bonds_df):
-    # print(center_atom)
+    
     center_atom_id=int(center_atom.name)+1
     base_atoms = [center_atom_id]
     if (any(bonds_df[0] == center_atom_id)):
@@ -750,7 +746,7 @@ def get_extended_df_for_sterimol(coordinates_df, bonds_df, radii='CPK'):
     # df['atype'] = df['atom'].map(bond_type_map).fillna(bond_type)
     df['magnitude'] = calc_magnitude_from_coordinates_array(df[['x', 'z']].astype(float))
     
-    df['radius'] = df['atom'].map(radii_map)
+    df['radius'] = df['atype'].map(radii_map)
     df['B5'] = df['radius'] + df['magnitude']
     df['L'] = df['y'] + df['radius']
     return df
@@ -768,7 +764,7 @@ def get_transfomed_plane_for_sterimol(plane,degree):
             [-0.6868 -0.4964]
     degree : float
     """
-    # print(degree,plane)
+    
     cos_deg=np.cos(degree*(np.pi/180))
     sin_deg=np.sin(degree*(np.pi/180))
     rot_matrix=np.array([[cos_deg,-1*sin_deg],[sin_deg,cos_deg]])
@@ -776,6 +772,8 @@ def get_transfomed_plane_for_sterimol(plane,degree):
     avs=np.abs([max(transformed_plane[:,0]),min(transformed_plane[:,0]), 
                     max(transformed_plane[:,1]),min(transformed_plane[:,1])])
     
+    ## return the inversed rotation matrix to transform the plane back
+
     return transformed_plane
 
 
@@ -802,7 +800,8 @@ def calc_B1(transformed_plane,avs,edited_coordinates_df,column_index):
     """
     
     ## get the index of the min value in the column compared to the avs.min
-    idx=np.where(np.isclose(np.abs(transformed_plane[:,column_index]),(avs.min()).round(4)))[0][0]
+    idx=np.where(np.isclose(np.abs(transformed_plane[:,column_index]),(avs.min())))[0][0]  ## .round(4)
+
     if transformed_plane[idx,column_index]<0:
         new_idx=np.where(np.isclose(transformed_plane[:,column_index],transformed_plane[:,column_index].min()))[0][0]
         bool_list=np.logical_and(transformed_plane[:,column_index]>=transformed_plane[new_idx,column_index],
@@ -815,20 +814,27 @@ def calc_B1(transformed_plane,avs,edited_coordinates_df,column_index):
         
     against,against_loc=[],[]
     B1,B1_loc=[],[]
-    for i in range(1,transformed_plane.shape[0]): 
+
+    ### return the part of the transformed plane that b1 is calculated from
+    ### convert it back with the inverse matrix to get the original coordinates of b1 location
+    
+    for i in range(0,transformed_plane.shape[0]): 
         if bool_list[i]:
             against.append(np.array(transformed_plane[i,column_index]+edited_coordinates_df['radius'].iloc[i]))
             against_loc.append(edited_coordinates_df['L'].iloc[i])
+
+
         if len(against)>0:
             B1.append(max(against))
             B1_loc.append(against_loc[against.index(max(against))])
-            
+          
         else:
             B1.append(np.abs(transformed_plane[idx,column_index]+edited_coordinates_df['radius'].iloc[idx]))
             B1_loc.append(edited_coordinates_df['radius'].iloc[idx])
             
-    # print(f'B1: {B1}, B1_loc: {B1_loc}')      
-    return [B1,B1_loc]
+            
+      
+    return [B1,B1_loc] 
 
 def b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane):
     """
@@ -844,15 +850,16 @@ def b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane):
     """
     degree=[]
     for degree in degree_list:
-        transformed_plane=get_transfomed_plane_for_sterimol(plane, degree)
+        transformed_plane=get_transfomed_plane_for_sterimol(plane, degree)  ### return the inversed rotation matrix to transform the plane back
         
         avs=np.abs([max(transformed_plane[:,0]),min(transformed_plane[:,0]), 
                     max(transformed_plane[:,1]),min(transformed_plane[:,1])])
         
         if min(avs) == 0:
+     
             min_avs_indices = np.where(avs == min(avs))[0]
             if any(index in [0, 1] for index in min_avs_indices):
-                tc = np.round(transformed_plane, 1)
+                tc = np.round(transformed_plane, 4)
                 B1 = max(extended_df['radius'].iloc[np.where(tc[:, 0] == 0)])
                 B1_loc = extended_df['L'].iloc[np.argmax(extended_df['radius'].iloc[np.where(tc[:, 0] == 0)])]
                 b1s.append(B1)
@@ -860,20 +867,27 @@ def b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane):
                 continue  # Skip the rest of the loop
 
             elif any(index in [2, 3] for index in min_avs_indices):
-                tc = np.round(transformed_plane, 1)
+                tc = np.round(transformed_plane, 4)
                 B1 = max(extended_df['radius'].iloc[np.where(tc[:, 1] == 0)])
                 B1_loc = extended_df['L'].iloc[np.argmax(extended_df['radius'].iloc[np.where(tc[:, 1] == 0)])]
                 b1s.append(B1)
                 b1s_loc.append(B1_loc)
                 continue
+        
+
+        ## use the inverse rotation matrix to transform the plane back and get the coordinates of b1
 
         if np.where(avs==avs.min())[0][0] in [0,1]:
+      
+           
             B1,B1_loc=calc_B1(transformed_plane,avs,extended_df,0)
             
   
         elif np.where(avs==avs.min())[0][0] in [2,3]:
+        
             B1,B1_loc=calc_B1(transformed_plane,avs,extended_df,1)
-             
+            
+            
         
         b1s.append(np.unique(np.vstack(B1)).max())####check
         b1s_loc.append(np.unique(np.vstack(B1_loc)).max())
@@ -898,16 +912,17 @@ def get_b1s_list(extended_df, scans=90//5):
             front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
             degree_list=range(back_ang,front_ang+1)
     else:
-        print('no b1s found')
+     
         return [np.array(b1s),np.array(b1s_loc)]
-    # print(f'specific degree list: {degree_list}')
+
     b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane)
-    # print(f'b1 arrays: {[np.array(b1s),np.array(b1s_loc)]}')
+
     return [np.array(b1s),np.array(b1s_loc)]
 
 def calc_sterimol(bonded_atoms_df,extended_df):
     edited_coordinates_df=filter_atoms_for_sterimol(bonded_atoms_df,extended_df)
     b1s,b1s_loc=get_b1s_list(edited_coordinates_df)
+
     B1=min(b1s[b1s>=0])
     loc_B1=max(b1s_loc[np.where(b1s[b1s>=0]==min(b1s[b1s>=0]))])
     B5=max(edited_coordinates_df['B5'].values)
@@ -927,7 +942,10 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_directio
             coordinates_df = coordinates_df.drop(atom)
 
     bonds_direction = direction_atoms_for_sterimol(bonds_df, base_atoms)
+
     new_coordinates_df = preform_coordination_transformation(coordinates_df, bonds_direction)
+
+
     if sub_structure:
         if connected_from_direction is None:
             connected_from_direction = get_molecule_connections(bonds_df, base_atoms[0], base_atoms[1])
@@ -940,7 +958,7 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_directio
     bonded_atoms_df = get_specific_bonded_atoms_df(bonds_df, connected_from_direction, new_coordinates_df)
     
     extended_df = get_extended_df_for_sterimol(new_coordinates_df, bonds_df, radii)
-    # print(f'extended dataframe: {extended_df}')
+
     ###calculations
     
     sterimol_df = calc_sterimol(bonded_atoms_df, extended_df)
@@ -1186,11 +1204,10 @@ def get_data_for_ring_vibration(info_df: pd.DataFrame, vibration_array_list: Lis
     
     product = [np.dot(row_1, row_2) for row_1, row_2 in zip(*vibration_ring_array_list_to_vector(vibration_array_list))]
     _, vibration_array_list = vibration_ring_array_list_to_vector(vibration_array_list)
-    # print(vibration_array_list)
+
     
     sin_angle = [abs(math.sin(calc_angle(row, coordinates_vector))) for row in vibration_array_list]
-    # print(f'product: {product} ,{len(product)}, frequency: {(info_df)["Frequency"]}, {len((info_df)["Frequency"])}, sin_angle: {sin_angle}, {len(sin_angle)}')
-    
+
     data_df = pd.DataFrame(np.vstack([product, (info_df)['Frequency'], sin_angle]),index=['Product','Frequency','Sin_angle'] )
   
     return data_df.T
@@ -1203,8 +1220,7 @@ def get_filter_ring_vibration_df(data_df: pd.DataFrame, prods_threshhold: float 
     # Filter based on product value
     filter_prods = (abs(data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]]) > prods_threshhold) & \
                    (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]] != 0)
-    # print('filter_prods:',filter_prods,abs(data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[0]])) 
-    # Filter based on frequency range
+
     filter_frequency = (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]] > frequency_min_threshhold) & \
                        (data_df[help_functions.XYZConstants.RING_VIBRATION_INDEX.value[1]] < frequency_max_threshhold)
 
@@ -1970,15 +1986,18 @@ class Molecules():
         os.chdir(self.molecules_path) 
         self.molecules=[]
         self.failed_molecules=[]
+        self.success_molecules=[]
         for feather_file in os.listdir(): 
             if feather_file.endswith('.feather'):
                 try:
                     self.molecules.append(Molecule(feather_file))
-                except:
+                    self.success_molecules.append(feather_file)
+                except Exception as e:
                     self.failed_molecules.append(feather_file)
-                    print(f'Error: {feather_file} could not be processed')
-                    failed_file = feather_file.rsplit('.feather', 1)[0] + '.feather_fail'
-                
+                    print(f'Error: {feather_file} could not be processed : {e}')
+                   
+        print(f'Molecules Loaded: {self.success_molecules}',f'Failed Molecules: {self.failed_molecules}')
+
         self.molecules_names=[molecule.molecule_name for molecule in self.molecules]
         self.old_molecules=self.molecules
         self.old_molecules_names=self.molecules_names
@@ -2089,11 +2108,11 @@ class Molecules():
         
         npa_dict={}
         for molecule in self.molecules:
-            # try:
+            try:
                 npa_dict[molecule.molecule_name]=molecule.get_npa_df(atom_indices)
-            # except:
-            #     print(f'Error: {molecule.molecule_name} npa could not be processed')
-            #     pass
+            except:
+                print(f'Error: {molecule.molecule_name} npa could not be processed')
+                pass
             
         return npa_dict
     
@@ -2167,7 +2186,7 @@ class Molecules():
             try:
                 bond_angle_dict[molecule.molecule_name]=molecule.get_bond_angle(atom_indices)
             except:
-                print(f'Error: {molecule.molecule_name} could not be processed')
+                print(f'Error: {molecule.molecule_name} Angle could not be processed')
                 pass
         return bond_angle_dict
     
@@ -2200,7 +2219,7 @@ class Molecules():
             try:
                 bond_length_dict[molecule.molecule_name]=molecule.get_bond_length(atom_pairs)
             except:
-                print(f'Error: {molecule.molecule_name} could not be processed')
+                print(f'Error: {molecule.molecule_name} Bond Length could not be processed')
                 pass
         return bond_length_dict
     
@@ -2414,12 +2433,11 @@ class Molecules():
         res_df=pd.DataFrame()
         
         if answers_list[0] != []:
-            # try:
-                
-            res_df=help_functions.dict_to_horizontal_df(self.get_ring_vibration_dict(answers_list[0])) ### get_ring_vibration_dict change all of them later
-            # except :
-            #     print('Error: could not calculate ring vibration')
-            #     pass
+            try:
+                res_df=help_functions.dict_to_horizontal_df(self.get_ring_vibration_dict(answers_list[0])) ### get_ring_vibration_dict change all of them later
+            except :
+                print('Error: could not calculate ring vibration')
+                pass
         if answers_list[1] and answers_list[1]!= []:
             try:
                 res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_stretch_vibration_dict(answers_list[1]))],axis=1)

@@ -1,0 +1,264 @@
+Models list | formula                                            |       R.sq |           Q.sq |         MAE |   Model_id |
+|:---------------------------------------------------|-----------:|---------------:|------------:|-----------:|
+| ('Cross_mag_Bending_4-5', 'atom_8_charge')         | 0.469065   |    0.143792    |    0.809002 |          0 |
+| ('cross', 'Cross_mag_Bending_4-5')                 | 0.400883   |    0.0166136   |    0.817721 |          1 |
+| ('Frequency_Bending_4-5', 'Cross_mag_Bending_4-5') | 0.410104   |    0.01459     |    0.791388 |          2 |
+| ('Frequency_Bending_7-5', 'Cross_mag_Bending_4-5') | 0.392028   |    0.000117289 |    0.812185 |          3 |
+| ('Cross_mag_Bending_7-5', 'Cross_mag_Bending_4-5') | 0.403132   |   -0.0182886   |    0.814201 |          4 |
+| ('para', 'Cross_mag_Bending_4-5')                  | 0.398766   |   -0.0253225   |    0.824901 |          5 |
+| ('para_angle', 'Cross_mag_Bending_4-5')            | 0.391198   |   -0.0320531   |    0.826823 |          6 |
+| ('cross_angle', 'Cross_mag_Bending_4-5')           | 0.418096   |   -0.0399114   |    0.805358 |          7 |
+| ('para_angle', 'Frequency_Bending_4-5')            | 0.286307   | -inf           | -inf        |         28 |
+| ('para', 'Frequency_Bending_4-5')                  | 0.188212   | -inf           | -inf        |         24 |
+| ('para', 'atom_8_charge')                          | 0.00569458 | -inf           | -inf        |         25 |
+| ('para_angle', 'Frequency_Bending_7-5')            | 0.175702   | -inf           | -inf        |         26 |
+| ('para_angle', 'Cross_mag_Bending_7-5')            | 0.083586   | -inf           | -inf        |         27 |
+| ('Frequency_Bending_7-5', 'atom_8_charge')         | 0.097359   | -inf           | -inf        |         32 |
+| ('para_angle', 'atom_8_charge')                    | 0.0731862  | -inf           | -inf        |         29 |
+| ('Frequency_Bending_7-5', 'Cross_mag_Bending_7-5') | 0.118973   | -inf           | -inf        |         30 |
+| ('Frequency_Bending_7-5', 'Frequency_Bending_4-5') | 0.251408   | -inf           | -inf        |         31 |
+| ('para', 'Frequency_Bending_7-5')                  | 0.101643   | -inf           | -inf        |         22 |
+| ('Cross_mag_Bending_7-5', 'Frequency_Bending_4-5') | 0.316743   | -inf           | -inf        |         33 |
+| ('Cross_mag_Bending_7-5', 'atom_8_charge')         | 0.0190374  | -inf           | -inf        |         34 |
+| ('para', 'Cross_mag_Bending_7-5')                  | 0.0143972  | -inf           | -inf        |         23 |
+| ('cross_angle', 'Cross_mag_Bending_7-5')           | 0.0226418  | -inf           | -inf        |         18 |
+| ('para', 'para_angle')                             | 0.0729742  | -inf           | -inf        |         21 |
+| ('cross_angle', 'atom_8_charge')                   | 0.0133577  | -inf           | -inf        |         20 |
+| ('cross_angle', 'Frequency_Bending_4-5')           | 0.19308    | -inf           | -inf        |         19 |
+| ('cross_angle', 'Frequency_Bending_7-5')           | 0.14528    | -inf           | -inf        |         17 |
+| ('cross_angle', 'para_angle')                      | 0.0855069  | -inf           | -inf        |         16 |
+| ('cross_angle', 'para')                            | 0.0126037  | -inf           | -inf        |         15 |
+| ('cross', 'atom_8_charge')                         | 0.0290674  | -inf           | -inf        |         14 |
+| ('cross', 'Frequency_Bending_4-5')                 | 0.18833    | -inf           | -inf        |         13 |
+| ('cross', 'Cross_mag_Bending_7-5')                 | 0.0541289  | -inf           | -inf        |         12 |
+| ('cross', 'Frequency_Bending_7-5')                 | 0.10762    | -inf           | -inf        |         11 |
+| ('cross', 'para_angle')                            | 0.235165   | -inf           | -inf        |         10 |
+| ('cross', 'para')                                  | 0.0284559  | -inf           | -inf        |          9 |
+| ('cross', 'cross_angle')                           | 0.0392954  | -inf           | -inf        |          8 |
+| ('Frequency_Bending_4-5', 'atom_8_charge')         | 0.190398   | -inf           | -inf        |         35 | 
+
+ Model Coefficients
+
+|                       |   Estimate |   Std. Error |   t value |     p value |
+|:----------------------|-----------:|-------------:|----------:|------------:|
+| (Intercept)           |   1.10456  |     0.208926 |   5.28686 | 0.000354143 |
+| Cross_mag_Bending_4-5 |   0.725932 |     0.245475 |   2.95725 | 0.0143555   |
+| atom_8_charge         |  -0.318651 |     0.245475 |  -1.2981  | 0.223393    |
+
+3-fold CV
+
+|       Q2 |     MAE |
+|---------:|--------:|
+| -0.34545 | 0.95606 |
+
+5-fold CV
+
+|       Q2 |      MAE |
+|---------:|---------:|
+| 0.290116 | 0.727139 |
+
+Models list | formula                                                                     |        R.sq |         Q.sq |         MAE |   Model_id |
+|:----------------------------------------------------------------------------|------------:|-------------:|------------:|-----------:|
+| ('Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')                          | 0.331452    |    0.0471315 |    0.671859 |          0 |
+| ('para_angle', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')            | 0.427258    |    0.034298  |    0.714465 |          1 |
+| ('para_angle', 'Frequency_Bending_4-5')                                     | 0.350435    |    0.0176434 |    0.737719 |          2 |
+| ('cross', 'para_angle', 'atom_8_charge')                                    | 0.361709    |    0.0051963 |    0.775375 |          3 |
+| ('para_angle', 'Frequency_Bending_4-5', 'atom_8_charge')                    | 0.367058    |   -0.0253607 |    0.748383 |          4 |
+| ('para_angle', 'Frequency_Bending_7-5', 'Frequency_Bending_4-5')            | 0.42658     |   -0.0272279 |    0.739536 |          5 |
+| ('Frequency_Bending_4-5', 'Cross_mag_Bending_4-5', 'atom_8_charge')         | 0.362438    |   -0.0475368 |    0.758073 |          6 |
+| ('cross', 'para_angle', 'Frequency_Bending_4-5')                            | 0.386381    |   -0.0514931 |    0.786839 |          7 |
+| ('cross', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')                 | 0.331828    |   -0.0795621 |    0.720556 |          8 |
+| ('Frequency_Bending_7-5', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5') | 0.346576    |   -0.113097  |    0.717425 |          9 |
+| ('cross', 'para_angle', 'Frequency_Bending_7-5')                            | 0.324944    |   -0.119766  |    0.82566  |         10 |
+| ('cross_angle', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')           | 0.339339    |   -0.120025  |    0.735273 |         11 |
+| ('Frequency_Bending_7-5', 'Frequency_Bending_4-5')                          | 0.305588    |   -0.121909  |    0.749352 |         12 |
+| ('Cross_mag_Bending_7-5', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5') | 0.374387    |   -0.149635  |    0.706033 |         13 |
+| ('para_angle', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')            | 0.388522    |   -0.156967  |    0.823692 |         14 |
+| ('cross_angle', 'para_angle', 'Frequency_Bending_4-5')                      | 0.354309    |   -0.189333  |    0.822504 |         15 |
+| ('Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')                          | 0.278702    |   -0.201427  |    0.789314 |         16 |
+| ('Frequency_Bending_7-5', 'Frequency_Bending_4-5', 'atom_8_charge')         | 0.306889    |   -0.226175  |    0.804445 |         17 |
+| ('cross_angle', 'Frequency_Bending_7-5', 'Frequency_Bending_4-5')           | 0.33235     |   -0.256604  |    0.841602 |         18 |
+| ('cross', 'Frequency_Bending_7-5', 'Frequency_Bending_4-5')                 | 0.305913    |   -0.272387  |    0.805856 |         19 |
+| ('cross_angle', 'para_angle', 'Frequency_Bending_7-5')                      | 0.28638     |   -0.278103  |    0.83373  |         20 |
+| ('Cross_mag_Bending_7-5', 'Frequency_Bending_4-5', 'atom_8_charge')         | 0.284834    |   -0.314384  |    0.830162 |         21 |
+| ('cross', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')                 | 0.28252     |   -0.333471  |    0.848753 |         22 |
+| ('cross', 'para_angle', 'Cross_mag_Bending_4-5')                            | 0.279091    |   -0.363056  |    0.922573 |         23 |
+| ('Frequency_Bending_7-5', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5') | 0.345588    |   -0.381899  |    0.823937 |         24 |
+| ('para', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')                  | 0.335641    |   -0.395693  |    0.779396 |         25 |
+| ('para', 'para_angle', 'Frequency_Bending_4-5')                             | 0.350439    |   -0.4244    |    0.844916 |         26 |
+| ('cross_angle', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')           | 0.278899    |   -0.488227  |    0.873058 |         27 |
+| ('para', 'Frequency_Bending_7-5', 'Frequency_Bending_4-5')                  | 0.307079    |   -0.656859  |    0.874601 |         28 |
+| ('para', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')                  | 0.281907    |   -0.688699  |    0.901902 |         29 |
+| ('cross_angle', 'Frequency_Bending_7-5')                                    | 0.152794    | -inf         | -inf        |         40 |
+| ('para', 'Frequency_Bending_4-5')                                           | 0.252098    | -inf         | -inf        |         48 |
+| ('para', 'Cross_mag_Bending_7-5')                                           | 0.00967738  | -inf         | -inf        |         47 |
+| ('para', 'Frequency_Bending_7-5')                                           | 0.0795257   | -inf         | -inf        |         46 |
+| ('para', 'para_angle')                                                      | 0.0990209   | -inf         | -inf        |         45 |
+| ('cross_angle', 'atom_8_charge')                                            | 0.0279504   | -inf         | -inf        |         44 |
+| ('cross_angle', 'Cross_mag_Bending_4-5')                                    | 0.0739844   | -inf         | -inf        |         43 |
+| ('cross_angle', 'Frequency_Bending_4-5')                                    | 0.253901    | -inf         | -inf        |         42 |
+| ('cross_angle', 'Cross_mag_Bending_7-5')                                    | 0.009701    | -inf         | -inf        |         41 |
+| ('cross_angle', 'para')                                                     | 0.000596907 | -inf         | -inf        |         38 |
+| ('cross_angle', 'para_angle')                                               | 0.0986986   | -inf         | -inf        |         39 |
+| ('cross', 'atom_8_charge')                                                  | 0.0794791   | -inf         | -inf        |         37 |
+| ('cross', 'Cross_mag_Bending_4-5')                                          | 0.0944411   | -inf         | -inf        |         36 |
+| ('cross', 'Frequency_Bending_4-5')                                          | 0.253121    | -inf         | -inf        |         35 |
+| ('cross', 'Cross_mag_Bending_7-5')                                          | 0.0403266   | -inf         | -inf        |         34 |
+| ('cross', 'Frequency_Bending_7-5')                                          | 0.108223    | -inf         | -inf        |         33 |
+| ('cross', 'para_angle')                                                     | 0.227932    | -inf         | -inf        |         32 |
+| ('cross', 'para')                                                           | 0.0402769   | -inf         | -inf        |         31 |
+| ('cross', 'cross_angle')                                                    | 0.0389562   | -inf         | -inf        |         30 |
+| ('para', 'Cross_mag_Bending_4-5')                                           | 0.0626134   | -inf         | -inf        |         49 | 
+
+ Model Coefficients
+
+|                       |   Estimate |   Std. Error |   t value |    p value |
+|:----------------------|-----------:|-------------:|----------:|-----------:|
+| (Intercept)           |   0.981169 |     0.198613 |   4.9401  | 0.00027014 |
+| Frequency_Bending_4-5 |  -0.460318 |     0.199303 |  -2.30964 | 0.0379735  |
+| Cross_mag_Bending_4-5 |   0.247591 |     0.199303 |   1.24228 | 0.236077   |
+
+3-fold CV
+
+|         Q2 |      MAE |
+|-----------:|---------:|
+| -0.0878218 | 0.800113 |
+
+5-fold CV
+
+|       Q2 |      MAE |
+|---------:|---------:|
+| 0.149859 | 0.637443 |
+
+Models list | formula                                                                     |        R.sq |         Q.sq |         MAE |   Model_id |
+|:----------------------------------------------------------------------------|------------:|-------------:|------------:|-----------:|
+| ('Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')                          | 0.331452    |    0.0471315 |    0.671859 |          0 |
+| ('para_angle', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')            | 0.427258    |    0.034298  |    0.714465 |          1 |
+| ('para_angle', 'Frequency_Bending_4-5')                                     | 0.350435    |    0.0176434 |    0.737719 |          2 |
+| ('cross', 'para_angle', 'atom_8_charge')                                    | 0.361709    |    0.0051963 |    0.775375 |          3 |
+| ('para_angle', 'Frequency_Bending_4-5', 'atom_8_charge')                    | 0.367058    |   -0.0253607 |    0.748383 |          4 |
+| ('para_angle', 'Frequency_Bending_7-5', 'Frequency_Bending_4-5')            | 0.42658     |   -0.0272279 |    0.739536 |          5 |
+| ('Frequency_Bending_4-5', 'Cross_mag_Bending_4-5', 'atom_8_charge')         | 0.362438    |   -0.0475368 |    0.758073 |          6 |
+| ('cross', 'para_angle', 'Frequency_Bending_4-5')                            | 0.386381    |   -0.0514931 |    0.786839 |          7 |
+| ('cross', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')                 | 0.331828    |   -0.0795621 |    0.720556 |          8 |
+| ('Frequency_Bending_7-5', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5') | 0.346576    |   -0.113097  |    0.717425 |          9 |
+| ('cross', 'para_angle', 'Frequency_Bending_7-5')                            | 0.324944    |   -0.119766  |    0.82566  |         10 |
+| ('cross_angle', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')           | 0.339339    |   -0.120025  |    0.735273 |         11 |
+| ('Frequency_Bending_7-5', 'Frequency_Bending_4-5')                          | 0.305588    |   -0.121909  |    0.749352 |         12 |
+| ('Cross_mag_Bending_7-5', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5') | 0.374387    |   -0.149635  |    0.706033 |         13 |
+| ('para_angle', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')            | 0.388522    |   -0.156967  |    0.823692 |         14 |
+| ('cross_angle', 'para_angle', 'Frequency_Bending_4-5')                      | 0.354309    |   -0.189333  |    0.822504 |         15 |
+| ('Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')                          | 0.278702    |   -0.201427  |    0.789314 |         16 |
+| ('Frequency_Bending_7-5', 'Frequency_Bending_4-5', 'atom_8_charge')         | 0.306889    |   -0.226175  |    0.804445 |         17 |
+| ('cross_angle', 'Frequency_Bending_7-5', 'Frequency_Bending_4-5')           | 0.33235     |   -0.256604  |    0.841602 |         18 |
+| ('cross', 'Frequency_Bending_7-5', 'Frequency_Bending_4-5')                 | 0.305913    |   -0.272387  |    0.805856 |         19 |
+| ('cross_angle', 'para_angle', 'Frequency_Bending_7-5')                      | 0.28638     |   -0.278103  |    0.83373  |         20 |
+| ('Cross_mag_Bending_7-5', 'Frequency_Bending_4-5', 'atom_8_charge')         | 0.284834    |   -0.314384  |    0.830162 |         21 |
+| ('cross', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')                 | 0.28252     |   -0.333471  |    0.848753 |         22 |
+| ('cross', 'para_angle', 'Cross_mag_Bending_4-5')                            | 0.279091    |   -0.363056  |    0.922573 |         23 |
+| ('Frequency_Bending_7-5', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5') | 0.345588    |   -0.381899  |    0.823937 |         24 |
+| ('para', 'Frequency_Bending_4-5', 'Cross_mag_Bending_4-5')                  | 0.335641    |   -0.395693  |    0.779396 |         25 |
+| ('para', 'para_angle', 'Frequency_Bending_4-5')                             | 0.350439    |   -0.4244    |    0.844916 |         26 |
+| ('cross_angle', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')           | 0.278899    |   -0.488227  |    0.873058 |         27 |
+| ('para', 'Frequency_Bending_7-5', 'Frequency_Bending_4-5')                  | 0.307079    |   -0.656859  |    0.874601 |         28 |
+| ('para', 'Cross_mag_Bending_7-5', 'Frequency_Bending_4-5')                  | 0.281907    |   -0.688699  |    0.901902 |         29 |
+| ('cross_angle', 'Frequency_Bending_7-5')                                    | 0.152794    | -inf         | -inf        |         40 |
+| ('para', 'Frequency_Bending_4-5')                                           | 0.252098    | -inf         | -inf        |         48 |
+| ('para', 'Cross_mag_Bending_7-5')                                           | 0.00967738  | -inf         | -inf        |         47 |
+| ('para', 'Frequency_Bending_7-5')                                           | 0.0795257   | -inf         | -inf        |         46 |
+| ('para', 'para_angle')                                                      | 0.0990209   | -inf         | -inf        |         45 |
+| ('cross_angle', 'atom_8_charge')                                            | 0.0279504   | -inf         | -inf        |         44 |
+| ('cross_angle', 'Cross_mag_Bending_4-5')                                    | 0.0739844   | -inf         | -inf        |         43 |
+| ('cross_angle', 'Frequency_Bending_4-5')                                    | 0.253901    | -inf         | -inf        |         42 |
+| ('cross_angle', 'Cross_mag_Bending_7-5')                                    | 0.009701    | -inf         | -inf        |         41 |
+| ('cross_angle', 'para')                                                     | 0.000596907 | -inf         | -inf        |         38 |
+| ('cross_angle', 'para_angle')                                               | 0.0986986   | -inf         | -inf        |         39 |
+| ('cross', 'atom_8_charge')                                                  | 0.0794791   | -inf         | -inf        |         37 |
+| ('cross', 'Cross_mag_Bending_4-5')                                          | 0.0944411   | -inf         | -inf        |         36 |
+| ('cross', 'Frequency_Bending_4-5')                                          | 0.253121    | -inf         | -inf        |         35 |
+| ('cross', 'Cross_mag_Bending_7-5')                                          | 0.0403266   | -inf         | -inf        |         34 |
+| ('cross', 'Frequency_Bending_7-5')                                          | 0.108223    | -inf         | -inf        |         33 |
+| ('cross', 'para_angle')                                                     | 0.227932    | -inf         | -inf        |         32 |
+| ('cross', 'para')                                                           | 0.0402769   | -inf         | -inf        |         31 |
+| ('cross', 'cross_angle')                                                    | 0.0389562   | -inf         | -inf        |         30 |
+| ('para', 'Cross_mag_Bending_4-5')                                           | 0.0626134   | -inf         | -inf        |         49 | 
+
+ Model Coefficients
+
+|                       |   Estimate |   Std. Error |   t value |    p value |
+|:----------------------|-----------:|-------------:|----------:|-----------:|
+| (Intercept)           |   0.981169 |     0.198613 |   4.9401  | 0.00027014 |
+| Frequency_Bending_4-5 |  -0.460318 |     0.199303 |  -2.30964 | 0.0379735  |
+| Cross_mag_Bending_4-5 |   0.247591 |     0.199303 |   1.24228 | 0.236077   |
+
+3-fold CV
+
+|       Q2 |      MAE |
+|---------:|---------:|
+| 0.156044 | 0.613079 |
+
+5-fold CV
+
+|        Q2 |      MAE |
+|----------:|---------:|
+| -0.754515 | 0.960281 |
+
+Models list | formula                                            |       R.sq |        Q.sq |         MAE |   Model_id |
+|:---------------------------------------------------|-----------:|------------:|------------:|-----------:|
+| ('cross', 'para_angle')                            | 0.229743   |   -0.17582  |    0.870397 |          0 |
+| ('para_angle', 'Frequency_Bending_4-5')            | 0.266077   |   -0.198013 |    0.8488   |          1 |
+| ('Frequency_Bending_4-5', 'atom_8_charge')         | 0.172335   |   -0.234161 |    0.847729 |          2 |
+| ('cross', 'Frequency_Bending_4-5')                 | 0.172863   |   -0.31829  |    0.861397 |          3 |
+| ('para_angle', 'Frequency_Bending_7-5')            | 0.167647   |   -0.339725 |    0.90768  |          4 |
+| ('Frequency_Bending_7-5', 'Frequency_Bending_4-5') | 0.248586   |   -0.35956  |    0.831872 |          5 |
+| ('cross_angle', 'Frequency_Bending_4-5')           | 0.181454   |   -0.415141 |    0.876793 |          6 |
+| ('Frequency_Bending_4-5', 'Cross_mag_Bending_4-5') | 0.301836   |   -0.442464 |    0.839401 |          7 |
+| ('Cross_mag_Bending_7-5', 'Frequency_Bending_4-5') | 0.24517    |   -0.519912 |    0.887975 |          8 |
+| ('para', 'Frequency_Bending_4-5')                  | 0.172306   |   -0.727281 |    0.930761 |          9 |
+| ('Cross_mag_Bending_7-5', 'Cross_mag_Bending_4-5') | 0.166286   |   -0.781153 |    0.991862 |         10 |
+| ('para_angle', 'Cross_mag_Bending_4-5')            | 0.171926   |   -0.887862 |    1.04846  |         11 |
+| ('Frequency_Bending_7-5', 'Cross_mag_Bending_4-5') | 0.153461   |   -0.893436 |    1.01449  |         12 |
+| ('Cross_mag_Bending_4-5', 'atom_8_charge')         | 0.152225   |   -1.09455  |    1.07998  |         13 |
+| ('Frequency_Bending_7-5', 'atom_8_charge')         | 0.0868994  | -inf        | -inf        |         34 |
+| ('Frequency_Bending_7-5', 'Cross_mag_Bending_7-5') | 0.116246   | -inf        | -inf        |         33 |
+| ('para_angle', 'atom_8_charge')                    | 0.0735509  | -inf        | -inf        |         32 |
+| ('para_angle', 'Cross_mag_Bending_7-5')            | 0.083972   | -inf        | -inf        |         31 |
+| ('cross_angle', 'atom_8_charge')                   | 0.0113058  | -inf        | -inf        |         25 |
+| ('para', 'atom_8_charge')                          | 0.00403165 | -inf        | -inf        |         30 |
+| ('para', 'Cross_mag_Bending_4-5')                  | 0.128073   | -inf        | -inf        |         29 |
+| ('para', 'Cross_mag_Bending_7-5')                  | 0.0147086  | -inf        | -inf        |         28 |
+| ('para', 'Frequency_Bending_7-5')                  | 0.0911635  | -inf        | -inf        |         27 |
+| ('para', 'para_angle')                             | 0.0731601  | -inf        | -inf        |         26 |
+| ('cross', 'Cross_mag_Bending_4-5')                 | 0.137601   | -inf        | -inf        |         18 |
+| ('cross_angle', 'Cross_mag_Bending_4-5')           | 0.125546   | -inf        | -inf        |         24 |
+| ('cross_angle', 'Cross_mag_Bending_7-5')           | 0.0229411  | -inf        | -inf        |         23 |
+| ('cross_angle', 'Frequency_Bending_7-5')           | 0.137354   | -inf        | -inf        |         22 |
+| ('cross_angle', 'para_angle')                      | 0.0844222  | -inf        | -inf        |         21 |
+| ('cross_angle', 'para')                            | 0.0111026  | -inf        | -inf        |         20 |
+| ('cross', 'atom_8_charge')                         | 0.0268954  | -inf        | -inf        |         19 |
+| ('cross', 'Cross_mag_Bending_7-5')                 | 0.0545982  | -inf        | -inf        |         17 |
+| ('cross', 'Frequency_Bending_7-5')                 | 0.0974261  | -inf        | -inf        |         16 |
+| ('cross', 'para')                                  | 0.0271237  | -inf        | -inf        |         15 |
+| ('cross', 'cross_angle')                           | 0.0357695  | -inf        | -inf        |         14 |
+| ('Cross_mag_Bending_7-5', 'atom_8_charge')         | 0.019256   | -inf        | -inf        |         35 | 
+
+ Model Coefficients
+
+|             |   Estimate |   Std. Error |   t value |     p value |
+|:------------|-----------:|-------------:|----------:|------------:|
+| (Intercept) |   1.09903  |     0.231268 |   4.75221 | 0.000597562 |
+| cross       |   0.426263 |     0.284978 |   1.49578 | 0.16284     |
+| para_angle  |  -0.485325 |     0.284978 |  -1.70303 | 0.116615    |
+
+3-fold CV
+
+|        Q2 |      MAE |
+|----------:|---------:|
+| -0.011236 | 0.732671 |
+
+5-fold CV
+
+|        Q2 |     MAE |
+|----------:|--------:|
+| -0.254544 | 0.85462 |
+

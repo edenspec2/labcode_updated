@@ -25,29 +25,32 @@ def df_list_to_dict(df_list):
 
 def feather_file_handler(feather_file):
     # Read the feather file
+    
     data = pd.read_feather(feather_file)
+    print(data)
+    data.columns=range(len(data.columns))
+    ## change pandas options to display all columns
+  
     xyz = data.iloc[:, 0:4].dropna()
     dipole_df = data.iloc[:, 4:8].dropna()
     pol_df = data.iloc[:, 8:10].dropna()
     nbo_charge_df = data.iloc[:, 10:11].dropna()
-    info_df = data.iloc[:, 11:13].dropna()
-    vectors = data.iloc[:, 13:]#.dropna()
+    ## if the whole column is NaN, it will be removed
+    hirshfeld_charge_df = data.iloc[:,11:12].dropna().reset_index(drop=True)
+    cm5_charge_df = data.iloc[:,12:13].dropna().reset_index(drop=True)
+    info_df = data.iloc[:, 13:15].dropna()
+    vectors = data.iloc[:, 15:].dropna()
     
-    last_col = vectors.iloc[:, -1].dropna()
-    
-    if len(last_col) == len(nbo_charge_df):
-        hirshfeld_charge_df = vectors.iloc[:, -2].dropna().reset_index(drop=True)
-        cm5_charge_df = last_col.reset_index(drop=True)
 
-    else:
-        hirshfeld_charge_df = None
-        cm5_charge_df = None
+    
         
     xyz.rename(columns={xyz.columns[0]: 'atom', xyz.columns[1]: 'x', xyz.columns[2]: 'y', xyz.columns[3]: 'z'}, inplace=True)
         # Remove the first two rows
+    # xyz = xyz.iloc[2:]
     xyz = xyz.reset_index(drop=True)
 
     xyz[['x', 'y', 'z']] = xyz[['x', 'y', 'z']].astype(float)
+ 
     xyz=xyz.dropna()
     # Calculate the length of the DataFrame
     dipole_df.rename(columns={dipole_df.columns[0]: 'dip_x', dipole_df.columns[1]: 'dip_y', dipole_df.columns[2]: 'dip_z', dipole_df.columns[3]: 'total_dipole'}, inplace=True)

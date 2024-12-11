@@ -14,9 +14,8 @@ try:
     from .M1_pre_calculations.main import Module1Handler
     from .Mol_align.renumbering import batch_renumbering
     from .M2_data_extractor.feather_extractor import logs_to_feather
+    from .M3_modeler.modeling import ClassificationModel, LinearRegressionModel
     import warnings
-    from .M3_modeler.single_model_processing import Model
-    from .M3_modeler.model_info_app import ModelInfoTkinter
     from tkinter import filedialog, messagebox
     import warnings
     from typing import Dict
@@ -28,7 +27,7 @@ try:
     from .M2_data_extractor.cube_sterimol import cube_many
     from .M2_data_extractor.sterimol_standalone import Molecules_xyz
     import webbrowser
-
+    import seaborn as sns
 
 
 
@@ -60,7 +59,10 @@ except ImportError or ModuleNotFoundError as e:
         "seaborn",
         'PIL',
         'morfeus-ml',
-        'scipy'
+        'scipy',
+        'tqdm',
+        'statsmodels',
+        'adjustText'
     ]
 
     def install(package):
@@ -90,9 +92,8 @@ except ImportError or ModuleNotFoundError as e:
     from .M1_pre_calculations.main import Module1Handler
     from .Mol_align.renumbering import batch_renumbering
     from .M2_data_extractor.feather_extractor import logs_to_feather
+    from .M3_modeler.modeling import ClassificationModel, LinearRegressionModel
     import warnings
-    from .M3_modeler.single_model_processing import Model
-    from .M3_modeler.model_info_app import ModelInfoTkinter
     from tkinter import filedialog, messagebox
     import warnings
     from typing import Dict
@@ -103,7 +104,8 @@ except ImportError or ModuleNotFoundError as e:
     import argparse
     from .M2_data_extractor.cube_sterimol import cube_many
     from .M2_data_extractor.sterimol_standalone import Molecules_xyz
-    
+    import webbrowser
+    import seaborn as sns
 
 def get_package_version():
     version = "unknown"
@@ -121,16 +123,14 @@ def get_package_version():
 
     return version
 
-__version__ = 0.4007 #get_package_version()
+__version__ = 0.8006 #get_package_version()
 
 # Function to get the current date
 def get_current_date():
     return datetime.now().strftime("%Y-%m-%d")
 
-# Assuming the 'Model' and 'Model_info' classes are defined elsewhere in your code
 def show_results(message):
-            # Method to display results in the Tkinter application
-            messagebox.showinfo("Results", message)
+        messagebox.showinfo("Results", message)
             
 class ToolTip(object):
     def __init__(self, widget):
@@ -184,8 +184,11 @@ def convert_to_list_or_nested_list(input_str):
         sublist = list(map(int, sublist_str.split(',')))
         nested_list.append(sublist)
 
-
-    return nested_list
+    if nested_list:
+        return nested_list
+    else:
+        return None
+   
 
 class MoleculeApp:
     def __init__(self, master):
@@ -205,11 +208,17 @@ class MoleculeApp:
         
 
         
-        self.output_text = Text(master, wrap='word', height=20, width=100)
-        self.scrollbar = Scrollbar(master, command=self.output_text.yview)
-        self.output_text.config(yscrollcommand=self.scrollbar.set)
+        self.output_text = Text(master, wrap='none', height=20, width=100)
+        self.v_scrollbar = Scrollbar(master, command=self.output_text.yview)
+        self.h_scrollbar = Scrollbar(master, orient='horizontal', command=self.output_text.xview)
+
+        self.output_text.config(yscrollcommand=self.v_scrollbar.set, xscrollcommand=self.h_scrollbar.set)
+
+        # Place the Text widget and scrollbars in the grid
         self.output_text.grid(row=0, column=1, rowspan=4, sticky="nsew")
-        self.scrollbar.grid(row=0, column=2, rowspan=4, sticky='ns')
+        self.v_scrollbar.grid(row=0, column=2, rowspan=4, sticky='ns')
+        self.h_scrollbar.grid(row=4, column=1, columnspan=2, sticky='ew')
+
         self.output_text.bind("<MouseWheel>", lambda event: self.output_text.yview_scroll(int(-1 * (event.delta / 120)), "units"))
         self.show_result(f"Current directory: {self.current_directory}\n List of files: {os.listdir()}\n")
         self.print_description()
@@ -259,9 +268,9 @@ class MoleculeApp:
         self.visualize_button.grid(row=5, column=0, padx=20, pady=10)
         createToolTip(self.visualize_button, "Select Molecules to visualize.")
 
-        # self.model_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Model Data", command=self.run_model_in_directory)
-        # self.model_button.grid(row=5, column=1, padx=20, pady=10)
-        # createToolTip(self.model_button, "Run a model in a specified directory using provided CSV filepaths.\n Choose between classification and regression \n Choose between 2-4 features and provide a features with target CSV file.")
+        self.model_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Model Data", command=self.run_model_in_directory)
+        self.model_button.grid(row=4, column=1, padx=20, pady=10)
+        createToolTip(self.model_button, "Run a model in a specified directory using provided CSV filepaths.\n Choose between classification and regression \n Choose between 2-4 features and provide a features with target CSV file.")
 
         # Separate button for Export Data
         self.export_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Extract DataFrames", command=self.export_data)
@@ -285,14 +294,14 @@ class MoleculeApp:
             self.check_vars = [IntVar(value=1) for _ in self.molecules_names]
         else:
             self.check_vars = []
-        
+
         # save text button
         self.save_txt_button = Button(master, text="Save Output Text", command=self.save_text)
         self.save_txt_button.grid(row=5, column=1, sticky='e')
         createToolTip(self.save_txt_button, "Save the output text from the box to a .txt file.")
 
         # self.renumber_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Renumber xyz Directory", command=self.renumber_directory)
-        # self.renumber_button.grid(row=4, column=1, padx=20, pady=10)
+        # self.renumber_button.grid(row=4, column=1, padx=20, pady=10)      
 
     def print_description(self):
         # Path to description.txt file
@@ -315,80 +324,210 @@ class MoleculeApp:
             self.show_result("Description file not found.")
 
     
-    def run_model_in_directory(self, min_features_num=2, max_features_num=4, target_csv_filepath= '' ) -> None:
-        """
-        Runs a model in a specified directory using provided CSV filepaths.
+    # def run_model_in_directory(self, min_features_num=2, max_features_num=4, target_csv_filepath= '' ) -> None:
+    #     """
+    #     Runs a model in a specified directory using provided CSV filepaths.
 
-        :param directory: The directory to change to.
-        :param csv_filepaths: A dictionary with filepaths for features and target CSV files.
-        :param min_features_num: Minimum number of features for the model.
-        :param max_features_num: Maximum number of features for the model.
-        """
-        def on_model_select(choice):
-            self.model_type = choice
-            self.model_type_selected = True  # Indicate that the model type has been selected
+    #     :param directory: The directory to change to.
+    #     :param csv_filepaths: A dictionary with filepaths for features and target CSV files.
+    #     :param min_features_num: Minimum number of features for the model.
+    #     :param max_features_num: Maximum number of features for the model.
+    #     """
+    #     def on_model_select(choice):
+    #         self.model_type = choice
+    #         self.model_type_selected = True  # Indicate that the model type has been selected
 
-        new_window = Toplevel(root)
-        # Variable to hold the selected model type
-        model_type_var = StringVar(new_window)
+    #     new_window = Toplevel(self.master)
+    #     # Variable to hold the selected model type
+    #     model_type_var = StringVar(new_window)
 
-        # Dropdown menu for model type selection
+    #     # Dropdown menu for model type selection
+    #     model_type_label = Label(new_window, text="Select Model Type:")
+    #     model_type_label.grid(padx=0, pady=10)
+
+    #     model_type_dropdown = OptionMenu(new_window, model_type_var, 'classification', 'linear_regression', command=on_model_select)
+    #     model_type_dropdown.grid(padx=10, pady=10)
+
+    #     # Wait for the model type to be selected
+    #     self.model_type_selected = False
+    #     self.model_type = None
+    #     while not self.model_type_selected:
+    #         new_window.update()
+    #         # Get the selected model type
+    #         model_type = model_type_var.get()
+        
+        
+    #     output_csv_filepath=filedialog.askopenfilename(defaultextension=".csv",
+    #                                    filetypes=[("Excel files", "*.csv"),
+    #                                               ("All files", "*.*")])
+    #     directory = os.path.dirname(output_csv_filepath)
+    #     # ask if you want to load target csv file
+    #     load_target = messagebox.askyesno("Load Target CSV", "Do you want to load a target CSV file?")
+    #     if load_target:
+    #         target_csv_filepath = filedialog.askopenfilename(defaultextension=".csv",
+    #                                    filetypes=[("Excel files", "*.csv"),
+    #                                               ("All files", "*.*")])
+        
+    #     new_window.destroy()
+
+    #     os.chdir(directory)
+    #     csv_filepaths = {'features_csv_filepath': output_csv_filepath,
+    #                     'target_csv_filepath': target_csv_filepath}
+        
+    #     ## ask for number of min_features_num and max_features_num
+    #     def get_valid_integer(prompt, default_value):
+    #         while True:
+    #             value_str = askstring("Input", prompt)
+    #             try:
+    #                 return int(value_str)
+    #             except (ValueError, TypeError):
+    #                 # If the input is not valid, return the default value
+    #                 print(f"Using default value: {default_value}")
+    #                 return default_value
+
+    #     min_features_num = get_valid_integer("Enter the minimum number of features for the model: default is 2", 2)
+    #     max_features_num = get_valid_integer("Enter the maximum number of features for the model: None will results in observation/5 rule of thumb", None)
+    #     top_n = get_valid_integer("Enter the number of models to display: default is 50", 50)
+    #     threshold = get_valid_integer("Enter the r2/accuracy threshold for the model: default is 0.80", 0.80)
+    #     leave_out= messagebox.askyesno("Leave out", "Do you want to leave out molecules?")
+    #     if leave_out:
+    #         names=pd.read_csv(output_csv_filepath)['Unnamed: 0'].tolist()
+    #         name_dict={i: name for i, name in enumerate(names)}
+    #         self.show_result(f"\n\n\n Names of molecules: {name_dict}")
+    #         leave_out_indices = askstring("Input", f"Enter the indices of the molecules to leave out (Check text box for names): example: 1,2,3")
+            
+    #         leave_out_indices = convert_to_list_or_nested_list(leave_out_indices)
+    #     else:
+    #         leave_out_indices = None
+
+    #     with warnings.catch_warnings():
+    #         warnings.simplefilter("ignore")
+    #         if model_type == 'classification':
+    #             classification=ClassificationModel(csv_filepaths, process_method='one csv', output_name='class', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False)
+    #             classification_results=classification.fit_and_evaluate_combinations(top_n = top_n, accuracy_threshold=threshold, app=self)
+
+    #         elif model_type == 'linear_regression':
+
+    #             linear_regression=LinearRegressionModel(csv_filepaths, process_method='one csv', output_name='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False)
+    #             regression_results=linear_regression.fit_and_evaluate_combinations(top_n = top_n, initial_r2_threshold=threshold, app=self)
+
+    #         return 
+
+    def validate_integer(self, P):
+            # Validation function to allow only integer input
+            if P.isdigit() or P == "":
+                return True
+            return False
+    
+    def leave_out_molecules(self):
+        
+        names=self.molecules.molecules_names
+        name_dict={i: name for i, name in enumerate(names)}
+        messagebox.showinfo(f"\n\n\n Names of molecules: {name_dict}")
+        
+        return 
+    
+    def run_model_in_directory(self):
+        new_window = Toplevel(self.master)
+        new_window.title("Run Model")
+        
+        
+        
+        vcmd = (new_window.register(self.validate_integer), '%P')
+        # Model Type Selection
         model_type_label = Label(new_window, text="Select Model Type:")
-        model_type_label.grid(padx=0, pady=10)
+        model_type_label.grid(row=0, column=0, padx=10, pady=10)
+        
+        model_type_var = StringVar(new_window)
+        model_type_dropdown = OptionMenu(new_window, model_type_var, 'classification', 'linear_regression')
+        model_type_dropdown.grid(row=0, column=1, padx=10, pady=10)
 
-        model_type_dropdown = OptionMenu(new_window, model_type_var, 'classification', 'linear_regression', command=on_model_select)
-        model_type_dropdown.grid(padx=10, pady=10)
+        # Feature CSV Selection
+        def select_features_csv():
+            filepath = filedialog.askopenfilename(defaultextension=".csv",
+                                                  filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+            feature_csv_entry.delete(0, END)
+            feature_csv_entry.insert(0, filepath)
 
-        # Wait for the model type to be selected
-        self.model_type_selected = False
-        self.model_type = None
-        while not self.model_type_selected:
-            new_window.update()
-            # Get the selected model type
+        features_csv_label = Label(new_window, text="Select Features CSV:")
+        features_csv_label.grid(row=1, column=0, padx=10, pady=10)
+
+        feature_csv_entry = Entry(new_window, width=50)
+        feature_csv_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        feature_csv_button = Button(new_window, text="Browse...", command=select_features_csv)
+        feature_csv_button.grid(row=1, column=2, padx=10, pady=10)
+
+        # Target CSV Selection (optional)
+        def select_target_csv():
+            filepath = filedialog.askopenfilename(defaultextension=".csv",
+                                                  filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+            target_csv_entry.delete(0, END)
+            target_csv_entry.insert(0, filepath)
+
+        target_csv_label = Label(new_window, text="Select Target CSV (Optional):")
+        target_csv_label.grid(row=2, column=0, padx=10, pady=10)
+
+        target_csv_entry = Entry(new_window, width=50)
+        target_csv_entry.grid(row=2, column=1, padx=10, pady=10)
+
+        target_csv_button = Button(new_window, text="Browse...", command=select_target_csv)
+        target_csv_button.grid(row=2, column=2, padx=10, pady=10)
+
+        leave_out_button=Button(new_window, text="Show Molecules Numbers", command=self.leave_out_molecules)
+        leave_out_button.grid(row=3, column=2, padx=10, pady=10)
+        Label(new_window, text="Leave Out Molecules:").grid(row=3, column=0)
+        self.leave_out_mols=StringVar(new_window,value='None')
+        Entry(new_window,textvariable=self.leave_out_mols, validate='key').grid(row=3, column=1)
+        # self.leave_out_mols=convert_to_list_or_nested_list(self.leave_out_mols)
+
+        Label(new_window, text="Min Features:").grid(row=4, column=0)
+        self.min_features_var = StringVar(new_window, value='2')
+        Entry(new_window, textvariable=self.min_features_var, validate='key', validatecommand=vcmd).grid(row=4, column=1)
+
+        Label(new_window, text="Max Features:").grid(row=5, column=0)
+        self.max_features_var = StringVar(new_window, value='None')
+        Entry(new_window, textvariable=self.max_features_var, validate='key').grid(row=5, column=1)
+
+        Label(new_window, text="Top N Models:").grid(row=6, column=0)
+        self.top_n_var = StringVar(new_window, value='50')
+        Entry(new_window, textvariable=self.top_n_var, validate='key', validatecommand=vcmd).grid(row=6, column=1)
+
+        Label(new_window, text="Threshold:").grid(row=7, column=0)
+        self.threshold_var = StringVar(new_window, value='0.80')
+        Entry(new_window, textvariable=self.threshold_var, validate='key', validatecommand=vcmd).grid(row=7, column=1)
+
+
+        
+    
+        # Additional Options and Run Button
+        def run_model():
+            # Here you can collect all inputs and run the model based on selected options
             model_type = model_type_var.get()
-        
-        
-        output_csv_filepath=filedialog.askopenfilename(defaultextension=".csv",
-                                       filetypes=[("Excel files", "*.csv"),
-                                                  ("All files", "*.*")])
-        directory = os.path.dirname(output_csv_filepath)
-        # ask if you want to load target csv file
-        load_target = messagebox.askyesno("Load Target CSV", "Do you want to load a target CSV file?")
-        if load_target:
-            target_csv_filepath = filedialog.askopenfilename(defaultextension=".csv",
-                                       filetypes=[("Excel files", "*.csv"),
-                                                  ("All files", "*.*")])
-        
-        new_window.destroy()
+            features_csv = feature_csv_entry.get()
+            target_csv = target_csv_entry.get() if target_csv_entry.get() else None
+            min_features_num = int(self.min_features_var.get())
+            max_features_num = int(self.max_features_var.get()) if self.max_features_var.get() != 'None' else None
+            top_n = int(self.top_n_var.get())
+            threshold = float(self.threshold_var.get())
+            leave_out_indices = self.leave_out_mols.get() if self.leave_out_mols.get() !='None' else None
+            if leave_out_indices:
+                leave_out_indices = convert_to_list_or_nested_list(leave_out_indices)
+            
+            if model_type == 'classification':
+                classification = ClassificationModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='class', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False)
+                classification_results = classification.fit_and_evaluate_combinations(top_n=top_n, accuracy_threshold=threshold, app=self)
+            elif model_type =='linear_regression':
+                linear_regression = LinearRegressionModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False)
+                regression_results = linear_regression.fit_and_evaluate_combinations(top_n=top_n, initial_r2_threshold=threshold, app=self)
 
-        os.chdir(directory)
-        csv_filepaths = {'features_csv_filepath': output_csv_filepath,
-                        'target_csv_filepath': target_csv_filepath}
-        
-        ## ask for number of min_features_num and max_features_num
-        def get_valid_integer(prompt):
-            while True:
-                value_str = askstring("Input", prompt)
-                try:
-                    return int(value_str)
-                except ValueError:
-                    self.show_result("Please enter a valid integer.")
+          
 
-        min_features_num = get_valid_integer("Enter the minimum number of features for the model:")
-        max_features_num = get_valid_integer("Enter the maximum number of features for the model:")
+            # Close the configuration window after running the model
+            
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            try:
-                # mode= choose with tinker window classification or regression
-                self.model = Model(csv_filepaths, min_features_num=min_features_num, max_features_num=max_features_num, mode=model_type)  
-            except:
-                messagebox.showinfo('Error', 'Failed to initialize model. Check that the CSV includes output column.')
-            output_dir =filedialog.askdirectory()
-            self.model_info = ModelInfoTkinter(parent=self.master, model_obj=self.model, mode=self.model_type, output_dir=output_dir)
-            self.model_info.present_model()
-
-            return 
+        run_button = Button(new_window, text="Run Model", command=run_model)
+        run_button.grid(row=8, column=1, padx=10, pady=20)
 
     def handle_file_action(self, *args):
         selected_action = self.file_handler_var.get()
@@ -593,12 +732,19 @@ class MoleculeApp:
         self.new_window.title("Questions")
         # self.new_window.geometry("600x600")
         canvas = Canvas(self.new_window)
+        canvas.pack(side='left', fill='both', expand=True)
+
+        # Create the Scrollbar and link it to the Canvas
         scrollbar = Scrollbar(self.new_window, orient='vertical', command=canvas.yview)
-        scrollbar.pack(side='right', fill='x')
-        scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-        canvas.pack(side='right', fill='both', expand=False)
+        scrollbar.pack(side='right', fill='y')
+
         canvas.configure(yscrollcommand=scrollbar.set)
+
+        # scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
+        self.frame = Frame(canvas)
+        self.frame.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
         # self.new_window = Frame(canvas)
+        canvas.create_window((0, 0), window=self.frame, anchor="nw")
         
         show_button = Button(canvas, text="Visualize Basic Structure", command=lambda: self.visualize_smallest_molecule())
         show_button.pack(padx=10)
@@ -854,9 +1000,9 @@ class MoleculeApp:
 
     def browse_directory(self):
         
-        # print("Inside browse_directory()...")  # Debugging
+    
         folder_selected = filedialog.askdirectory(initialdir=self.current_directory)
-        # print(f"folder_selected: {folder_selected}")  # Debugging
+
         if folder_selected:
             self.folder_path.set(folder_selected)
             self.initialize_molecules()
@@ -1161,7 +1307,7 @@ def prompt_for_args(method):
             except (ValueError, SyntaxError):
 
                 values.append(user_input)
-    print(values)
+ 
     return values
 
 
@@ -1217,6 +1363,9 @@ def interactive_cli(molecules):
             print(f"Error invoking {command}: {e}")
             continue
 
+def interactive_modeling(csv_path):
+    model_bool=input("Do you want to model the data? (yes/no): ").strip().lower()
+
 
 def main():
     parser = argparse.ArgumentParser(description="MolFeatures Package")
@@ -1228,6 +1377,7 @@ def main():
     conver_parser = subparsers.add_parser("logs_to_feather", help="Convert log files to feather files")
     cube_parser = subparsers.add_parser("cube", help="Calculates cube sterimol from cube files")
     sterimol_parser = subparsers.add_parser("sterimol", help="Calculate sterimol values from xyz files")
+    install_parser = subparsers.add_parser("install", help="Install required packages")
     # interactive_parser.add_argument("molecules_dir_name", help="Directory containing molecule files")
     # interactive_parser.add_argument("--renumber", action="store_true", help="Renumber molecules")
 
@@ -1244,7 +1394,7 @@ def main():
     elif args.command == "logs_to_feather":
         log_dir = input("Enter the path to the log files directory: ")
         logs_to_feather(log_dir)
-        print('Done!')
+        
 
     elif args.command == "cube":
         while True:
@@ -1273,8 +1423,51 @@ def main():
             another_dir = input("Do you want to input another directory? (yes/no): ").strip().lower()
             if another_dir != 'yes':
                 break
+    elif args.command == "model":
+        csv_path=input("Enter the path to the csv file: ")
+
+    elif args.command == "install":
+        packages = [
+        "pandas",
+        "rdkit",
+        "python-igraph",
+        "XlsxWriter",
+        "dgl",
+        "pyarrow",
+        "plotly",
+        "customtkinter",
+        "chardet",
+        "torch",
+        "matplotlib",
+        "rmsd",
+        "networkx",
+        "dash",
+        'pyvista',
+        'pyvistaqt',
+        'morfeus-ml',
+        "scikit-learn",
+        "seaborn",
+        'PIL',
+        'morfeus-ml',
+        'scipy'
+    ]
+
+        def install(package):
+                # Replace 'your_python_path' with the path of the Python executable used in CMD
+            result = subprocess.run([sys.executable, "-m", "pip", "install", package], capture_output=True, text=True)
+
+            if result.returncode == 0:
+                print(f"Package installed successfully {package}.")
+            else:
+                print("Error:", result.stderr)
+
+        [install(package) for package in packages]
+        print(f'Installed the Following Packages : {packages}\n {len(packages)} in total.')
 
     else:
+        print("Path to package directory to run the usage notebook.")
+        print(os.path.abspath(__file__))
+
         parser.print_help()
 
 if __name__ == "__main__":

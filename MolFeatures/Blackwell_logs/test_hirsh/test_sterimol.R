@@ -1,0 +1,832 @@
+
+####### ----------------------------------------------------#####
+####### -------------Global Utility Functions---------------#####
+####### ----------------------------------------------------#####
+
+# coor.trans - transforms molecular coordinates systems - runs in molecular folder
+#   Expects input of 3 atoms as character, separated by spaces (e.g. '1 2 3')
+#   atom 1 - origin, atom 2 - y direction, atom 3 - xy plane. Works directly
+#   on xyz files, creates a new file with the suffix _tc added
+
+#' Transform coordinate system
+#'
+#' Works directly
+#' on xyz files, creates a new file with the suffix _tc added
+#' @param coor_atoms 3 or 4 atoms as character, separated by spaces (e.g. '1 2 3'),
+#' atom 1 (or atoms 1 and 2) - origin, atom 2 (or 3) - y direction, atom 3 (or 4) - xy plane
+#' @return a new xyz file with the suffix _tc added
+#' @keywords internal
+#' @aliases coor.trans
+coor.trans <- function(coor_atoms) {
+  atoms <- strsplit(coor_atoms, " ")
+  unlisted.atoms <- unlist(atoms)
+  numeric.atoms <- as.numeric(unlisted.atoms)
+  molecule <- list.files(pattern = '.xyz')
+  xyz <- data.frame(data.table::fread(molecule, header = F))
+  count.0 <- function(x) sum(cumsum(x != 0) == 0)
+  if (count.0(colSums(xyz[, 2:4])) >= 2) {
+    col.1 <- count.0(xyz[,2])
+    col.2 <- count.0(xyz[,3])
+    col.3 <- count.0(xyz[,4])
+    place.num <- which.max(c(col.1, col.2, col.3))
+    new.row <- data.frame(matrix(nrow = 1, ncol = 4))
+    new.row[1, 1] <- 'X'
+    new.row[1, place.num + 1] <- 1
+    new.row[1, -c(1, place.num + 1)] <- 0
+    names(new.row) <- names(xyz)
+    xyz <- data.frame(rbind(xyz, new.row))
+    numeric.atoms[3] <- nrow(xyz)
+  }
+  mag <- function(vector) {
+    sqrt(vector[[1]]^2 + vector[[2]]^2 + vector[[3]]^2)
+  }
+  if (length(numeric.atoms) == 4) {
+    new_origin <- (xyz[numeric.atoms[[1]], 2:4] + xyz[numeric.atoms[[2]], 2:4])/2
+    new_y <- as.numeric((xyz[numeric.atoms[[3]], 2:4] - new_origin) /
+                          mag(xyz[numeric.atoms[[3]], 2:4] - new_origin))
+    coplane <- as.numeric((xyz[numeric.atoms[[4]], 2:4] - new_origin) /
+                            mag(xyz[numeric.atoms[[4]], 2:4] - new_origin))
+  } else {
+    new_origin <- xyz[numeric.atoms[[1]], 2:4]
+    new_y <- as.numeric((xyz[numeric.atoms[[2]], 2:4] - new_origin) /
+                          mag(xyz[numeric.atoms[[2]], 2:4] - new_origin))
+    coplane <- as.numeric((xyz[numeric.atoms[[3]], 2:4] - new_origin) /
+                            mag(xyz[numeric.atoms[[3]], 2:4] - new_origin))
+  }
+  cross_y_coplane <- pracma::cross(coplane, new_y)
+  coef_mat <- aperm(array(c(
+    new_y,
+    coplane,
+    cross_y_coplane
+  ),
+  dim = c(3, 3)
+  ))
+  angle_new.y_coplane <- angle(coplane, new_y)
+  x_ang_new.y <- pi / 2
+  cop_ang_x <- angle_new.y_coplane - x_ang_new.y
+  result_vec <- c(0, cos(cop_ang_x), 0)
+  new_x <- solve(coef_mat, result_vec)
+  new_z <- pracma::cross(new_x, new_y)
+  new_basis <- aperm(array(c(new_x, new_y, new_z), dim = c(3, 3)))
+  new_origin <- xyz[numeric.atoms[[1]], 2:4]
+  new_coordinates <- matrix(nrow = dim(xyz)[[1]], ncol = 3)
+  transformed_coordinates <- matrix(nrow = dim(xyz)[[1]], ncol = 3)
+  for (i in 1:dim(xyz)[[1]]) {
+    new_coordinates[i, ] <- as.numeric(xyz[i, 2:4] - new_origin)
+    transformed_coordinates[i, ] <- aperm(new_basis %*% new_coordinates[i, ])
+  }
+  transformed_coordinates <- round(transformed_coordinates, 4)
+  elements <- xyz[, 1]
+  transformed_coordinates <- cbind(elements, transformed_coordinates)
+  if ('X' %in% transformed_coordinates[, 1]) transformed_coordinates <- transformed_coordinates[1:(nrow(xyz) - 1),]
+  colnames(transformed_coordinates) <- names(xyz)
+  num.atoms <- nrow(transformed_coordinates)
+  m <- as.data.frame(matrix(NA, ncol = 4, nrow = 2))
+  m[1, 1] <- num.atoms
+  m[is.na(m)] <- ""
+  names(m) <- names(xyz)
+  transformed_coordinates <- rbind(m, transformed_coordinates)
+  transformed_coordinates[transformed_coordinates == "0"] <- "0.0"
+  new_xyz <- knitr::kable(transformed_coordinates,
+                          format = "simple", row.names = F, col.names = NULL
+  )
+  new_xyz <- new_xyz[-1]
+  new_xyz <- new_xyz[-length(new_xyz)]
+  write(new_xyz, paste(tools::file_path_sans_ext(molecule), "_tc", ".xyz", sep = ""))
+}
+
+#' Transform coordinate system for a file of choice
+#'
+#' Works directly
+#' on xyz files, creates a new file with the suffix _tc added
+#' @param coor_atoms 3 or 4 atoms as character, separated by spaces (e.g. '1 2 3' or '1 2 3 4'),
+#' atom 1 - origin, atom 2 - y direction, atom 3 - xy plane
+#' @param molecule An xyz file to work on
+#' @return a new xyz file with the suffix _tc added
+#' @aliases coor.trans.file
+#' @export
+coor.trans.file <- function(coor_atoms, molecule) {
+  atoms <- strsplit(coor_atoms, " ")
+  unlisted.atoms <- unlist(atoms)
+  numeric.atoms <- as.numeric(unlisted.atoms)
+  xyz <- data.frame(data.table::fread(molecule, header = F))
+  count.0 <- function(x) sum(cumsum(x != 0) == 0)
+  if (count.0(colSums(xyz[, 2:4])) >= 2) {
+    col.1 <- count.0(xyz[,2])
+    col.2 <- count.0(xyz[,3])
+    col.3 <- count.0(xyz[,4])
+    place.num <- which.max(c(col.1, col.2, col.3))
+    new.row <- data.frame(matrix(nrow = 1, ncol = 4))
+    new.row[1, 1] <- 'X'
+    new.row[1, place.num + 1] <- 1
+    new.row[1, -c(1, place.num + 1)] <- 0
+    names(new.row) <- names(xyz)
+    xyz <- data.frame(rbind(xyz, new.row))
+    numeric.atoms[3] <- nrow(xyz)
+  }
+  mag <- function(vector) {
+    sqrt(vector[[1]]^2 + vector[[2]]^2 + vector[[3]]^2)
+  }
+  if (length(numeric.atoms) == 4) {
+    new_origin <- (xyz[numeric.atoms[[1]], 2:4] + xyz[numeric.atoms[[2]], 2:4])/2
+    new_y <- as.numeric((xyz[numeric.atoms[[3]], 2:4] - new_origin) /
+                          mag(xyz[numeric.atoms[[3]], 2:4] - new_origin))
+    coplane <- as.numeric((xyz[numeric.atoms[[4]], 2:4] - new_origin) /
+                            mag(xyz[numeric.atoms[[4]], 2:4] - new_origin))
+  } else {
+    new_origin <- xyz[numeric.atoms[[1]], 2:4]
+    new_y <- as.numeric((xyz[numeric.atoms[[2]], 2:4] - new_origin) /
+                          mag(xyz[numeric.atoms[[2]], 2:4] - new_origin))
+    coplane <- as.numeric((xyz[numeric.atoms[[3]], 2:4] - new_origin) /
+                            mag(xyz[numeric.atoms[[3]], 2:4] - new_origin))
+  }
+  cross_y_coplane <- pracma::cross(coplane, new_y)
+  coef_mat <- aperm(array(c(
+    new_y,
+    coplane,
+    cross_y_coplane
+  ),
+  dim = c(3, 3)
+  ))
+  angle_new.y_coplane <- angle(coplane, new_y)
+  x_ang_new.y <- pi / 2
+  cop_ang_x <- angle_new.y_coplane - x_ang_new.y
+  result_vec <- c(0, cos(cop_ang_x), 0)
+  new_x <- solve(coef_mat, result_vec)
+  new_z <- pracma::cross(new_x, new_y)
+  new_basis <- aperm(array(c(new_x, new_y, new_z), dim = c(3, 3)))
+  new_origin <- xyz[numeric.atoms[[1]], 2:4]
+  new_coordinates <- matrix(nrow = dim(xyz)[[1]], ncol = 3)
+  transformed_coordinates <- matrix(nrow = dim(xyz)[[1]], ncol = 3)
+  for (i in 1:dim(xyz)[[1]]) {
+    new_coordinates[i, ] <- as.numeric(xyz[i, 2:4] - new_origin)
+    transformed_coordinates[i, ] <- aperm(new_basis %*% new_coordinates[i, ])
+  }
+  transformed_coordinates <- round(transformed_coordinates, 4)
+  elements <- xyz[, 1]
+  transformed_coordinates <- cbind(elements, transformed_coordinates)
+  if ('X' %in% transformed_coordinates[, 1]) transformed_coordinates <- transformed_coordinates[1:(nrow(xyz) - 1),]
+  colnames(transformed_coordinates) <- names(xyz)
+  num.atoms <- nrow(transformed_coordinates)
+  m <- as.data.frame(matrix(NA, ncol = 4, nrow = 2))
+  m[1, 1] <- num.atoms
+  m[is.na(m)] <- ""
+  names(m) <- names(xyz)
+  transformed_coordinates <- rbind(m, transformed_coordinates)
+  transformed_coordinates[transformed_coordinates == "0"] <- "0.0"
+  new_xyz <- knitr::kable(transformed_coordinates,
+                          format = "simple", row.names = F, col.names = NULL
+  )
+  new_xyz <- new_xyz[-1]
+  new_xyz <- new_xyz[-length(new_xyz)]
+  write(new_xyz, paste(tools::file_path_sans_ext(molecule), "_tc", ".xyz", sep = ""))
+}
+# extract.connectivity - runs in molecular folder
+#   default bond distance includes H bonds (2.02 A) - change as needed
+
+#' Create a bonding data frame
+#'
+#' Works directly on xyz files
+#' @param xyz_file An xyz file, automatic for cases in which there's only one.
+#' If used directly, be sure to input or else a non stable behavior is expected.
+#' @param threshold_distance The upper limit of distance counted as bonded.
+#'  Default includes H bonding at 2.02 Å.
+#' @return A data frame of bonds
+#' @aliases extract.connectivity
+#' @export
+extract.connectivity <- function(xyz_file = list.files(pattern = '.xyz'),
+                                 threshold_distance = 2.12) {
+  # Read in the XYZ file as a data frame
+  xyz_data <- read.table(xyz_file, sep = "", header = FALSE, skip = 2)
+  xyz_data <- tibble::rowid_to_column(xyz_data)
+  # Extract the atomic numbers and coordinates from the data frame
+  atomic_numbers <- xyz_data[, 1]
+  coordinates <- xyz_data[, 3:5]
+  atom_symbols <- xyz_data[, 2]
+  # Use the atomic numbers and coordinates to calculate the distances
+  # between each pair of atoms
+  distances <- dist(coordinates, diag = T)
+  df.distances <- reshape2::melt(as.matrix(distances), varnames = c("a1", "a2"))
+  
+  # Remove all unnatural non-covalent bonding
+  df.distances <- dplyr::mutate(df.distances, first = rep(NA, nrow(df.distances)))
+  df.distances <- dplyr::mutate(df.distances, second = rep(NA, nrow(df.distances)))
+  for (i in 1:nrow(df.distances)) df.distances$first[i] <- atom_symbols[df.distances$a1[i]]
+  for (i in 1:nrow(df.distances)) df.distances$second[i] <- atom_symbols[df.distances$a2[i]]
+  remove <- vector()
+  for (i in 1:nrow(df.distances)) {
+    if (df.distances[i, 4] == 'H' & !df.distances[i, 5] %in% c('N', 'O', 'F')) {
+      remove <- append(remove, i)
+    }
+    if (df.distances[i, 4] == 'H' & df.distances[i, 5] == 'H') remove <- append(remove, i)
+  }
+  if (length(remove) > 0) df.distances <- df.distances[-remove, ]
+  remove <- vector()
+  H.num <- c(NULL, NULL)
+  for (i in 1:nrow(df.distances)) {
+    if ((df.distances[i, 4] == 'H' | df.distances[i, 5] == 'H') &
+        (1.5 <= df.distances$value[i] & df.distances$value[i] <= threshold_distance)) {
+      if (df.distances[i, 4] == 'H') H.num <- c(df.distances$a1[i], i)
+      if (df.distances[i, 5] == 'H') H.num <- c(df.distances$a2[i], i)
+      if (!is.null(H.num)) {
+        examine.df <- df.distances[df.distances$a1 == H.num[1] | df.distances$a2 == H.num[1], ]
+        examine.df <- examine.df[examine.df$value <= threshold_distance, ]
+        if (any(!examine.df$first %in% c('N', 'O', 'F', 'H') | !examine.df$second %in% c('N', 'O', 'F', 'H'))) {
+          remove <- append(remove, H.num[2])
+        }
+      }
+    }
+  }
+  if (length(remove) > 0) df.distances <- df.distances[-remove, ]
+  row.names(df.distances) <- 1:nrow(df.distances)
+  # Extract the atom pairs that are within a certain distance of each other
+  # (i.e. the atoms that are bonded to each other)
+  bonded_pairs <- which(df.distances$value <= threshold_distance &
+                          df.distances$value > 0, arr.ind = T)
+  bonded_pairs_df <- unique(as.data.frame(t(apply(df.distances[bonded_pairs,
+                                                               1:2],
+                                                  1,
+                                                  sort))))
+  colnames(bonded_pairs_df) <- c("Atom 1", "Atom 2")
+  return(bonded_pairs_df)
+}
+
+# angle - returns the angle between two vectors (degrees)
+#
+#' Calculate the angle between two vectors (degrees)
+#'
+#' @param x the first vector
+#' @param y the second vector
+#' @keywords internal
+#' @return angle in degrees
+angle <- function(x,y){
+  dot.prod <- x %*% y
+  norm.x <- norm(x, type = "2")
+  norm.y <- norm(y, type = "2")
+  theta <- acos(dot.prod / (norm.x * norm.y))
+  as.numeric(theta)
+}
+
+# name.changer - changes a string in all file names under a requested folder.
+
+#' Change names of files in a directory, based on a matched pattern.
+#'
+#' Convenient wrapper for stringr::str_replace
+#' @param dir directory containing files
+#' @param from pattern to change
+#' @param to change pattern to
+#' @return changes names
+#' @aliases name_changer
+#' @export
+name_changer <- function(dir, from, to) {
+  setwd(dir)
+  molecules <- list.files(recursive = F, full.names = F)
+  for (molecule in molecules) {
+    file.rename(molecule, stringr::str_replace(molecule, from, to))
+  }
+  setwd("..")
+}
+
+# atom.pairs.num - breaks a string of atoms, separated by spaces, into pairs
+
+#' Helper function for manipulating human input
+#'
+#' Breaks a string of atoms, separated by spaces, into pairs
+#' @param atom_pairs A character of atoms (even number of atoms)
+#' @keywords internal
+#' @return list of numeric atom pairs
+atom.pairs.num <- function(atom_pairs) {
+  bonds.vec <- strsplit(atom_pairs, " ")
+  unlisted.bvec <- unlist(bonds.vec)
+  numeric.bvec <- as.numeric(unlisted.bvec)
+  paired <- split(
+    numeric.bvec,
+    ceiling(seq_along(numeric.bvec) / 2)
+  )
+  return(paired)
+}
+
+
+####### ----------------------------------------------------#####
+####### -----------------Utility Functions------------------#####
+####### ----------------------------------------------------#####
+
+# b1.scanner - scans for the minimum distance to the rectangular tangent, at
+#   a given angle i.
+
+#' scans for B1 vectors
+#'
+#' @param i degree
+#' @param substi truncated xyz
+#' @keywords internal
+#' @return list of B1 vectors
+b1.scanner <- function(i, substi) {
+  plane <- substi[, c(3, 5)]
+  rot.mat <- matrix(ncol = 2, nrow = 2)
+  co.deg <- cos(i * (pi / 180))
+  si.deg <- sin(i * (pi / 180))
+  rot.mat[1, ] <- c(co.deg, -1 * si.deg)
+  rot.mat[2, ] <- c(si.deg, co.deg)
+  ind <- NULL
+  tc <- matrix(nrow = dim(plane)[[1]], ncol = 2)
+  for (i in 1:dim(plane)[[1]]) {
+    tc[i, ] <- aperm(rot.mat %*% as.numeric(plane[i, ]))
+  }
+  tc <- round(tc, 3)
+  avs <- abs(c(
+    max(tc[, 1]),
+    min(tc[, 1]),
+    max(tc[, 2]),
+    min(tc[, 2])
+  ))
+  if (min(avs) == 0) {
+    if (any(which(avs == min(avs)) %in% c(1, 2))) {
+      tc <- round(tc, 1)
+      B1 <- max(substi$Radius[which(tc[, 1] == 0, arr.ind = T)])
+      B1.loc <- substi$L[which.max(substi$Radius[which(tc[, 1] == 0, arr.ind = T)])]
+      return(c(B1, B1.loc))
+    }
+    if (any(which(avs == min(avs)) %in% c(3, 4))) {
+      tc <- round(tc, 1)
+      B1 <- max(substi$Radius[which(tc[, 2] == 0, arr.ind = T)])
+      B1.loc <- substi$L[which.max(substi$Radius[which(tc[, 2] == 0, arr.ind = T)])]
+      return(c(B1, B1.loc))
+    }
+  } else {
+    if (any(which(avs == min(avs)) %in% c(1, 2))) {
+      ind <- (which(abs(tc[, 1]) == min(avs), arr.ind = T))[1]
+      against <- vector()
+      against.loc <- vector()
+      if (any(tc[ind, 1] < 0)) {
+        new.ind <- which(tc[, 1] == min(tc[, 1]), arr.ind = T)
+        tc <- plyr::mutate(as.data.frame(tc), "indi" = dplyr::between(tc[, 1], tc[new.ind[1], 1], tc[new.ind[1], 1] + 1))
+        tc[,1] <- -tc[,1]
+      } else {
+        tc <- plyr::mutate(as.data.frame(tc), "indi" = dplyr::between(tc[, 1], tc[ind[1], 1] - 1, tc[ind[1], 1]))
+      }
+      for (i in 2:dim(tc)[1]) {
+        if (tc[i, 3] == T) {
+          against <- append(against, tc[i, 1] + substi$Radius[i])
+          against.loc <- append(against.loc, substi$L[i])
+        }
+        B1 <- ifelse(length(against) > 0, max(against), abs(tc[ind[1], 1]) + substi$Radius[ind[1]])
+        B1.loc <- ifelse(length(against) > 0, against.loc[which.max(against)], substi$L[ind[1]])
+      }
+      return(c(B1, B1.loc))
+    }
+    if (any(which(avs == min(avs)) %in% c(3, 4))) {
+      ind <- (which(abs(tc[, 2]) == min(avs), arr.ind = T))[1]
+      against <- vector()
+      against.loc <- vector()
+      if (any(tc[ind, 2] < 0)) {
+        new.ind <- which(tc[, 2] == min(tc[, 2]), arr.ind = T)
+        tc <- plyr::mutate(as.data.frame(tc), "indi" = dplyr::between(tc[, 2], tc[new.ind[1], 2], tc[new.ind[1], 2] + 1))
+        tc[,2] <- -tc[,2]
+      } else {
+        tc <- plyr::mutate(as.data.frame(tc), "indi" = dplyr::between(tc[, 2], tc[ind[1], 2] - 1, tc[ind[1], 2]))
+      }
+      for (i in 2:dim(tc)[1]) {
+        if (tc[i, 3] == T) {
+          against <- append(against, tc[i, 2] + substi$Radius[i])
+          against.loc <- append(against.loc, substi$L[i])
+        }
+        B1 <- ifelse(length(against) > 0, max(against), abs(tc[ind[1], 2]) + substi$Radius[ind[1]])
+        B1.loc <- ifelse(length(against) > 0, against.loc[which.max(against)], substi$L[ind[1]])
+      }
+      return(c(B1, B1.loc))
+    }
+  }
+}
+
+# NOB.Atype - determines the Verloop atom type as a function of number of bonds.
+#   Adapted from Paton's version of sterimol.
+#   Vital while using CPK = T.
+#' determines atom type based on number of bonds
+#'
+#' @param row row number in substi (atom)
+#' @param substi truncated xyz
+#' @param bonds bonds data frame
+#' @keywords internal
+#' @return list of atom types
+NOB.Atype <- function(row, substi, bonds) { # number of bonds for an atom of the substituent
+  symbol <- substi[row, 2]
+  index <- as.numeric(substi[row, 1])
+  nob <- nrow(bonds[bonds$`Atom 1` == index | bonds$`Atom 2` == index, ])
+  if (symbol == 'H') result <- 'H'
+  if (symbol == 'P') result <- 'P'
+  if (symbol == 'Cl') result <- 'Cl'
+  if (symbol == 'Br') result <- 'Br'
+  if (symbol == 'I') result <- 'I'
+  if (symbol == 'O') {
+    if (nob < 1.5) result <- 'O2'
+    if (nob > 1.5) result <- 'O'
+  }
+  if (symbol == 'S') {
+    if (nob < 2.5) result <- 'S'
+    if (2.5 < nob & nob < 5.5) result <- 'S4'
+    if (nob > 5.5) result <- 'S1'
+  }
+  if (symbol == 'N') {
+    if (nob < 2.5) result <- 'C6/N6'
+    if (nob > 2.5) result <- 'N'
+  }
+  if (symbol == 'C') {
+    if (nob < 2.5) result <- 'C3'
+    if (nob > 2.5 & nob < 3.5) result <- 'C6/N6'
+    if (nob > 3.5) result <- 'C'
+  }
+  if (!symbol %in% c('H', 'P', 'Cl', 'Br',
+                     'I', 'O', 'S', 'N', 'C')) result <- 'X'
+  return(result)
+}
+
+# find_paths_with_nodes - find all simple paths that include the 
+# primaru steRimol axis. Used in the process of steRimol computation 
+#' when only.sub is TRUE.
+#' @param bonds bonds dataframe
+#' @param node1 primary steRimol atom
+#' @param bonds secondary steRimol atom
+#' @keywords internal
+#' @return all simple paths that include the two atoms
+find_paths_with_nodes <- function(bonds, node1, node2) {
+  
+  # Convert the dataframe to an adjacency matrix
+  graph <- matrix(0, nrow = max(max(bonds)), ncol = max(max(bonds)))
+  for (i in 1:nrow(bonds)) {
+    graph[bonds[i, 1], bonds[i, 2]] <- 1
+    graph[bonds[i, 2], bonds[i, 1]] <- 1
+  }
+  
+  all_paths <- list()
+  
+  # Depth-first search function
+  dfs <- function(current_node, current_path) {
+    current_path <- c(current_path, current_node)
+    
+    # If the current path includes both nodes, add it to the list of paths
+    if (node1 %in% current_path & node2 %in% current_path) {
+      all_paths <<- c(all_paths, list(current_path))
+    }
+    
+    # Recursive DFS for all neighbors
+    neighbors <- which(graph[current_node, ] == 1)
+    for (neighbor in neighbors) {
+      if (!(neighbor %in% current_path)) {
+        dfs(neighbor, current_path)
+      }
+    }
+  }
+  
+  # Start DFS from each node
+  for (start_node in node1:node1) {
+    dfs(start_node, numeric(0))
+  }
+  
+  return(all_paths)
+}
+
+# steRimol.xyz - compute sterimol values for a given primary axis (so called
+#   coordinates). Allows for the use of two radii models, the default being
+#   Pyykko's covalent radii, with CPK as an option.
+#   By default, the function uses a graph based serach for atoms that should
+#   be excluded (i.e. no a part of the substituent/substructure of interest).
+#   This is indicated by the argument only_sub = T. In case this is turned F,
+#   the function will use the entire structure. Another option is drop - allows
+#   the dropping elements that are a part of the substituent, but users would
+#   like to exclude. Uses a graph based "cut" of all atoms that stem from some
+#   atom. To use this, user will have to indicate the first atom on the
+#   substructure they wish to cut out.
+#   Expects coordinates of primary axis as a character (e.g. '1 2').
+#   This is a single molecule version. Usable, but rarely used.
+
+#' Verloop's sterimol values from moleculaR's csv files
+#'
+#' Calculate a single molecule's sterimol values
+#'
+#' @param coordinates primary axis, a two atom character
+#' @param CPK logical, if TRUE will use CPK radii based on Verloop's atom type,
+#' if FALSE will use Pyykko's covalent radii
+#' @param only_sub if TRUE (default) will account only for atoms directly bonded
+#' from the primary axis onward
+#' @param drop numeric value of an atom, from which onward atoms will be dropped from calculation
+#' @keywords internal
+#' @return sterimol values for a single molecule
+steRimol <- function(coordinates, CPK = T, only_sub = T, drop = NULL) {
+  name_of_axis <- stringr::str_replace(coordinates, ' ', '_')
+  mol <- list.files(pattern = '.xyz')
+  origin <- as.numeric(unlist(strsplit(coordinates, " "))[[1]])
+  direction <- as.numeric(unlist(strsplit(coordinates, " "))[[2]])
+  bonds <- extract.connectivity(mol)
+  names(bonds) <- c('V1', 'V2')
+  if (is.na(bonds[bonds$V1 == direction, ][1, 2])) {
+    coordinates <- paste(coordinates, as.character(bonds[bonds$V2 == direction, ][1, 1]), sep = " ")
+  } else {
+    coordinates <- paste(coordinates, as.character(bonds[bonds$V1 == direction, ][1, 2]), sep = " ")
+  }
+  if (as.numeric(unlist(strsplit(coordinates, " "))[[3]]) == origin) {
+    coordinates <- as.numeric(unlist(strsplit(coordinates, " "))[1:2])
+    coordinates <- paste(as.character(coordinates[1]), as.character(coordinates[2]), sep = ' ')
+    if (is.na(bonds[bonds$V1 == direction, ][1, 2])) {
+      coordinates <- paste(coordinates, as.character(bonds[bonds$V2 == direction, ][2, 1]), sep = " ")
+    } else {
+      coordinates <- paste(coordinates, as.character(bonds[bonds$V1 == direction, ][2, 2]), sep = " ")
+    }
+  }
+  if (unlist(strsplit(coordinates, " "))[3] == 'NA') {
+    coordinates <- as.numeric(unlist(strsplit(coordinates, " "))[1:2])
+    coordinates <- paste(as.character(coordinates[1]), as.character(coordinates[2]), sep = ' ')
+    remove.direction <- bonds[bonds$V2 != direction, ]
+    if (!is.na(remove.direction[remove.direction$V1 == origin, ][1, 2])) {
+      coordinates <- paste(coordinates, as.character(remove.direction[remove.direction$V1 == origin, ][1, 2]), sep = " ")
+    } else {
+      coordinates <- paste(coordinates, as.character(remove.direction[remove.direction$V2 == origin, ][1, 1]), sep = " ")
+    }
+  }
+  print(coordinates)
+  coor.trans.file(coordinates, mol)
+  mag <- function(vector) {
+    sqrt(vector[[1]]^2 + vector[[2]]^2)
+  }
+  substi <- data.table::fread(list.files(pattern = "tc.xyz"))
+  unlink(list.files(pattern = "_tc"))
+  substi <- tibble::rownames_to_column(substi)
+  if (only_sub == T) {
+    all_paths <- find_paths_with_nodes(bonds,
+                                       as.numeric(unlist(stringr::str_split(coordinates, ' ')))[1],
+                                       as.numeric(unlist(stringr::str_split(coordinates, ' ')))[2])
+    rlev <- unique(unlist(all_paths))
+    if (!is.null(drop)) {
+      rlev <- rlev[!rlev %in% drop]
+    }
+    substi <- substi[substi$rowname %in% rlev, ]
+  }
+  substi <- plyr::mutate(substi, Radius = rep(0, nrow(substi)))
+  if (CPK == T) {
+    bonds.covalent <- extract.connectivity(mol, threshold_distance = 1.82)
+    a.types <- unlist(lapply(1:nrow(substi), function(x) NOB.Atype(x, substi, bonds.covalent)))
+    find.radius <- function(atom) cpk.radii$CPK.radius[cpk.radii$A.type == a.types[[atom]]]
+    substi$Radius <- unlist(lapply(1:length(a.types), find.radius))
+  } else {
+    for (i in 1:dim(substi)[1]) {
+      substi$Radius[i] <- Radii.Pyykko$V3[Radii.Pyykko$V2 == substi$V1[i]]
+    }
+  }
+  substi <- plyr::mutate(substi, magnitude = mag(substi[, c(3, 5)]))
+  substi <- plyr::mutate(substi, Bs = substi$magnitude + substi$Radius)
+  substi <- plyr::mutate(substi, L = substi$V3 + substi$Radius)
+  print(substi)
+  # Rough scan for B1 and its location along L
+  scans <- 90 / 5
+  rough.deg.list <- seq(scans, 90, scans)
+  rough.scan.results <- t(data.frame(lapply(rough.deg.list, function(x) b1.scanner(x, substi))))
+  b1s <- rough.scan.results[, 1]
+  b1s.loc <- rough.scan.results[, 2]
+  
+  # Define region for fine scan of B1 and its location
+  back.ang <- rough.deg.list[which(b1s == min(b1s))][1] - scans
+  front.ang <- rough.deg.list[which(b1s == min(b1s))][1] + scans
+  fine.deg.list <- seq(back.ang, front.ang, 1)
+  fine.scan.results <- t(data.frame(lapply(fine.deg.list, function(x) b1.scanner(x, substi))))
+  b1s <- append(b1s, fine.scan.results[, 1])
+  b1s.loc <- append(b1s.loc, fine.scan.results[, 2])
+  print(b1s.loc)
+  B1 <- min(b1s[b1s >= 0])
+  loc.B1 <- max(b1s.loc[which(b1s[b1s >= 0] == min(b1s[b1s >= 0], na.rm = TRUE))])
+  B5 <- max(substi$Bs)
+  L <- max(substi$L)
+  loc.B5 <- min(substi$V3[which(substi$Bs == B5)])
+  result <- unique(round(data.frame(B1, B5, L, loc.B5, loc.B1), 2))
+  names(result) <- paste0(names(result), '_', name_of_axis)
+  return(result)
+}
+
+#' Verloop's sterimol values from xyz files
+#'
+#' Calculate a single molecule's sterimol values
+#'
+#' @param coordinates primary axis, a two atom character
+#' @param CPK logical, if TRUE will use CPK radii based on Verloop's atom type,
+#' if FALSE will use Pyykko's covalent radii
+#' @param only_sub if TRUE (default) will account only for atoms directly bonded
+#' from the primary axis onward
+#' @param drop numeric value of an atom, from which onward atoms will be dropped from calculation
+#' @keywords internal
+#' @return sterimol values for a single molecule
+steRimol.xyz <- function(mol, coordinates, CPK = T, only_sub = T, drop = NULL) {
+  name_of_axis <- stringr::str_replace(coordinates, ' ', '_')
+  origin <- as.numeric(unlist(strsplit(coordinates, " "))[[1]])
+  direction <- as.numeric(unlist(strsplit(coordinates, " "))[[2]])
+  bonds <- extract.connectivity(mol)
+  names(bonds) <- c('V1', 'V2')
+  if (is.na(bonds[bonds$V1 == direction, ][1, 2])) {
+    coordinates <- paste(coordinates, as.character(bonds[bonds$V2 == direction, ][1, 1]), sep = " ")
+  } else {
+    coordinates <- paste(coordinates, as.character(bonds[bonds$V1 == direction, ][1, 2]), sep = " ")
+  }
+  if (as.numeric(unlist(strsplit(coordinates, " "))[[3]]) == origin) {
+    coordinates <- as.numeric(unlist(strsplit(coordinates, " "))[1:2])
+    coordinates <- paste(as.character(coordinates[1]), as.character(coordinates[2]), sep = ' ')
+    if (is.na(bonds[bonds$V1 == direction, ][1, 2])) {
+      coordinates <- paste(coordinates, as.character(bonds[bonds$V2 == direction, ][2, 1]), sep = " ")
+    } else {
+      coordinates <- paste(coordinates, as.character(bonds[bonds$V1 == direction, ][2, 2]), sep = " ")
+    }
+  }
+  if (unlist(strsplit(coordinates, " "))[3] == 'NA') {
+    coordinates <- as.numeric(unlist(strsplit(coordinates, " "))[1:2])
+    coordinates <- paste(as.character(coordinates[1]), as.character(coordinates[2]), sep = ' ')
+    remove.direction <- bonds[bonds$V2 != direction, ]
+    if (!is.na(remove.direction[remove.direction$V1 == origin, ][1, 2])) {
+      coordinates <- paste(coordinates, as.character(remove.direction[remove.direction$V1 == origin, ][1, 2]), sep = " ")
+    } else {
+      coordinates <- paste(coordinates, as.character(remove.direction[remove.direction$V1 == origin, ][1, 2]), sep = " ")
+    }
+  }
+  coor.trans.file(coordinates, mol)
+  mag <- function(vector) {
+    sqrt(vector[[1]]^2 + vector[[2]]^2)
+  }
+  substi <- data.table::fread(list.files(pattern = "tc.xyz"))
+  unlink(list.files(pattern = "_tc"))
+  substi <- tibble::rownames_to_column(substi)
+  if (only_sub == T) {
+    all_paths <- find_paths_with_nodes(bonds,
+                                       as.numeric(unlist(stringr::str_split(coordinates, ' ')))[1],
+                                       as.numeric(unlist(stringr::str_split(coordinates, ' ')))[2])
+    rlev <- unique(unlist(all_paths))
+    if (!is.null(drop)) {
+      rlev <- rlev[!rlev %in% drop]
+    }
+    substi <- substi[substi$rowname %in% rlev, ]
+  }
+  substi <- plyr::mutate(substi, Radius = rep(0, nrow(substi)))
+  if (CPK == T) {
+    bonds.covalent <- extract.connectivity(mol, threshold_distance = 1.82)
+    a.types <- unlist(lapply(1:nrow(substi), function(x) NOB.Atype(x, substi, bonds.covalent)))
+    find.radius <- function(atom) cpk.radii$CPK.radius[cpk.radii$A.type == a.types[[atom]]]
+    substi$Radius <- unlist(lapply(1:length(a.types), find.radius))
+  } else {
+    for (i in 1:dim(substi)[1]) {
+      substi$Radius[i] <- Radii.Pyykko$V3[Radii.Pyykko$V2 == substi$V1[i]]
+    }
+  }
+  substi <- plyr::mutate(substi, magnitude = mag(substi[, c(3, 5)]))
+  substi <- plyr::mutate(substi, Bs = substi$magnitude + substi$Radius)
+  substi <- plyr::mutate(substi, L = substi$V3 + substi$Radius)
+  
+  # Rough scan for B1 and its location along L
+  scans <- 90 / 5
+  rough.deg.list <- seq(scans, 90, scans)
+  rough.scan.results <- t(data.frame(lapply(rough.deg.list, function(x) b1.scanner(x, substi))))
+  b1s <- rough.scan.results[, 1]
+  b1s.loc <- rough.scan.results[, 2]
+  
+  # Define region for fine scan of B1 and its location
+  back.ang <- rough.deg.list[which(b1s == min(b1s))][1] - scans
+  front.ang <- rough.deg.list[which(b1s == min(b1s))][1] + scans
+  fine.deg.list <- seq(back.ang, front.ang, 1)
+  fine.scan.results <- t(data.frame(lapply(fine.deg.list, function(x) b1.scanner(x, substi))))
+  b1s <- append(b1s, fine.scan.results[, 1])
+  b1s.loc <- append(b1s.loc, fine.scan.results[, 2])
+  
+  B1 <- min(b1s[b1s >= 0])
+  loc.B1 <- max(b1s.loc[which(b1s[b1s >= 0] == min(b1s[b1s >= 0], na.rm = TRUE))])
+  B5 <- max(substi$Bs)
+  L <- max(substi$L)
+  loc.B5 <- min(substi$V3[which(substi$Bs == B5)])
+  result <- unique(round(data.frame(B1, B5, L, loc.B5, loc.B1), 2))
+  names(result) <- paste0(names(result), '_', name_of_axis)
+  return(result)
+}
+
+####### ----------------------------------------------------#####
+####### -------------------User Functions-------------------#####
+####### ----------------------------------------------------#####
+
+# steRimol.xyz.df - compute sterimol values for a given primary axis (so called
+#   coordinates). Allows for the use of two radii models, the default being
+#   Pyykko's covalent radii, with CPK as an option.
+#   By default, the function uses a graph based serach for atoms that should
+#   be excluded (i.e. no a part of the substituent/substructure of interest).
+#   This is indicated by the argument only_sub = T. In case this is turned F,
+#   the function will use the entire structure. Another option is drop - allows
+#   the dropping elements that are a part of the substituent, but users would
+#   like to exclude. Uses a graph based "cut" of all atoms that stem from some
+#   atom. To use this, user will have to indicate the first atom on the
+#   substructure they wish to cut out.
+#   Expects coordinates of primary axis as a character (e.g. '1 2').
+
+#' Verloop's sterimol values from moleculaR's csv files
+#'
+#' Calculate a set of molecules' sterimol values
+#'
+#' @param coordinates primary axis, a two atom character
+#' @param CPK logical, if TRUE will use CPK radii based on Verloop's atom type,
+#' if FALSE will use Pyykko's covalent radii
+#' @param only_sub if TRUE (default) will account only for atoms directly bonded
+#' from the primary axis onward
+#' @param drop numeric value of an atom, from which onward atoms will be dropped from calculation
+#' @return sterimol values for a set of molecules
+#' @export
+steRimol.df <- function(coordinates, CPK = T, only_sub = T, drop = NULL) {
+  molecules <- list.dirs(full.names = F, recursive = F)
+  steri.list <- list()
+  for (molecule in molecules) {
+    setwd(molecule)
+    steri.list[[match(molecule, molecules)]] <- steRimol(coordinates, CPK, only_sub, drop)
+    setwd('..')
+  }
+  steri.dafr <- data.frame(data.table::rbindlist(steri.list))
+  row.names(steri.dafr) <- molecules
+  return(steri.dafr)
+}
+
+#' Verloop's sterimol values from xyz files
+#'
+#' Calculate a set of molecules' sterimol values
+#'
+#' @param coordinates primary axis, a two atom character
+#' @param CPK logical, if TRUE will use CPK radii based on Verloop's atom type,
+#' if FALSE will use Pyykko's covalent radii
+#' @param only_sub if TRUE (default) will account only for atoms directly bonded
+#' from the primary axis onward
+#' @param drop numeric value of an atom, from which onward atoms will be dropped from calculation
+#' @return sterimol values for a set of molecules
+#' @export
+steRimol.xyz.df <- function(coordinates, CPK = T, only_sub = T, drop = NULL) {
+  molecules <- list.files(pattern = '.xyz')
+  steri.list <- list()
+  for (molecule in molecules) {
+    steri.list[[match(molecule, molecules)]] <- steRimol.xyz(molecule, coordinates, CPK, only_sub, drop)
+  }
+  steri.dafr <- data.frame(data.table::rbindlist(steri.list))
+  row.names(steri.dafr) <- molecules
+  return(steri.dafr)
+}
+
+# steRimol.multi - Allows the calculation of several steRimol values, using
+#   different primary axes (i.e. for different substituents/substructures).
+#   Expects coordinates_vector - a vector of primary axes (e.g. c('1 2', '3 4'))
+
+#' Verloop's sterimol values from moleculaR's csv files
+#'
+#' Calculate multiple sterimol values for a set of molecules
+#'
+#' @param coordinates_vector primary axes, a vector of two atom characters
+#' @param CPK logical, if TRUE will use CPK radii based on Verloop's atom type,
+#' if FALSE will use Pyykko's covalent radii
+#' @param only_sub if TRUE (default) will account only for atoms directly bonded
+#' from the primary axis onward
+#' @param drop numeric value of an atom, from which onward atoms will be dropped from calculation
+#' @return sterimol values (multiple)
+#' @export
+steRimol.multi <- function(coordinates_vector, CPK = T, only_sub = T, drop = NULL) {
+  multi.df <- lapply(coordinates_vector,
+                     function(x) {
+                       steRimol.df(x,
+                                   CPK,
+                                   only_sub,
+                                   drop)
+                     }
+  )
+  # for (i in 1:length(multi.df)) {
+  #   names(multi.df[[i]]) <- paste0(names(multi.df[[i]]), paste0('_', as.character(i)))
+  # }
+  multi.df.result <- data.frame(do.call(cbind, multi.df))
+  multi.df.result <- multi.df.result[!duplicated(as.list(multi.df.result))]
+  return(multi.df.result)
+}
+
+#' Verloop's sterimol values from xyz files
+#'
+#' Calculate multiple sterimol values for a set of molecules
+#'
+#' @param coordinates_vector primary axes, a vector of two atom characters
+#' @param CPK logical, if TRUE will use CPK radii based on Verloop's atom type,
+#' if FALSE will use Pyykko's covalent radii
+#' @param only_sub if TRUE (default) will account only for atoms directly bonded
+#' from the primary axis onward
+#' @param drop numeric value of an atom, from which onward atoms will be dropped from calculation
+#' @return sterimol values (multiple)
+#' @export
+steRimol.xyz.multi <- function(coordinates_vector, CPK = T, only_sub = T, drop = NULL) {
+  multi.df <- lapply(coordinates_vector,
+                     function(x) {
+                       steRimol.xyz.df(x,
+                                       CPK,
+                                       only_sub,
+                                       drop)
+                     }
+  )
+  # for (i in 1:length(multi.df)) {
+  #   names(multi.df[[i]]) <- paste0(names(multi.df[[i]]), paste0('_', as.character(i)))
+  # }
+  multi.df.result <- data.frame(do.call(cbind, multi.df))
+  multi.df.result <- multi.df.result[!duplicated(as.list(multi.df.result))]
+  return(multi.df.result)
+  
+  
+  
+}
+
+x=steRimol.multi('2 4')

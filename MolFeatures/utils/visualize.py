@@ -11,7 +11,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils  import help_functions as hf
 # Now you can import from the parent directory
-from Mol_align import renumbering
+
 
 
 class GeneralConstants(Enum):
