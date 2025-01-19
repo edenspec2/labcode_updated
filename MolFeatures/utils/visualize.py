@@ -60,7 +60,7 @@ def plot_interactions(xyz_df,color):
     """Creates a 3D plot of the molecule"""
 
     atomic_radii = GeneralConstants.COVALENT_RADII.value
-    cpk_colors = dict(C='black', F='green', H='white', N='blue', O='red', P='orange', S='yellow', Cl='green', Br='brown', I='purple', Ni='blue', Fe='red', Cu='orange', Zn='yellow', Ag='grey', Au='gold',Si='grey')
+    cpk_colors = dict(C='black', F='green', H='white', N='blue', O='red', P='orange', S='yellow', Cl='green', Br='brown', I='purple', Ni='blue', Fe='red', Cu='orange', Zn='yellow', Ag='grey', Au='gold',Si='grey', B='pink')
 
     # if molecule_name not in train_df.molecule_name.unique():
     #     print(f'Molecule "{molecule_name}" is not in the training set!')

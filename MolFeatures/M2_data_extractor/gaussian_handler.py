@@ -27,7 +27,7 @@ def feather_file_handler(feather_file):
     # Read the feather file
     
     data = pd.read_feather(feather_file)
-    print(data)
+
     data.columns=range(len(data.columns))
     ## change pandas options to display all columns
   

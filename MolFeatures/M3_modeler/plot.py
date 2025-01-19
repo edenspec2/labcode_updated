@@ -6,6 +6,53 @@ from sklearn.metrics import confusion_matrix, precision_score, recall_score, acc
 from tkinter import filedialog, messagebox
 from tkinter.simpledialog import askstring
 import os
+import statsmodels.api as sm
+import tkinter as tk
+from tkinter import ttk
+
+def show_table_window(title, df):
+    """
+    Creates a new Tkinter window to display the DataFrame in a Treeview widget.
+
+    Parameters:
+        title (str): The title of the window.
+        df (pd.DataFrame): The DataFrame to display.
+    """
+    # Create a new top-level window
+    window = tk.Toplevel()
+    window.title(title)
+
+    # Set window size (optional)
+    window.geometry("800x600")
+
+    # Create a frame for the Treeview and scrollbar
+    frame = ttk.Frame(window)
+    frame.pack(fill=tk.BOTH, expand=True)
+
+    # Create the Treeview
+    tree = ttk.Treeview(frame, columns=list(df.columns), show='headings')
+
+    # Define headings and column properties
+    for col in df.columns:
+        tree.heading(col, text=col)
+        # Optionally, set column width and alignment
+        tree.column(col, anchor=tk.CENTER, width=100)
+
+    # Insert data into the Treeview
+    for _, row in df.iterrows():
+        tree.insert('', tk.END, values=list(row))
+
+    # Add a vertical scrollbar
+    scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=tree.yview)
+    tree.configure(yscroll=scrollbar.set)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # Optional: Add a horizontal scrollbar
+    scrollbar_x = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=tree.xview)
+    tree.configure(xscroll=scrollbar_x.set)
+    scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
+
 
 def get_valid_integer(prompt, default_value):
             while True:
@@ -65,8 +112,113 @@ def set_q2_plot_settings(ax, lower_bound, upper_bound, fontsize=15):
     ax.set_xlim(bounds_array)
     ax.grid(True)  # Adding a grid
 
+def build_regression_equation(formula, coefficients, r_squared):
+    """
+    Build a regression equation string with proper LaTeX formatting.
+    """
+    intercept = coefficients[0]  # Intercept
+    feature_coeffs = coefficients[1:]
+
+    # Escape underscores in feature names
+    safe_formula = [str(name).replace("_", r"\_") for name in formula]
+
+    equation_terms = []
+
+    for i, coef in enumerate(feature_coeffs):
+        sign = "+" if coef >= 0 else "-"
+        equation_terms.append(f" {sign} {abs(coef):.2f}·{safe_formula[i]}")
+
+    # Add intercept at the end
+    sign_intercept = "+" if intercept >= 0 else "-"
+    equation_terms.append(f" {sign_intercept} {abs(intercept):.2f}")
+
+    # Build the LaTeX equation
+    equation = f'$y = {"".join(equation_terms).strip()}$\n$R^2 = {r_squared:.2f}$'
+
+    return equation
+
 ## might change in the future to plot confidence intervals as dotted lines calculated from the covariance matrix
-def generate_q2_scatter_plot(y, y_pred, labels, formula , lower_bound=None, upper_bound=None, figsize=(10, 10), fontsize=12, scatter_color='black'):
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from adjustText import adjust_text
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from adjustText import adjust_text
+
+def generate_q2_scatter_plot(
+    y, 
+    y_pred, 
+    labels, 
+    folds_df, 
+    formula, 
+    coefficients, 
+    r, 
+    X=None,
+    lower_bound=None, 
+    upper_bound=None, 
+    figsize=(10, 10), 
+    fontsize=12, 
+    scatter_color='#2ca02c',  # A more vibrant color
+    regression_color='#d62728',  # Distinct color for regression line
+    palette='deep',
+    dpi=300
+):
+    """
+    Generates a beautiful and state-of-the-art scatter plot with regression analysis and prediction intervals.
+
+    Parameters:
+        y (array-like): Measured values.
+        y_pred (array-like): Predicted values.
+        labels (array-like): Labels for each data point.
+        folds_df (pd.DataFrame): DataFrame containing Q2 metrics.
+        formula (str): Regression formula.
+        coefficients (dict): Regression coefficients.
+        r (float): Pearson correlation coefficient.
+        X (array-like, optional): Feature matrix used for computing prediction intervals.
+        lower_bound (array-like, optional): [x_min, y_min].
+        upper_bound (array-like, optional): [x_max, y_max].
+        figsize (tuple, optional): Figure size in inches.
+        fontsize (int, optional): Base font size.
+        scatter_color (str, optional): Color of scatter points.
+        regression_color (str, optional): Color of regression line.
+        palette (str, optional): Seaborn color palette.
+        dpi (int, optional): Resolution of saved figure.
+
+    Returns:
+        plt.Figure: The matplotlib figure object.
+    """
+    
+    # Convert inputs to numpy arrays for easier handling
+    y = np.array(y)
+    y_pred = np.array(y_pred)
+    labels = np.array(labels)
+    
+    # Validate y and y_pred
+    if np.isnan(y).any() or np.isnan(y_pred).any():
+        raise ValueError("Input data 'y' or 'y_pred' contains NaN values.")
+    if np.isinf(y).any() or np.isinf(y_pred).any():
+        raise ValueError("Input data 'y' or 'y_pred' contains Inf values.")
+    
+    # Validate lower_bound and upper_bound if provided
+    if lower_bound is not None:
+        lower_bound = np.array(lower_bound)
+        if lower_bound.shape != (2,):
+            raise ValueError("lower_bound must be an array-like with two elements: [x_min, y_min].")
+        if not np.isfinite(lower_bound).all():
+            raise ValueError("lower_bound contains NaN or Inf values.")
+    
+    if upper_bound is not None:
+        upper_bound = np.array(upper_bound)
+        if upper_bound.shape != (2,):
+            raise ValueError("upper_bound must be an array-like with two elements: [x_max, y_max].")
+        if not np.isfinite(upper_bound).all():
+            raise ValueError("upper_bound contains NaN or Inf values.")
+    
     # Create a DataFrame for seaborn usage
     data = pd.DataFrame({
         'Measured': y,
@@ -74,40 +226,378 @@ def generate_q2_scatter_plot(y, y_pred, labels, formula , lower_bound=None, uppe
         'Labels': labels
     })
     
-    # Initialize the plot with seaborn's set style and context
-    sns.set(style="whitegrid", context="notebook", rc={"figure.figsize": figsize})
-
-    min_bound = np.min(lower_bound)
-    max_bound = np.max(upper_bound)
-
-    # Create the scatter plot with regression line using sns.lmplot
-    plot = sns.lmplot(x='Measured', y='Predicted', data=data,
-                      height=figsize[0]/2.54, aspect=figsize[0]/figsize[1], # height in inches and aspect ratio
-                      scatter_kws={'s': 50, 'color': scatter_color},
-                      line_kws={'color': 'black', 'lw': 2},
-                      ci=95) # ci=None to not display the confidence interval
-
-    # Adjusting the axes limits if bounds are provided
+    # Check if data is sufficient for plotting
+    if data.empty:
+        raise ValueError("No data available to plot.")
     
+    # Set Seaborn theme
+    sns.set_theme(style="whitegrid", palette=palette)
     
-    # plot.ax.set_ylim(min_bound, max_bound)
-    # plot.ax.set_xlim(np.min(y), np.max(y))
+    # Initialize the matplotlib figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Scatter plot
+    scatter = sns.scatterplot(
+        data=data, 
+        x='Measured', 
+        y='Predicted', 
+        hue='Labels',
+        palette=palette,
+        edgecolor='w',
+        s=100,  # Increased size for better visibility
+        ax=ax,
+        legend=False  # Disable legend to reduce clutter
+    )
+    
+    # Regression line using statsmodels for prediction intervals
+    if X is not None:
+        # Add a constant for intercept
+        X = np.array(X)
+        X_sm = sm.add_constant(X)
+        
+        model_sm = sm.OLS(y, X_sm).fit()
+        predictions = model_sm.get_prediction(X_sm)
+        pred_summary = predictions.summary_frame(alpha=0.10)  # 90% prediction interval
+        data['Predicted'] = pred_summary['mean']
+        data['pi_lower'] = pred_summary['obs_ci_lower']
+        data['pi_upper'] = pred_summary['obs_ci_upper']
+        ## fit a linear line for pi_lower and pi_upper
+        sorted_data = data.sort_values('Measured')
 
-    # Adding annotations
-    for i, row in data.iterrows():
-        plot.ax.annotate(row['Labels'], (row['Measured'], row['Predicted']), 
-                         textcoords="offset points", xytext=(5,5), ha='center', fontsize=fontsize)
+        x_min, x_max = sorted_data['Measured'].min(), sorted_data['Measured'].max()
+        x_extension = (x_max - x_min) * 0.05  # 5% extension
+        x_extended = np.linspace(x_min - x_extension, x_max + x_extension, 1000)
+        X_extended_const = sm.add_constant(x_extended)
+        predictions_extended = model_sm.get_prediction(X_extended_const)
+        pred_summary_extended = predictions_extended.summary_frame(alpha=0.10)
+                
+ 
+        ax.plot(
+            x_extended, 
+            pred_summary_extended['obs_ci_lower'], 
+            color='cadetblue', 
+            linestyle='--', 
+            linewidth=0.8, 
+            label='90% Prediction Interval'
+        )
+        ax.plot(
+            x_extended, 
+            pred_summary_extended['obs_ci_upper'], 
+            color='cadetblue', 
+            linestyle='--', 
+            linewidth=0.8
+        )
 
-    # Additional customization options directly with seaborn
-    plot.set_axis_labels("Measured", "Predicted", fontsize=fontsize, weight='bold')
-    plot.fig.suptitle('Regression Analysis with Labels', fontsize=fontsize+2, weight='bold')
+    else:
+        # If X is not provided, cannot compute prediction intervals
+        print("Warning: Feature matrix 'X' is required to compute prediction intervals.")
+    
+    # Regression line without confidence interval
+    sns.regplot(
+        data=data, 
+        x='Measured', 
+        y='Predicted', 
+        scatter=False,
+        color=regression_color,
+        line_kws={'linewidth': 2, 'alpha': 0.8},
+        ci=None,  # Disable default confidence interval
+        ax=ax
+    )
+    
+    # Compute Pearson correlation if not provided
+    if r is None:
+        pearson_r = np.corrcoef(y, y_pred)[0,1]
+    else:
+        pearson_r = r
+    
+    # Build regression equation string
+    equation = build_regression_equation(formula, coefficients, pearson_r)
+    
+    # Add regression equation and Pearson r
+    text_box = (
+        f"{equation}\n"
+        f"Pearson r = {pearson_r:.2f}"
+    )
+    ax.text(
+        0.05, 0.95, text_box, 
+        transform=ax.transAxes,
+        fontsize=fontsize,
+        verticalalignment='top',
+        bbox=dict(boxstyle="round,pad=0.5", 
+                  edgecolor='gray', 
+                  facecolor='white', 
+                  alpha=0.8)
+    )
+    
+    # Set axis limits if bounds are provided
+    if lower_bound is not None and upper_bound is not None:
+        ax.set_xlim(lower_bound[0], upper_bound[0])
+        ax.set_ylim(lower_bound[1], upper_bound[1])
+    else:
+        # Set limits based on data with some padding
+        buffer_x = (data['Measured'].max() - data['Measured'].min()) * 0.05
+        buffer_y = (data['Predicted'].max() - data['Predicted'].min()) * 0.05
+        ax.set_xlim(data['Measured'].min() - buffer_x, data['Measured'].max() + buffer_x)
+        ax.set_ylim(data['Predicted'].min() - buffer_y, data['Predicted'].max() + buffer_y)
+    
+    # Annotations using adjustText to prevent overlap
+    texts = []
+    for _, row in data.iterrows():
+        texts.append(ax.text(
+            row['Measured'], 
+            row['Predicted'], 
+            row['Labels'],
+            fontsize=fontsize-2,
+            ha='center', 
+            va='bottom',
+            color='gray'
+        ))
+    adjust_text(texts, 
+                arrowprops=dict(arrowstyle='-', color='gray', lw=0.5),
+                ax=ax,
+                expand_points=(1.2, 1.2),
+                force_points=0.2,
+                force_text=0.2)
+    
+    # Plot the Q2 metrics if available
+    if not folds_df.empty:
+        # Assuming folds_df has only one relevant row
+        row = folds_df.iloc[0]
+        q2_text = (
+            f"3-fold Q²: {row.get('Q2_3_Fold', np.nan):.2f}\n"
+            f"5-fold Q²: {row.get('Q2_5_Fold', np.nan):.2f}\n"
+            f"LOOCV Q²: {row.get('Q2_LOOCV', np.nan):.2f}"
+        )
+        ax.text(
+            0.05, 0.80, q2_text, 
+            transform=ax.transAxes,
+            fontsize=fontsize,
+            verticalalignment='top',
+            bbox=dict(boxstyle="round,pad=0.5", 
+                      edgecolor='gray', 
+                      facecolor='white', 
+                      alpha=0.8)
+        )
+    
+    # Customize labels and title
+    ax.set_xlabel("Measured", fontsize=fontsize+2, fontweight='bold')
+    ax.set_ylabel("Predicted", fontsize=fontsize+2, fontweight='bold')
+    ax.set_title('Regression Analysis with Labels and Prediction Intervals', fontsize=fontsize+4, fontweight='bold', pad=15)
+    
+    # Legend for Prediction Interval
+    ax.legend(title='Legend', loc='upper left')
+    
+    # Improve layout
+    plt.tight_layout()
+    
+    # Save the plot with high resolution
+    plt.savefig(f'model_plot_{formula}.png', dpi=dpi, bbox_inches='tight')
+    
+    # Show the plot
     plt.show()
-    ## save the plot
-    plot.savefig(f'model_plot_{formula}.png')
+    
+    return fig
 
 
+# def generate_q2_scatter_plot(
+#     y, 
+#     y_pred, 
+#     labels, 
+#     folds_df, 
+#     formula, 
+#     coefficients, 
+#     r, 
+#     lower_bound=None, 
+#     upper_bound=None, 
+#     figsize=(10, 10), 
+#     fontsize=12, 
+#     scatter_color='#2ca02c',  # A more vibrant color
+#     regression_color='#d62728',  # Distinct color for regression line
+#     palette='deep',
+#     dpi=300
+# ):
+#     """
+#     Generates a beautiful and state-of-the-art scatter plot with regression analysis.
 
-    return plot
+#     Parameters:
+#         y (array-like): Measured values.
+#         y_pred (array-like): Predicted values.
+#         labels (array-like): Labels for each data point.
+#         folds_df (pd.DataFrame): DataFrame containing Q2 metrics.
+#         formula (str): Regression formula.
+#         coefficients (dict): Regression coefficients.
+#         r (float): Pearson correlation coefficient.
+#         lower_bound (array-like, optional): [x_min, y_min].
+#         upper_bound (array-like, optional): [x_max, y_max].
+#         figsize (tuple, optional): Figure size in inches.
+#         fontsize (int, optional): Base font size.
+#         scatter_color (str, optional): Color of scatter points.
+#         regression_color (str, optional): Color of regression line.
+#         palette (str, optional): Seaborn color palette.
+#         dpi (int, optional): Resolution of saved figure.
+
+#     Returns:
+#         plt.Figure: The matplotlib figure object.
+#     """
+    
+#     # Convert inputs to numpy arrays for easier handling
+#     y = np.array(y)
+#     y_pred = np.array(y_pred)
+#     labels = np.array(labels)
+    
+#     # Validate y and y_pred
+#     if np.isnan(y).any() or np.isnan(y_pred).any():
+#         raise ValueError("Input data 'y' or 'y_pred' contains NaN values.")
+#     if np.isinf(y).any() or np.isinf(y_pred).any():
+#         raise ValueError("Input data 'y' or 'y_pred' contains Inf values.")
+    
+#     # Validate lower_bound and upper_bound if provided
+#     if lower_bound is not None:
+#         lower_bound = np.array(lower_bound)
+#         if lower_bound.shape != (2,):
+#             raise ValueError("lower_bound must be an array-like with two elements: [x_min, y_min].")
+#         if not np.isfinite(lower_bound).all():
+#             raise ValueError("lower_bound contains NaN or Inf values.")
+    
+#     if upper_bound is not None:
+#         upper_bound = np.array(upper_bound)
+#         if upper_bound.shape != (2,):
+#             raise ValueError("upper_bound must be an array-like with two elements: [x_max, y_max].")
+#         if not np.isfinite(upper_bound).all():
+#             raise ValueError("upper_bound contains NaN or Inf values.")
+    
+#     # Create a DataFrame for seaborn usage
+#     data = pd.DataFrame({
+#         'Measured': y,
+#         'Predicted': y_pred,
+#         'Labels': labels
+#     })
+    
+#     # Check if data is sufficient for plotting
+#     if data.empty:
+#         raise ValueError("No data available to plot.")
+    
+#     # Set Seaborn theme
+#     sns.set_theme(style="whitegrid", palette=palette)
+    
+#     # Initialize the matplotlib figure
+#     fig, ax = plt.subplots(figsize=figsize)
+    
+#     # Scatter plot
+#     scatter = sns.scatterplot(
+#         data=data, 
+#         x='Measured', 
+#         y='Predicted', 
+#         hue='Labels',
+#         palette=palette,
+#         edgecolor='w',
+#         s=100,  # Increased size for better visibility
+#         ax=ax,
+#         legend=False  # Disable legend to reduce clutter
+#     )
+    
+#     # Regression line
+#     sns.regplot(
+#         data=data, 
+#         x='Measured', 
+#         y='Predicted', 
+#         scatter=False,
+#         color=regression_color,
+#         line_kws={'linewidth': 2, 'alpha': 0.8},
+#         ax=ax
+#     )
+    
+#     # Compute and display Pearson correlation if not provided
+#     if r is None:
+#         pearson_r = np.corrcoef(y, y_pred)[0,1]
+#     else:
+#         pearson_r = r
+    
+#     equation = build_regression_equation(formula, coefficients, pearson_r)
+    
+#     # Add regression equation and Pearson r
+#     text_box = (
+#         f"{equation}\n"
+#         f"Pearson r = {pearson_r:.2f}"
+#     )
+#     ax.text(
+#         0.05, 0.95, text_box, 
+#         transform=ax.transAxes,
+#         fontsize=fontsize,
+#         verticalalignment='top',
+#         bbox=dict(boxstyle="round,pad=0.5", 
+#                   edgecolor='gray', 
+#                   facecolor='white', 
+#                   alpha=0.8)
+#     )
+    
+#     # Set axis limits if bounds are provided
+#     if lower_bound is not None and upper_bound is not None:
+#         ax.set_xlim(lower_bound[0], upper_bound[0])
+#         ax.set_ylim(lower_bound[1], upper_bound[1])
+#     else:
+#         # Set limits based on data with some padding
+#         buffer_x = (data['Measured'].max() - data['Measured'].min()) * 0.05
+#         buffer_y = (data['Predicted'].max() - data['Predicted'].min()) * 0.05
+#         ax.set_xlim(data['Measured'].min() - buffer_x, data['Measured'].max() + buffer_x)
+#         ax.set_ylim(data['Predicted'].min() - buffer_y, data['Predicted'].max() + buffer_y)
+    
+#     # Annotations using adjustText to prevent overlap
+#     texts = []
+#     for _, row in data.iterrows():
+#         texts.append(ax.text(
+#             row['Measured'], 
+#             row['Predicted'], 
+#             row['Labels'],
+#             fontsize=fontsize-2,
+#             ha='center', 
+#             va='bottom',
+#             color='gray'
+#         ))
+#     adjust_text(texts, 
+#                 arrowprops=dict(arrowstyle='-', color='gray', lw=0.5),
+#                 ax=ax,
+#                 expand_points=(1.2, 1.2),
+#                 force_points=0.2,
+#                 force_text=0.2)
+    
+#     # Plot the Q2 metrics if available
+#     if not folds_df.empty:
+#         # Assuming folds_df has only one relevant row
+#         row = folds_df.iloc[0]
+#         q2_text = (
+#             f"3-fold Q²: {row.get('Q2_3_Fold', np.nan):.2f}\n"
+#             f"5-fold Q²: {row.get('Q2_5_Fold', np.nan):.2f}\n"
+#             f"LOOCV Q²: {row.get('Q2_LOOCV', np.nan):.2f}"
+#         )
+#         ax.text(
+#             0.05, 0.80, q2_text, 
+#             transform=ax.transAxes,
+#             fontsize=fontsize,
+#             verticalalignment='top',
+#             bbox=dict(boxstyle="round,pad=0.5", 
+#                       edgecolor='gray', 
+#                       facecolor='white', 
+#                       alpha=0.8)
+#         )
+    
+#     # Customize labels and title
+#     ax.set_xlabel("Measured", fontsize=fontsize+2, fontweight='bold')
+#     ax.set_ylabel("Predicted", fontsize=fontsize+2, fontweight='bold')
+#     ax.set_title('Regression Analysis with Labels', fontsize=fontsize+4, fontweight='bold', pad=15)
+    
+#     # Improve layout
+#     plt.tight_layout()
+    
+#     # Save the plot with high resolution
+#     plt.savefig(f'model_plot_{formula}.png', dpi=dpi, bbox_inches='tight')
+    
+#     # Show the plot
+#     plt.show()
+    
+#     return fig
+
+
 
 import matplotlib.pyplot as plt
 
@@ -345,8 +835,11 @@ def print_models_classification_table(results , app=None):
             continue
 
         _, probablities_df = fit_and_evaluate_single_combination_classification(model, formulas[selected_model], return_probabilities=True)
+        X=model.features_df[list(formulas[selected_model])]
+        # x=pd.DataFrame(X, columns=formulas[selected_model])
+        vif_df = model._compute_vif(X)
         plot_probabilities(probablities_df)
-
+        print_models_vif_table(vif_df)
         # Print the confusion matrix
         y_pred = model.predict(model.features_df[list(formulas[selected_model])].to_numpy())
         y_true = model.target_vector.to_numpy()
@@ -379,6 +872,13 @@ def print_models_classification_table(results , app=None):
 
 
 
+def print_models_vif_table(results, app=None):
+    
+    app.show_result('\n\n\n')
+    app.show_result('VIF Table\n')
+    app.show_result('---\n')
+    app.show_result(results.to_markdown(index=False, tablefmt="pipe"))
+
 
 def print_models_regression_table(results, app=None):
 
@@ -389,6 +889,7 @@ def print_models_regression_table(results, app=None):
     model_ids=[i for i in range(len(results))]
     intercepts=[result['intercept'] for result in results]
     model_coefficients=[result['coefficients'] for result in results]
+   
     models=[result['models'] for result in results]
 
     # Create a DataFrame from the inputs
@@ -408,22 +909,19 @@ def print_models_regression_table(results, app=None):
     
     # Print the DataFrame as a markdown-like table
     
+    # Q2_3, MAE_3 = model.calculate_q2_and_mae(X, y, n_splits=3)
+    # Q2_5, MAE_5 = model.calculate_q2_and_mae(X, y, n_splits=5)
     
-    
-    if app:
-        messagebox.showinfo("3-fold CV",pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
-        messagebox.showinfo("5-fold CV",pd.DataFrame({'Q2':[Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
-        # messagebox.showinfo('Models List:',df.to_markdown(index=False, tablefmt="pipe"))
-        
-    else:
-        print(df.to_markdown(index=False, tablefmt="pipe"))
-        
-    ## Need the actual model list to calculate CV3 CV5
+
 
     while True:
+
         if app:
+            messagebox.showinfo('Models List:',df.to_markdown(index=False, tablefmt="pipe"))
             selected_model = get_valid_integer('Select a model number: default is 0', 0)
+            show_table_window('Models List:',df)
         else:
+            print(df.to_markdown(index=False, tablefmt="pipe"))
             try:
                 selected_model = int(input("Select a model number (or -1 to exit): "))
             except ValueError:
@@ -441,40 +939,71 @@ def print_models_regression_table(results, app=None):
             continue
 
         features = list(formulas[selected_model])
+        X = model.features_df[features]
+        vif_df = model._compute_vif(X)
+
         X = model.features_df[features].to_numpy()
         y = model.target_vector.to_numpy()
         model.fit(X, y)
         pred, lwr, upr = model.predict(X, calc_covariance_matrix=True)
         coef_df = model.get_covariace_matrix(features)
+
+        x_min, y_min = min(y.min(), pred.min()), min(y.min(), pred.min())
+        x_max, y_max = max(y.max(), pred.max()), max(y.max(), pred.max())
+        padding_x = (x_max - x_min) * 0.05
+        padding_y = (y_max - y_min) * 0.05
+        lwr = [x_min - padding_x, y_min - padding_y]
+        upr = [x_max + padding_x, y_max + padding_y]
+
+        # Debug statements
+        print(f"lower_bound (lwr): {lwr}")
+        print(f"upper_bound (upr): {upr}")
+
+        # Validate bounds
+        if not (isinstance(lwr, (list, tuple, np.ndarray)) and len(lwr) == 2 and np.all(np.isfinite(lwr))):
+            print("Invalid lower_bound. Using default.")
+            lwr = None
+        if not (isinstance(upr, (list, tuple, np.ndarray)) and len(upr) == 2 and np.all(np.isfinite(upr))):
+            print("Invalid upper_bound. Using default.")
+            upr = None
         
         if app:
             app.show_result('\nModel Coefficients\n')
             app.show_result(coef_df.to_markdown(tablefmt="pipe"))
+            print_models_vif_table(vif_df, app)
         else:
             print("\nModel Coefficients\n")
             print(coef_df.to_markdown(tablefmt="pipe"))
             print(f"\nSelected Model: {formulas[selected_model]}\n")
+            print_models_vif_table(vif_df)
         
-        Q2_3, MAE_3 = model.calculate_q2_and_mae(X, y, n_splits=3)
-        Q2_5, MAE_5 = model.calculate_q2_and_mae(X, y, n_splits=5)
+        Q2_3, MAE_3 , rmsd_3 = model.calculate_q2_and_mae(X, y, n_splits=3)
+        Q2_5, MAE_5, rmsd_5 = model.calculate_q2_and_mae(X, y, n_splits=5)
+        ## LOOCV
+        Q2_loo, MAE_loo , rmsd_loo = model.calculate_q2_and_mae(X, y, n_splits=1)
         
         if app:
             app.show_result(f'\n\n Model Picked: {selected_model}_{formulas[selected_model]}\n')
-            app.show_result(pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
-            app.show_result(pd.DataFrame({'Q2':[Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
+            app.show_result(pd.DataFrame({'Q2_3_Fold': [Q2_3], 'MAE': [MAE_3], 'RMSD':[rmsd_3]}).to_markdown(tablefmt="pipe", index=False))
+            app.show_result(pd.DataFrame({'Q2_5_Fold':[Q2_5], 'MAE': [MAE_5], 'RMSD':[rmsd_5]}).to_markdown(tablefmt="pipe", index=False))
+            app.show_result(pd.DataFrame({'Q2_LOOCV':[Q2_loo], 'MAE': [MAE_loo], 'RMSD':[rmsd_loo]}).to_markdown(tablefmt="pipe", index=False))
         else:
             print("\n3-fold CV\n")
-            print(pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
+            print(pd.DataFrame({'Q2_3_Fold': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
             print("\n5-fold CV\n")
-            print(pd.DataFrame({'Q2':[Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
+            print(pd.DataFrame({'Q2_5_Fold':[Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
+            print("\nLOOCV\n")
+            print(pd.DataFrame({'Q2_LOOCV':[Q2_loo], 'MAE': [MAE_loo]}).to_markdown(tablefmt="pipe", index=False))
         
         # Create a text file with the results
         with open('regression_results.txt', 'a') as f:
             f.write(f"Models list {df.to_markdown(index=False, tablefmt='pipe')} \n\n Model Coefficients\n\n{coef_df.to_markdown(tablefmt='pipe')}\n\n3-fold CV\n\n{pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt='pipe', index=False)}\n\n5-fold CV\n\n{pd.DataFrame({'Q2':[Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt='pipe', index=False)}\n\n")
             print('Results saved to regression_results.txt in {}'.format(os.getcwd()))
-
+        ## make a 3 5 loocv table to plot
+        folds_df=pd.DataFrame({'Q2_3_Fold': [Q2_3], 'MAE': [MAE_3],'RMSD':[rmsd_3],'Q2_5_Fold':[Q2_5], 'MAE': [MAE_5],'RMSD':[rmsd_5],'Q2_LOOCV':[Q2_loo], 'MAE': [MAE_loo],'RMSD':[rmsd_loo]})
+        r=r_squared[selected_model]
         # Generate and display the Q2 scatter plot
-        _ = generate_q2_scatter_plot(y, pred, model.molecule_names, features, lwr, upr)
+        _ = generate_q2_scatter_plot(y, pred, model.molecule_names,folds_df ,features,coef_df['Estimate'] ,r,X, lwr, upr)
 
         # Ask the user if they want to select another model or exit
         if not app:
@@ -492,110 +1021,110 @@ def print_models_regression_table(results, app=None):
 
 #### have not been tried
 
-def print_models_regression_table(results, app=None, auto_select_first_model=True):
+# def print_models_regression_table(results, app=None, auto_select_first_model=True):
 
-    formulas = [result['combination'] for result in results]
-    r_squared = [result['scores']['r2'] for result in results]
-    q_squared = [result['scores'].get('Q2', float('-inf')) for result in results]
-    mae = [result['scores'].get('MAE', float('-inf')) for result in results]
-    model_ids = [i for i in range(len(results))]
-    intercepts = [result['intercept'] for result in results]
-    model_coefficients = [result['coefficients'] for result in results]
-    models = [result['models'] for result in results]
+#     formulas = [result['combination'] for result in results]
+#     r_squared = [result['scores']['r2'] for result in results]
+#     q_squared = [result['scores'].get('Q2', float('-inf')) for result in results]
+#     mae = [result['scores'].get('MAE', float('-inf')) for result in results]
+#     model_ids = [i for i in range(len(results))]
+#     intercepts = [result['intercept'] for result in results]
+#     model_coefficients = [result['coefficients'] for result in results]
+#     models = [result['models'] for result in results]
 
-    # Create a DataFrame from the inputs
-    df = pd.DataFrame({
-        'formula': formulas,
-        'R.sq': r_squared,
-        'Q.sq': q_squared,
-        'MAE': mae,
-        'Model_id': model_ids
-    })
+#     # Create a DataFrame from the inputs
+#     df = pd.DataFrame({
+#         'formula': formulas,
+#         'R.sq': r_squared,
+#         'Q.sq': q_squared,
+#         'MAE': mae,
+#         'Model_id': model_ids
+#     })
 
-    # Sort the DataFrame by Q.sq (descending) for a similar order
-    df = df.sort_values(by='Q.sq', ascending=False)
+#     # Sort the DataFrame by Q.sq (descending) for a similar order
+#     df = df.sort_values(by='Q.sq', ascending=False)
 
-    # Set the index to range from 1 to n (1-based indexing)
-    df.index = range(1, len(df) + 1)
+#     # Set the index to range from 1 to n (1-based indexing)
+#     df.index = range(1, len(df) + 1)
 
-    # Print the DataFrame as a markdown-like table
-    if app:
-        messagebox.showinfo("3-fold CV", pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
-        messagebox.showinfo("5-fold CV", pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
-    else:
-        print(df.to_markdown(index=False, tablefmt="pipe"))
+#     # Print the DataFrame as a markdown-like table
+#     if app:
+#         messagebox.showinfo("3-fold CV", pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
+#         messagebox.showinfo("5-fold CV", pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
+#     else:
+#         print(df.to_markdown(index=False, tablefmt="pipe"))
 
-    # Automatically select the first model if `auto_select_first_model` is True or run in nohup
-    selected_model = 0 if auto_select_first_model else None
+#     # Automatically select the first model if `auto_select_first_model` is True or run in nohup
+#     selected_model = 0 if auto_select_first_model else None
 
-    while True:
-        if auto_select_first_model or app:
-            selected_model = selected_model if selected_model is not None else get_valid_integer('Select a model number: default is 0', 0)
-        else:
-            try:
-                selected_model = int(input("Select a model number (or -1 to exit): "))
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-                continue
+#     while True:
+#         if auto_select_first_model or app:
+#             selected_model = selected_model if selected_model is not None else get_valid_integer('Select a model number: default is 0', 0)
+#         else:
+#             try:
+#                 selected_model = int(input("Select a model number (or -1 to exit): "))
+#             except ValueError:
+#                 print("Invalid input. Please enter a number.")
+#                 continue
 
-        if selected_model == -1:
-            print("Exiting model selection.")
-            break
+#         if selected_model == -1:
+#             print("Exiting model selection.")
+#             break
 
-        try:
-            model = models[selected_model]
-        except IndexError:
-            print("Invalid model number. Please try again.")
-            continue
+#         try:
+#             model = models[selected_model]
+#         except IndexError:
+#             print("Invalid model number. Please try again.")
+#             continue
 
-        features = list(formulas[selected_model])
-        X = model.features_df[features].to_numpy()
-        y = model.target_vector.to_numpy()
-        model.fit(X, y)
-        pred, lwr, upr = model.predict(X, calc_covariance_matrix=True)
-        coef_df = model.get_covariace_matrix(features)
+#         features = list(formulas[selected_model])
+#         X = model.features_df[features].to_numpy()
+#         y = model.target_vector.to_numpy()
+#         model.fit(X, y)
+#         pred, lwr, upr = model.predict(X, calc_covariance_matrix=True)
+#         coef_df = model.get_covariace_matrix(features)
 
-        if app:
-            app.show_result('\nModel Coefficients\n')
-            app.show_result(coef_df.to_markdown(tablefmt="pipe"))
-        else:
-            print("\nModel Coefficients\n")
-            print(coef_df.to_markdown(tablefmt="pipe"))
-            print(f"\nSelected Model: {formulas[selected_model]}\n")
+#         if app:
+#             app.show_result('\nModel Coefficients\n')
+#             app.show_result(coef_df.to_markdown(tablefmt="pipe"))
+#         else:
+#             print("\nModel Coefficients\n")
+#             print(coef_df.to_markdown(tablefmt="pipe"))
+#             print(f"\nSelected Model: {formulas[selected_model]}\n")
 
-        Q2_3, MAE_3 = model.calculate_q2_and_mae(X, y, n_splits=3)
-        Q2_5, MAE_5 = model.calculate_q2_and_mae(X, y, n_splits=5)
+        # Q2_3, MAE_3 = model.calculate_q2_and_mae(X, y, n_splits=3)
+        # Q2_5, MAE_5 = model.calculate_q2_and_mae(X, y, n_splits=5)
 
-        if app:
-            app.show_result(f'\n\n Model Picked: {selected_model}_{formulas[selected_model]}\n')
-            app.show_result(pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
-            app.show_result(pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
-        else:
-            print("\n3-fold CV\n")
-            print(pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
-            print("\n5-fold CV\n")
-            print(pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
+#         if app:
+#             app.show_result(f'\n\n Model Picked: {selected_model}_{formulas[selected_model]}\n')
+#             app.show_result(pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
+#             app.show_result(pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
+#         else:
+#             print("\n3-fold CV\n")
+#             print(pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
+#             print("\n5-fold CV\n")
+#             print(pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
 
-        # Create a text file with the results
-        with open('regression_results.txt', 'a') as f:
-            f.write(f"Models list {df.to_markdown(index=False, tablefmt='pipe')} \n\n Model Coefficients\n\n{coef_df.to_markdown(tablefmt='pipe')}\n\n3-fold CV\n\n{pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt='pipe', index=False)}\n\n5-fold CV\n\n{pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt='pipe', index=False)}\n\n")
-            print('Results saved to regression_results.txt in {}'.format(os.getcwd()))
+#         # Create a text file with the results
+#         with open('regression_results.txt', 'a') as f:
+#             f.write(f"Models list {df.to_markdown(index=False, tablefmt='pipe')} \n\n Model Coefficients\n\n{coef_df.to_markdown(tablefmt='pipe')}\n\n3-fold CV\n\n{pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt='pipe', index=False)}\n\n5-fold CV\n\n{pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt='pipe', index=False)}\n\n")
+#             print('Results saved to regression_results.txt in {}'.format(os.getcwd()))
 
-        # If auto-select mode, break after processing the first model
-        if auto_select_first_model:
-            print("Processed the first model, exiting.")
-            break
+#         # If auto-select mode, break after processing the first model
+#         if auto_select_first_model:
+#             print("Processed the first model, exiting.")
+#             break
 
-        # Generate and display the Q2 scatter plot
-        _ = generate_q2_scatter_plot(y, pred, model.molecule_names, features, lwr, upr)
+#         # Generate and display the Q2 scatter plot
+#         _ = generate_q2_scatter_plot(y, pred, model.molecule_names, features, lwr, upr)
 
-        # Ask the user if they want to select another model or exit
-        if not app:
-            cont = input("Do you want to select another model? (y/n): ").strip().lower()
-            if cont != 'y':
-                print("Exiting model selection.")
-                break
-        else:
-            cont = messagebox.askyesno('Continue', 'Do you want to select another model?')
-            if not cont:
-                break
+#         # Ask the user if they want to select another model or exit
+#         if not app:
+#             cont = input("Do you want to select another model? (y/n): ").strip().lower()
+#             if cont != 'y':
+#                 print("Exiting model selection.")
+#                 break
+#         else:
+#             cont = messagebox.askyesno('Continue', 'Do you want to select another model?')
+#             if not cont:
+#                 break

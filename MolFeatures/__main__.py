@@ -9,12 +9,6 @@ try:
     import re
     import shutil
     import subprocess
-    from .utils import help_functions, file_handlers
-    from .M2_data_extractor.data_extractor import Molecules
-    from .M1_pre_calculations.main import Module1Handler
-    from .Mol_align.renumbering import batch_renumbering
-    from .M2_data_extractor.feather_extractor import logs_to_feather
-    from .M3_modeler.modeling import ClassificationModel, LinearRegressionModel
     import warnings
     from tkinter import filedialog, messagebox
     import warnings
@@ -24,88 +18,35 @@ try:
     import morfeus
     from datetime import datetime
     import argparse
-    from .M2_data_extractor.cube_sterimol import cube_many
-    from .M2_data_extractor.sterimol_standalone import Molecules_xyz
     import webbrowser
     import seaborn as sns
+    try:
+        from .utils import help_functions, file_handlers
+        from .M2_data_extractor.data_extractor import Molecules
+        from .M1_pre_calculations.main import Module1Handler
+        from .Mol_align.renumbering import batch_renumbering
+        from .M2_data_extractor.feather_extractor import logs_to_feather
+        from .M3_modeler.modeling import ClassificationModel, LinearRegressionModel
+        from .M2_data_extractor.cube_sterimol import cube_many
+        from .M2_data_extractor.sterimol_standalone import Molecules_xyz
+    except ImportError:
+        import utils.help_functions as help_functions
+        import utils.file_handlers as file_handlers
+        from M2_data_extractor.data_extractor import Molecules
+        from M1_pre_calculations.main import Module1Handler
+        from Mol_align.renumbering import batch_renumbering
+        from M2_data_extractor.feather_extractor import logs_to_feather
+        from M3_modeler.modeling import ClassificationModel, LinearRegressionModel
+        from M2_data_extractor.cube_sterimol import cube_many
+        from M2_data_extractor.sterimol_standalone import Molecules_xyz
+        
+
 
 
 
 except ImportError or ModuleNotFoundError as e:
-    print(f"An error occurred: {e}")
-    import os
-    import subprocess
-    import sys
-    # List of packages to install
-    packages = [
-        "pandas",
-        "rdkit",
-        "python-igraph",
-        "XlsxWriter",
-        "dgl",
-        "pyarrow",
-        "plotly",
-        "customtkinter",
-        "chardet",
-        "torch",
-        "matplotlib",
-        "rmsd",
-        "networkx",
-        "dash",
-        'pyvista',
-        'pyvistaqt',
-        'morfeus-ml',
-        "scikit-learn",
-        "seaborn",
-        'PIL',
-        'morfeus-ml',
-        'scipy',
-        'tqdm',
-        'statsmodels',
-        'adjustText'
-    ]
+    print(f"An error occurred: {e}, Run install_packages.py script to install the required packages.")
 
-    def install(package):
-            # Replace 'your_python_path' with the path of the Python executable used in CMD
-        result = subprocess.run([sys.executable, "-m", "pip", "install", package], capture_output=True, text=True)
-
-        if result.returncode == 0:
-            print(f"Package installed successfully {package}.")
-        else:
-            print("Error:", result.stderr)
-
-    [install(package) for package in packages]
-    print(f'Installed the Following Packages : {packages}\n {len(packages)} in total.')
-
-    from tkinter import Tk, Frame, Label, Button, Entry, StringVar, OptionMenu, Toplevel, filedialog, Text, Scrollbar, Checkbutton, IntVar, Canvas, LEFT, SOLID,END
-    import customtkinter  # Assuming you have this library
-    import sys
-    import os
-    from tkinter.simpledialog import askstring
-    import csv
-    import pandas as pd
-    import re
-    import shutil
-    import subprocess
-    from .utils import help_functions, file_handlers
-    from .M2_data_extractor.data_extractor import Molecules
-    from .M1_pre_calculations.main import Module1Handler
-    from .Mol_align.renumbering import batch_renumbering
-    from .M2_data_extractor.feather_extractor import logs_to_feather
-    from .M3_modeler.modeling import ClassificationModel, LinearRegressionModel
-    import warnings
-    from tkinter import filedialog, messagebox
-    import warnings
-    from typing import Dict
-    from PIL import Image , ImageTk
-    from tkinter import ttk
-    import morfeus
-    from datetime import datetime
-    import argparse
-    from .M2_data_extractor.cube_sterimol import cube_many
-    from .M2_data_extractor.sterimol_standalone import Molecules_xyz
-    import webbrowser
-    import seaborn as sns
 
 def get_package_version():
     version = "unknown"
@@ -123,7 +64,7 @@ def get_package_version():
 
     return version
 
-__version__ = 0.8006 #get_package_version()
+__version__ = 0.666 #get_package_version() 8006
 
 # Function to get the current date
 def get_current_date():
@@ -324,94 +265,6 @@ class MoleculeApp:
             self.show_result("Description file not found.")
 
     
-    # def run_model_in_directory(self, min_features_num=2, max_features_num=4, target_csv_filepath= '' ) -> None:
-    #     """
-    #     Runs a model in a specified directory using provided CSV filepaths.
-
-    #     :param directory: The directory to change to.
-    #     :param csv_filepaths: A dictionary with filepaths for features and target CSV files.
-    #     :param min_features_num: Minimum number of features for the model.
-    #     :param max_features_num: Maximum number of features for the model.
-    #     """
-    #     def on_model_select(choice):
-    #         self.model_type = choice
-    #         self.model_type_selected = True  # Indicate that the model type has been selected
-
-    #     new_window = Toplevel(self.master)
-    #     # Variable to hold the selected model type
-    #     model_type_var = StringVar(new_window)
-
-    #     # Dropdown menu for model type selection
-    #     model_type_label = Label(new_window, text="Select Model Type:")
-    #     model_type_label.grid(padx=0, pady=10)
-
-    #     model_type_dropdown = OptionMenu(new_window, model_type_var, 'classification', 'linear_regression', command=on_model_select)
-    #     model_type_dropdown.grid(padx=10, pady=10)
-
-    #     # Wait for the model type to be selected
-    #     self.model_type_selected = False
-    #     self.model_type = None
-    #     while not self.model_type_selected:
-    #         new_window.update()
-    #         # Get the selected model type
-    #         model_type = model_type_var.get()
-        
-        
-    #     output_csv_filepath=filedialog.askopenfilename(defaultextension=".csv",
-    #                                    filetypes=[("Excel files", "*.csv"),
-    #                                               ("All files", "*.*")])
-    #     directory = os.path.dirname(output_csv_filepath)
-    #     # ask if you want to load target csv file
-    #     load_target = messagebox.askyesno("Load Target CSV", "Do you want to load a target CSV file?")
-    #     if load_target:
-    #         target_csv_filepath = filedialog.askopenfilename(defaultextension=".csv",
-    #                                    filetypes=[("Excel files", "*.csv"),
-    #                                               ("All files", "*.*")])
-        
-    #     new_window.destroy()
-
-    #     os.chdir(directory)
-    #     csv_filepaths = {'features_csv_filepath': output_csv_filepath,
-    #                     'target_csv_filepath': target_csv_filepath}
-        
-    #     ## ask for number of min_features_num and max_features_num
-    #     def get_valid_integer(prompt, default_value):
-    #         while True:
-    #             value_str = askstring("Input", prompt)
-    #             try:
-    #                 return int(value_str)
-    #             except (ValueError, TypeError):
-    #                 # If the input is not valid, return the default value
-    #                 print(f"Using default value: {default_value}")
-    #                 return default_value
-
-    #     min_features_num = get_valid_integer("Enter the minimum number of features for the model: default is 2", 2)
-    #     max_features_num = get_valid_integer("Enter the maximum number of features for the model: None will results in observation/5 rule of thumb", None)
-    #     top_n = get_valid_integer("Enter the number of models to display: default is 50", 50)
-    #     threshold = get_valid_integer("Enter the r2/accuracy threshold for the model: default is 0.80", 0.80)
-    #     leave_out= messagebox.askyesno("Leave out", "Do you want to leave out molecules?")
-    #     if leave_out:
-    #         names=pd.read_csv(output_csv_filepath)['Unnamed: 0'].tolist()
-    #         name_dict={i: name for i, name in enumerate(names)}
-    #         self.show_result(f"\n\n\n Names of molecules: {name_dict}")
-    #         leave_out_indices = askstring("Input", f"Enter the indices of the molecules to leave out (Check text box for names): example: 1,2,3")
-            
-    #         leave_out_indices = convert_to_list_or_nested_list(leave_out_indices)
-    #     else:
-    #         leave_out_indices = None
-
-    #     with warnings.catch_warnings():
-    #         warnings.simplefilter("ignore")
-    #         if model_type == 'classification':
-    #             classification=ClassificationModel(csv_filepaths, process_method='one csv', output_name='class', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False)
-    #             classification_results=classification.fit_and_evaluate_combinations(top_n = top_n, accuracy_threshold=threshold, app=self)
-
-    #         elif model_type == 'linear_regression':
-
-    #             linear_regression=LinearRegressionModel(csv_filepaths, process_method='one csv', output_name='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False)
-    #             regression_results=linear_regression.fit_and_evaluate_combinations(top_n = top_n, initial_r2_threshold=threshold, app=self)
-
-    #         return 
 
     def validate_integer(self, P):
             # Validation function to allow only integer input
@@ -420,12 +273,52 @@ class MoleculeApp:
             return False
     
     def leave_out_molecules(self):
-        
-        names=self.molecules.molecules_names
-        name_dict={i: name for i, name in enumerate(names)}
-        messagebox.showinfo(f"\n\n\n Names of molecules: {name_dict}")
-        
-        return 
+        """
+        Opens a new Tkinter window with a list of molecules as checkboxes.
+        Returns the list of indices for any molecules the user checks.
+        """
+        names = self.molecules_csv_names  # Assuming this is a list of molecule names
+     
+        # Create a new Toplevel window
+        new_window = Toplevel(self.master)
+        new_window.title("Select Molecules to Remove")
+
+        # We'll store the (index, IntVar) for each molecule in a list
+        var_list = []
+        for i, name in enumerate(names):
+            var = IntVar()
+            chk = Checkbutton(new_window, text=name, variable=var)
+            chk.pack(anchor="w", padx=10, pady=2)
+            var_list.append((i, var))
+
+        # We'll store selected indices here after the user clicks 'Confirm'
+        selected_indices = []
+
+        def confirm_selection():
+            """Collect all checked molecules and close the window."""
+            for idx, variable in var_list:
+                if variable.get() == 1:
+                    selected_indices.append(idx)
+            
+            self.leave_out_indices = selected_indices
+
+            # 2) Also store as a comma-separated string in the StringVar
+            if selected_indices:
+                csv_str = ",".join(str(x) for x in selected_indices)
+                self.leave_out_mols.set(csv_str)
+            else:
+                self.leave_out_mols.set("None")
+            new_window.destroy()  # Closes the Toplevel window
+            
+
+        # Add a 'Confirm' button at the bottom
+        confirm_button = Button(new_window, text="Confirm", command=confirm_selection)
+        confirm_button.pack(pady=10)
+
+        # This forces the function to wait until the user closes the window,
+        # allowing us to return the final list of selected indices.
+        new_window.wait_window()
+
     
     def run_model_in_directory(self):
         new_window = Toplevel(self.master)
@@ -441,6 +334,62 @@ class MoleculeApp:
         model_type_var = StringVar(new_window)
         model_type_dropdown = OptionMenu(new_window, model_type_var, 'classification', 'linear_regression')
         model_type_dropdown.grid(row=0, column=1, padx=10, pady=10)
+        # 2) SUBTYPE (only relevant if linear_regression is selected): ordinary vs. lasso
+
+        regression_subtype_label = Label(new_window, text="Regression Subtype:")
+        regression_subtype_var = StringVar(new_window, value='ordinary')
+        regression_subtype_dropdown = OptionMenu(new_window, regression_subtype_var, 'ordinary', 'lasso')
+
+        # 3) ALPHA ENTRY (only for lasso)
+        lasso_alpha_label = Label(new_window, text="Lasso Alpha:")
+        lasso_alpha_var = StringVar(new_window, value='0.1')
+        lasso_alpha_entry = Entry(new_window, textvariable=lasso_alpha_var, width=5)
+
+        def update_model_type(*args):
+            """
+            Show or hide the regression subtype and alpha entry
+            depending on whether model_type_var is 'linear_regression'.
+            """
+            if model_type_var.get() == 'linear_regression':
+                # Show the regression subtype widgets
+                regression_subtype_label.grid(row=0, column=2, padx=10, pady=10)
+                regression_subtype_dropdown.grid(row=0, column=3, padx=10, pady=10)
+
+                # Show or hide alpha label/entry based on current subtype
+                if regression_subtype_var.get() == 'lasso':
+                    lasso_alpha_label.grid(row=0, column=4, padx=10, pady=10)
+                    lasso_alpha_entry.grid(row=0, column=5, padx=10, pady=10)
+                else:
+                    lasso_alpha_label.grid_remove()
+                    lasso_alpha_entry.grid_remove()
+            else:
+                # Hide them all if 'classification'
+                regression_subtype_label.grid_remove()
+                regression_subtype_dropdown.grid_remove()
+                lasso_alpha_label.grid_remove()
+                lasso_alpha_entry.grid_remove()
+
+        def update_subtype(*args):
+            """
+            Show or hide lasso alpha depending on whether 
+            the subtype is 'lasso'.
+            """
+            # Only show alpha if we're in linear_regression *and* 'lasso'
+            if model_type_var.get() == 'linear_regression' and regression_subtype_var.get() == 'lasso':
+                lasso_alpha_label.grid(row=0, column=4, padx=10, pady=10)
+                lasso_alpha_entry.grid(row=0, column=5, padx=10, pady=10)
+            else:
+                lasso_alpha_label.grid_remove()
+                lasso_alpha_entry.grid_remove()
+
+        # Trace both variables so UI updates any time the user changes a dropdown
+        model_type_var.trace_add("write", update_model_type)
+        regression_subtype_var.trace_add("write", update_subtype)
+
+        # Initialize UI state
+        update_model_type()
+        update_subtype()
+
 
         # Feature CSV Selection
         def select_features_csv():
@@ -448,6 +397,8 @@ class MoleculeApp:
                                                   filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
             feature_csv_entry.delete(0, END)
             feature_csv_entry.insert(0, filepath)
+            self.molecules_csv_names = pd.read_csv(filepath)['Unnamed: 0'].tolist()
+            
 
         features_csv_label = Label(new_window, text="Select Features CSV:")
         features_csv_label.grid(row=1, column=0, padx=10, pady=10)
@@ -512,14 +463,16 @@ class MoleculeApp:
             threshold = float(self.threshold_var.get())
             leave_out_indices = self.leave_out_mols.get() if self.leave_out_mols.get() !='None' else None
             if leave_out_indices:
-                leave_out_indices = convert_to_list_or_nested_list(leave_out_indices)
+                leave_out_indices = self.leave_out_indices #convert_to_list_or_nested_list(leave_out_indices)
+                
             
             if model_type == 'classification':
-                classification = ClassificationModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='class', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False)
-                classification_results = classification.fit_and_evaluate_combinations(top_n=top_n, accuracy_threshold=threshold, app=self)
+                classification = ClassificationModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='class', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
+                classification_results = classification.fit_and_evaluate_combinations(top_n=top_n, accuracy_threshold=threshold)
             elif model_type =='linear_regression':
-                linear_regression = LinearRegressionModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False)
-                regression_results = linear_regression.fit_and_evaluate_combinations(top_n=top_n, initial_r2_threshold=threshold, app=self)
+                print(list(self))
+                linear_regression = LinearRegressionModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
+                regression_results = linear_regression.fit_and_evaluate_combinations(top_n=top_n, initial_r2_threshold=threshold)
 
           
 
@@ -610,248 +563,326 @@ class MoleculeApp:
             self.molecules.visualize_smallest_molecule_morfeus(Indices)
 
 
-    def open_question_window(self):
-        self.parameters={'Dipole_mode': 'gaussian', 'Radii': 'bondi', 'Isotropic': False}
-
+    def build_question_interface(self, parent, questions, loaded_entries=None):
+        """
+        A helper to build the question interface on the given parent window.
         
-        
+        :param parent: The parent window/frame where we place the GUI.
+        :param questions: A list of question strings.
+        :param loaded_entries: (Optional) dict of question->answer if we are reloading from file.
+        :return: A dictionary of question->Entry widgets for further processing.
+        """
+        # If no loaded answers were provided, make it an empty dict
+        loaded_entries = loaded_entries or {}
 
-        def load_answers(questions): #TODO FIXXX the loading
-            file_path = filedialog.askopenfilename(defaultextension=".txt",
-                                                filetypes=[("Text files", "*.txt"),
-                                                            ("All files", "*.*")])
-            if file_path:
-                with open(file_path, 'r') as f:
-                    lines = f.read()
-                    # Define a regex pattern for identifying lists and lists of lists in the text.
-                    pattern = r'(\[[\d, ]*\])|(\[\[[\d, \[\]]*\]\])'
-                    # Find all matches of the pattern in the text.
-                    matches = re.findall(pattern, lines)
-                    # Extract the non-empty matches and initialize a list to store the final strings.
-                    # non_empty_matches = [match[0] or match[1] for match in matches]
-                    final_strings = []
-                    for match in matches:
-                        match_str = match[0] or match[1]
-                        if match_str == '[]':
-                            final_strings.append([])  # Add None for empty matches
-                        elif match_str.startswith("[["):  # List of lists
-                            inner_lists = match_str[1:-1].split("], [")
-                            joined_string = " ".join([inner_list.replace(", ", ",") for inner_list in inner_lists])
-                            final_string = joined_string.strip('[]')
-                            final_strings.append(final_string if final_string else None)  # Add None for empty lists
-                        else:  # Single list
-                            final_string = match_str[1:-1].replace(", ", ",")
-                            final_strings.append(final_string if final_string else None )  # Add None for empty lists
-                # Create a dictionary to store the transformed lists
-                dict_of_ints = {questions[i]: lst for i, lst in enumerate(final_strings) if lst is not None} #.replace('[', '').replace(']', '')
-
-                f.close()
-                
-                
-            return dict_of_ints
-
-        
-        # Function to open a new window with the parameters of the given function
-        def open_parameter_window():
-            window = Toplevel(self.master)
-            window.title("Parameters")
-            window.grab_set()
-            frame = Frame(window)
-            var1 = StringVar(frame)
-            var1.set("Dipole")
-            var1.trace_add("write", lambda *args: apply_parameters())
-            frame.pack(pady=5)
-            dipole_mode=OptionMenu(frame,var1, 'gaussian', 'charge')
-            dipole_mode.grid(row=0, column=0, padx=5)
-            
-            var2 = StringVar(frame)
-            var2.set("Radii")
-            var2.trace_add("write", lambda *args: apply_parameters())
-            radii_mode=OptionMenu(frame, var2 ,'Bondi', 'CPK','Pyykko ')
-            radii_mode.grid(row=0, column=1, padx=5)
-            
-            var3 = StringVar(frame)
-            var3.set("Isotropic")
-            var3.trace_add("write", lambda *args: apply_parameters())
-
-            iso_mode=OptionMenu(frame, var3, 'True', 'False')
-            iso_mode.grid(row=0, column=2, padx=5)
-
-            def apply_parameters():
-                self.parameters['Dipole_mode']=var1.get()   
-                self.parameters['Radii']=var2.get()
-                self.parameters['Isotropic']=var3.get()
-   
-                chosen_parameters.config(text=f"Chosen Parameters: {self.parameters}")
-                
-                return 
-            
-            # Create an entry widget for the answer
-            apply_button = Button(frame, text="Apply", command=window.destroy)
-            apply_button.grid(row=0, column=3, padx=5)
-
-
-        def submit_answers(entry_widgets ,parameters ,save_as=False):
-            answers = {}
-            for question, entry in entry_widgets.items():
-                ## remove space from the indices
-                try:
-                    answers[question] = entry.get()
-                except AttributeError:
-                    answers[question] = entry
-            
-            
-            dipole = self.parameters['Dipole_mode'] if 'Dipole' in self.parameters else 'gaussian'
-            radii = self.parameters['Radii'] if 'Radii' in self.parameters else 'bondi'
-            iso= self.parameters['Isotropic'] if 'Isotropic' in self.parameters else False
-
-            comp_set=self.molecules.get_molecules_comp_set_app(answers, dipole_mode=dipole, radii=radii, iso=iso)  # For demonstration purposes; replace this with your desired action
-
-            self.show_result(f"Extracted Features: {comp_set}")
-            if save_as :
-                file_path = filedialog.asksaveasfilename(defaultextension=".txt",
-                                                filetypes=[("Text files", "*.txt"),
-                                                            ("All files", "*.*")])
-                if file_path :
-                    with open(file_path, 'w') as f:
-                        for question, answer in answers.items():
-                            f.write(f"{question}\n{answer}\n\n")
-
-            
-            if save_as:
-                file_path = filedialog.asksaveasfilename(defaultextension=".csv",
-                                            filetypes=[("csv files", "*.csv"),
-                                                        ("All files", "*.*")])
-                if file_path:
-                    # Save the DataFrame to a CSV file
-                    comp_set.to_csv(file_path, index=True)
-
-
-        # Create a new window
-        self.new_window = Toplevel(self.master)
-        self.new_window.title("Questions")
-        # self.new_window.geometry("600x600")
-        canvas = Canvas(self.new_window)
-        canvas.pack(side='left', fill='both', expand=True)
-
-        # Create the Scrollbar and link it to the Canvas
-        scrollbar = Scrollbar(self.new_window, orient='vertical', command=canvas.yview)
-        scrollbar.pack(side='right', fill='y')
-
+        # -- 1. Create main Canvas + Scrollbar for scrolling --
+        canvas = Canvas(parent)
+        scrollbar = Scrollbar(parent, orient='vertical', command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
-
-        # scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-        self.frame = Frame(canvas)
-        self.frame.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
-        # self.new_window = Frame(canvas)
-        canvas.create_window((0, 0), window=self.frame, anchor="nw")
+        canvas.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
         
-        show_button = Button(canvas, text="Visualize Basic Structure", command=lambda: self.visualize_smallest_molecule())
-        show_button.pack(padx=10)
-        button = Button(canvas, text="Choose Parameters", command=lambda : open_parameter_window())
-        button.pack(pady=10)
-        chosen_parameters = Label(canvas, text=f"Chosen Parameters: {self.parameters}")
-        chosen_parameters.pack(pady=10)
-        questions = [
-            "Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13,17",
-            "Strech Vibration atoms- enter bonded atom pairs: \n example: 1,2 4,5",
-            "Bending Vibration atoms - enter atom pairs that have a common atom: \n example: 4,7",
-            "Dipole atoms - indices for coordination transformation: \n example: 4,5,6 - origin, y-axis, new xy plane",
-            "charge values - Insert atoms to show charge: \n example: 1,2,3,4",
-            "charge difference - Insert atoms to show charge difference: \n example: 1,2 3,4",
-            "Sterimol atoms - Primary axis along: \n example: 7,8",
-            "Bond length - Atom pairs to calculate difference: \n example: 1,2 4,5",
-            "Bond Angle - Insert a list of atom triads/quartets for which you wish to have angles/dihedrals: \n example: 1,3,4 5,6,7,4"
-        ]
+        # This Frame holds all question widgets inside the Canvas
+        container_frame = Frame(canvas)
+        container_frame.bind(
+            "<Configure>",
+            lambda event: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=container_frame, anchor="nw")
+        ## make the window bigger
+        canvas.config(width=800, height=600)
+        # -- 2. Top buttons: Visualize, Choose Parameters, etc. --
+        Button(
+            container_frame,
+            text="Visualize Basic Structure",
+            command=self.visualize_smallest_molecule
+        ).pack(padx=10, pady=5)
 
-        pictures=[r"pictures\rings.png", r"pictures\sterimol.jpg"]
-        # Dictionary to store Entry widgets
+        Button(
+            container_frame,
+            text="Choose Parameters",
+            command=self.open_parameter_window
+        ).pack(pady=5)
 
-        # def make_widget_window
+        chosen_parameters = Label(container_frame, text=f"Chosen Parameters: {self.parameters}")
+        chosen_parameters.pack(pady=5)
+
+        # -- 3. Build the question/entry pairs --
         entry_widgets = {}
         for question in questions:
-            
-            self.frame = Frame(canvas)
-            self.frame.pack(pady=5)
-            # Create a label for the question
-            label = Label(self.frame, text=question, wraplength=400)
+            frame_q = Frame(container_frame)
+            frame_q.pack(pady=5, fill='x')
+
+            label = Label(frame_q, text=question, wraplength=400)
             label.pack(side="left", padx=5)
-            # Create an entry widget for the answer
-            entry = Entry(self.frame, width=30)
+
+            entry = Entry(frame_q, width=30)
             entry.pack(side="left", padx=5)
-            # choose parameters button
-            if question=="Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13,17":
-                show_button = Button(self.frame, text="Show", command=lambda: self.open_image(pictures[0]))
-                show_button.pack(side="left", padx=5)
-            elif question=="Sterimol atoms - Primary axis along: \n example: 7,8":
-                show_button = Button(self.frame, text="Show", command=lambda: self.morfeus_visualize())
-                show_button.pack(side="left", padx=5)
-            
-            # Store the entry widget in the dictionary
-            entry_widgets[question] = entry
-            
-       
-            
-        submit_button = Button(canvas, text="Submit", command=lambda: submit_answers(entry_widgets, parameters=self.parameters))
-        submit_button.pack(pady=20)
 
-        # save as 
-        save_as_button = Button(canvas, text="Save input/output", command=lambda: submit_answers(entry_widgets, parameters=self.parameters,save_as=True))
-        save_as_button.pack(pady=10)
+            # If we have a pre-loaded answer for this question, insert it
+            if question in loaded_entries:
+                entry.insert(0, loaded_entries[question])
 
-        load_answers_file = Button(canvas, text="Load input", command=lambda: on_load_answers(questions))
-        load_answers_file.pack(pady=10)
-        
-        
-        
-        def on_load_answers(questions):
-            entry_widgets = load_answers(questions)
-            
-            self.new_window.destroy()
-            self.new_window = Toplevel(self.master)
-            
-            self.new_window.title("Questions")
-            canvas = Canvas(self.new_window)
-            scrollbar = Scrollbar(self.new_window, orient='vertical', command=canvas.yview)
-            scrollbar.pack(side='right', fill='x')
-            scrollbar.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-            canvas.pack(side='right', fill='both', expand=True)
-            canvas.configure(yscrollcommand=scrollbar.set)
-            show_button = Button(canvas, text="Visualize Basic Structure", command=lambda: self.visualize_smallest_molecule())
-            show_button.pack(padx=10)
-            button = Button(canvas, text="Choose Parameters", command=lambda : open_parameter_window())
-            button.pack(pady=10)
-            chosen_parameters = Label(canvas, text=f"Chosen Parameters: {self.parameters}")
-            pictures=[r"pictures\rings.png", r"pictures\sterimol.jpg"]
-            chosen_parameters.pack(pady=10)
-            for question, entry in entry_widgets.items():
-               
-  
-                self.frame = Frame(canvas)
-                self.frame.pack(pady=5)
-                label = Label(self.frame, text=question, wraplength=400)
-                label.pack(side="left", padx=5)
-                entry = Entry(self.frame, width=30)
-                entry.pack(side="left", padx=5)
-                entry.insert(0, entry_widgets[question])
+            # Special "Show" buttons if needed
+            if question.startswith("Ring Vibration atoms"):
+                # Add "Show" button if needed
+                Button(
+                    frame_q,
+                    text="Show",
+                    command=lambda: self.open_image(r"pictures\rings.png")
+                ).pack(side="left", padx=5)
+
                 
-                if question=="Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13,17":
-                    show_button = Button(self.frame, text="Show", command=lambda: self.open_image(pictures[0]))
-                    show_button.pack(side="left", padx=5)
-                elif question=="Sterimol atoms - Primary axis along: \n example: 7,8 2,3":
-                    show_button = Button(self.frame, text="Show", command=lambda: self.morfeus_visualize())
-                    show_button.pack(side="left", padx=5)
+
+            elif question.startswith("Strech Vibration atoms"):
+                # Add threshold label + entry
+                threshold_label = Label(frame_q, text="Threshold:")
+                threshold_label.pack(side="left", padx=5)
+                stretch_threshold_entry = Entry(frame_q, width=10)
+                stretch_threshold_entry.insert(0, 1600)
+                stretch_threshold_entry.pack(side="left", padx=5)
+
+                entry_widgets["Stretch Threshold"] = stretch_threshold_entry
+
+            elif question.startswith("Bending Vibration atoms"):
+                # Add threshold label + entry
+                threshold_label = Label(frame_q, text="Threshold:")
+                threshold_label.pack(side="left", padx=5)
+                bend_threshold_entry = Entry(frame_q, width=10)
+                bend_threshold_entry.pack(side="left", padx=5)
+                bend_threshold_entry.insert(0, 1600)
+                entry_widgets["Bend Threshold"] = bend_threshold_entry
+            elif question.startswith("Sterimol atoms"):
+                Button(
+                    frame_q,
+                    text="Show",
+                    command=self.morfeus_visualize
+                ).pack(side="left", padx=5)
+
+            entry_widgets[question] = entry
+
+        # -- 4. Bottom Buttons: Submit, Save, Load, etc. --
+        bottom_frame = Frame(container_frame)
+        bottom_frame.pack(pady=10)
+
+        Button(
+            bottom_frame,
+            text="Submit",
+            command=lambda: self.submit_answers(entry_widgets, self.parameters)
+        ).pack(side='left', padx=5)
+
+        Button(
+            bottom_frame,
+            text="Save input",
+            command=lambda: self.save_input(entry_widgets, save_as=True)
+        ).pack(side='left', padx=5)
+
+        Button(
+            bottom_frame,
+            text="Save output",
+            command=lambda: self.submit_answers(entry_widgets, self.parameters, save_as=True)
+        ).pack(side='left', padx=5)
+
+        Button(
+            container_frame,
+            text="Load input",
+            command=lambda: self.on_load_answers(questions)
+        ).pack(pady=5)
+
+        return entry_widgets
+
         
 
+    def on_load_answers(self, questions):
+        """
+        Loads answers from a file, closes the old question window,
+        and rebuilds it with loaded answers.
+        """
+        loaded_entries = self.load_answers(questions)
+        if not loaded_entries:
+            return  # If user cancels or no entries found, do nothing
 
-            submit_button = Button(canvas, text="Submit", command=lambda: submit_answers(entry_widgets, parameters=self.parameters))
-            submit_button.pack(pady=20)
-            save_as_button = Button(canvas, text="Save input/output", command=lambda: submit_answers(entry_widgets, parameters=self.parameters,save_as=True))
-            save_as_button.pack(pady=10)
-            load_answers_file = Button(canvas, text="Load input", command=lambda: on_load_answers(question))
-            load_answers_file.pack(pady=10)
+        # Destroy the existing window
+        if self.new_window:
+            self.new_window.destroy()
 
+        # Create a fresh Toplevel
+        self.new_window = Toplevel(self.master)
+        self.new_window.title("Questions")
+
+        # Build the interface with the loaded answers
+        self.build_question_interface(self.new_window, questions, loaded_entries=loaded_entries)
+
+    def load_answers(self, questions):
+        """
+        Reads answers from a text file and returns a dict {question: answer}.
+        """
+        file_path = filedialog.askopenfilename(
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+        if not file_path:
+            return {}
+
+        with open(file_path, 'r') as f:
+            lines = f.read()
+
+        # Regex to identify lists or lists of lists
+        pattern = r'(\[[\d, ]*\])|(\[\[[\d, \[\]]*\]\])'
+        matches = re.findall(pattern, lines)
+
+        final_strings = []
+        for match in matches:
+            match_str = match[0] or match[1]
+            if match_str == '[]':
+                final_strings.append([])
+            elif match_str.startswith("[["):
+                # A list of lists
+                inner_lists = match_str[1:-1].split("], [")
+                joined_string = " ".join(
+                    [inner_list.replace(", ", ",") for inner_list in inner_lists]
+                )
+                final_string = joined_string.strip('[]')
+                final_strings.append(final_string if final_string else None)
+            else:
+                # Single list
+                final_string = match_str[1:-1].replace(", ", ",")
+                final_strings.append(final_string if final_string else None)
+
+        # Convert loaded info into a dict: {question: answer}
+        dict_of_ints = {}
+        for i, ans in enumerate(final_strings):
+            if ans is not None and i < len(questions):
+                dict_of_ints[questions[i]] = ans
+
+        return dict_of_ints
+
+    def save_input(self, entry_widgets, save_as=False):
+        """
+        Saves user input (entry_widgets) to a text file if 'save_as' is True.
+        """
+        answers = {}
+        for question, entry in entry_widgets.items():
+            try:
+                answers[question] = entry.get()
+            except AttributeError:
+                answers[question] = entry
+
+        if save_as:
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+            )
+            if file_path:
+                with open(file_path, 'w') as f:
+                    for question, answer in answers.items():
+                        f.write(f"{question}\n{answer}\n\n")
+
+    def submit_answers(self, entry_widgets, parameters, save_as=False):
+        """
+        Gathers user input from entry_widgets, applies parameters,
+        extracts features, and optionally saves results to a file.
+        """
+        answers = {}
+        for question, entry in entry_widgets.items():
+            try:
+                answers[question] = entry.get()
+            except AttributeError:
+                answers[question] = entry
+        
+        # Use parameters or defaults
+        dipole = self.parameters['Dipole_mode'] if 'Dipole' in self.parameters else 'gaussian'
+        radii = self.parameters['Radii'] 
+        iso= self.parameters['Isotropic'] if 'Isotropic' in self.parameters else False
+        
+        # Example: calling a method from self.molecules (stub for demonstration)
+        comp_set = self.molecules.get_molecules_comp_set_app(answers, dipole_mode=dipole, radii=radii, iso=iso)
+        self.show_result(f"Extracted Features: {comp_set}")
+
+        # For demonstration, just print
+        print("Submitted answers:", answers, "\n\n")
+        print("Using parameters:", parameters)
+
+        # If save_as, save both text and CSV
+        if save_as:
+            # Save text file
+            # file_path = filedialog.asksaveasfilename(
+            #     defaultextension=".txt",
+            #     filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+            # )
+            # if file_path:
+            #     with open(file_path, 'w') as f:
+            #         for question, answer in answers.items():
+            #             f.write(f"{question}\n{answer}\n\n")
+
+            # Save a CSV (demo code if you have a DataFrame called comp_set)
+            file_path_csv = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("csv files", "*.csv"), ("All files", "*.*")]
+            )
+            if file_path_csv:
+                comp_set.to_csv(file_path_csv, index=True)
+
+    def open_parameter_window(self):
+        """
+        Opens a small window to adjust self.parameters.
+        """
+        window = Toplevel(self.master)
+        window.title("Parameters")
+        window.grab_set()
+
+        frame = Frame(window)
+        frame.pack(pady=5)
+
+        # Dipole Mode
+        var_dipole = StringVar(frame)
+        var_dipole.set(self.parameters.get('Dipole_mode', 'gaussian'))
+        var_dipole.trace_add("write", lambda *args: apply_parameters())
+
+        # Radii
+        var_radii = StringVar(frame)
+        var_radii.set(self.parameters.get('Radii', 'bondi'))
+        var_radii.trace_add("write", lambda *args: apply_parameters())
+
+        # Isotropic
+        var_iso = StringVar(frame)
+        var_iso.set(str(self.parameters.get('Isotropic', False)))
+        var_iso.trace_add("write", lambda *args: apply_parameters())
+
+        # Menu Widgets
+        OptionMenu(frame, var_dipole, 'gaussian', 'compute').grid(row=0, column=0, padx=5)
+        OptionMenu(frame, var_radii, 'bondi', 'CPK', 'Pyykko').grid(row=0, column=1, padx=5)
+        OptionMenu(frame, var_iso, 'True', 'False').grid(row=0, column=2, padx=5)
+
+        def apply_parameters():
+            self.parameters['Dipole_mode'] = var_dipole.get()
+            self.parameters['Radii'] = var_radii.get()
+            # Convert 'True'/'False' strings to booleans
+            self.parameters['Isotropic'] = (var_iso.get() == 'True')
             
+
+        Button(frame, text="Apply", command=window.destroy).grid(row=0, column=3, padx=5)
+
+    def open_question_window(self):
+        self.parameters={'Dipole_mode': 'gaussian', 'Radii': 'bondi', 'Isotropic': False}
+        questions = [
+                "Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13,17",
+                "Strech Vibration atoms- enter bonded atom pairs: \n example: 1,2 4,5",
+                "Bending Vibration atoms - enter atom pairs that have a common atom: \n example: 4,7",
+                "Dipole atoms - indices for coordination transformation: \n example: 4,5,6 - origin, y-axis, new xy plane",
+                "charge values - Insert atoms to show charge: \n example: 1,2,3,4",
+                "charge difference - Insert atoms to show charge difference: \n example: 1,2 3,4",
+                "Sterimol atoms - Primary axis along: \n example: 7,8",
+                "Bond length - Atom pairs to calculate difference: \n example: 1,2 4,5",
+                "Bond Angle - Insert a list of atom triads/quartets for which you wish to have angles/dihedrals: \n example: 1,3,4 5,6,7,4"
+            ]
+
+        # Create a new Toplevel
+        self.new_window = Toplevel(self.master)
+        self.new_window.title("Questions")
+
+        # Build the interface with no previously loaded answers
+        self.build_question_interface(self.new_window, questions, loaded_entries=None)
                 
         
 
