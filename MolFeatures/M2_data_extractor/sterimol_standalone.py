@@ -712,6 +712,7 @@ def filter_atoms_for_sterimol(bonded_atoms_df,coordinates_df):
     return edited_coordinates_df
 
 
+
 def get_extended_df_for_sterimol(coordinates_df, bonds_df, radii='CPK'):
     """
     A function that adds information to the regular coordinates_df
@@ -731,19 +732,23 @@ def get_extended_df_for_sterimol(coordinates_df, bonds_df, radii='CPK'):
 
     """
     
-    bond_type_map = GeneralConstants.BOND_TYPE.value
+    bond_type_map_regular = GeneralConstants.REGULAR_BOND_TYPE.value
+    bond_type_map=GeneralConstants.BOND_TYPE.value
     ## if radius is cpk mapping should be done on atype, else on atom
     radii_map = GeneralConstants.CPK_RADII.value if radii == 'CPK' else GeneralConstants.BONDI_RADII.value
     
     df = coordinates_df.copy()  # make a copy of the dataframe to avoid modifying the original
     
-    df['atype']=nob_atype(coordinates_df, bonds_df)
     
     
-    # df['atype'] = df['atom'].map(bond_type_map).fillna(bond_type)
+    if radii == 'bondi':
+        df['atype']=df['atom']
+    else:
+        df['atype']=nob_atype(coordinates_df, bonds_df)
+
     df['magnitude'] = calc_magnitude_from_coordinates_array(df[['x', 'z']].astype(float))
     
-    df['radius'] = df['atom'].map(radii_map)
+    df['radius'] = df['atype'].map(radii_map)
     df['B5'] = df['radius'] + df['magnitude']
     df['L'] = df['y'] + df['radius']
     return df
@@ -761,11 +766,15 @@ def get_transfomed_plane_for_sterimol(plane,degree):
             [-0.6868 -0.4964]
     degree : float
     """
-    # print(degree,plane)
+  
     cos_deg=np.cos(degree*(np.pi/180))
     sin_deg=np.sin(degree*(np.pi/180))
     rot_matrix=np.array([[cos_deg,-1*sin_deg],[sin_deg,cos_deg]])
     transformed_plane=np.vstack([np.matmul(rot_matrix,row) for row in plane]).round(4)
+
+    
+    ## return the inversed rotation matrix to transform the plane back
+
     return transformed_plane
 
 
@@ -792,125 +801,403 @@ def calc_B1(transformed_plane,avs,edited_coordinates_df,column_index):
     """
     
     ## get the index of the min value in the column compared to the avs.min
-    idx=np.where(np.isclose(np.abs(transformed_plane[:,column_index]),(avs.min()).round(4)))[0][0]
+    idx=np.where(np.isclose(np.abs(transformed_plane[:,column_index]),(avs.min())))[0][0]  ## .round(4)
+    # Compute number of points per substituent (assumes evenly divided)
+    # print('inside calc_B1')
+    # n_total = transformed_plane.shape[0]
+    # n_subs = edited_coordinates_df.shape[0]
+    # n_points = n_total // n_subs if n_subs > 0 else 1
+
+    # # Print debug info
+    # print("calc_B1: transformed_plane.shape =", transformed_plane.shape)
+    # print("calc_B1: len(extended_df) =", n_subs)
+    # print("calc_B1: n_points per substituent =", n_points)
+    
+    # # Find first index where the absolute value is close to the minimum of avs
+    # idx = np.where(np.isclose(np.abs(transformed_plane[:, column_index]), avs.min()))[0][0]
+    # # Map the plane index back to the corresponding DataFrame row
+    # index_df = idx // n_points
+    # print("calc_B1: raw idx =", idx, "mapped index_df =", index_df)
+    # idx=index_df
     if transformed_plane[idx,column_index]<0:
+       
         new_idx=np.where(np.isclose(transformed_plane[:,column_index],transformed_plane[:,column_index].min()))[0][0]
         bool_list=np.logical_and(transformed_plane[:,column_index]>=transformed_plane[new_idx,column_index],
                                  transformed_plane[:,column_index]<=transformed_plane[new_idx,column_index]+1)
         
         transformed_plane[:,column_index]=-transformed_plane[:,column_index]
     else:
+     
         bool_list=np.logical_and(transformed_plane[:,column_index]>=transformed_plane[idx,column_index]-1,
                                  transformed_plane[:,column_index]<=transformed_plane[idx,column_index])
         
     against,against_loc=[],[]
     B1,B1_loc=[],[]
-    for i in range(1,transformed_plane.shape[0]): 
+
+    ### return the part of the transformed plane that b1 is calculated from
+    ### convert it back with the inverse matrix to get the original coordinates of b1 location
+    
+    for i in range(0,transformed_plane.shape[0]): 
         if bool_list[i]:
             against.append(np.array(transformed_plane[i,column_index]+edited_coordinates_df['radius'].iloc[i]))
             against_loc.append(edited_coordinates_df['L'].iloc[i])
+        
+
         if len(against)>0:
+        
             B1.append(max(against))
             B1_loc.append(against_loc[against.index(max(against))])
-            
+          
         else:
+       
             B1.append(np.abs(transformed_plane[idx,column_index]+edited_coordinates_df['radius'].iloc[idx]))
             B1_loc.append(edited_coordinates_df['radius'].iloc[idx])
             
-        
-    return [B1,B1_loc]
+            
+      
+    return [B1,B1_loc] 
 
-def b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane):
+def generate_circle(center_x, center_y, radius, n_points=20):
     """
-    a function that gets a plane transform it and calculate the b1s for each degree.
-    checks if the plane is in the x or z axis and calculates the b1s accordingly.
-    Parameters:
+    Generate circle coordinates given a center and radius.
+    Returns a DataFrame with columns 'x' and 'y'.
+    """
+    theta = np.linspace(0, 2 * np.pi, n_points)
+    x = center_x + radius * np.cos(theta)
+    y = center_y + radius * np.sin(theta)
+    return np.column_stack((x, y))
+
+
+def b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane, b1_planes):
+    """
+    For each degree in degree_list, rotate the plane and compute B1 values and the B1-B5 angle.
+    Instead of returning after the first iteration, this version accumulates all results
+    into a DataFrame.
+    
+    Parameters
     ----------
     extended_df : pd.DataFrame
+        DataFrame with at least columns 'x', 'z', 'radius', 'L'.
     b1s : list
+        (Unused here; kept for compatibility)
     b1s_loc : list
+        (Unused here; kept for compatibility)
     degree_list : list
+        List of rotation angles (in degrees) to scan.
     plane : np.array
+        Array of shape (n_points_total, 2) that contains the combined circle points.
+    b1_planes : list
+        List to store the rotated plane from each iteration.
+        
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with one row per degree, containing:
+         - 'degree': the rotation angle,
+         - 'B1': the minimum extreme value from the rotated plane,
+         - 'B1_B5_angle': the angle between the B1 and B5 arrows in degrees,
+         - 'b1_coords': the coordinate (as a tuple) chosen for B1,
+         - 'b5_value': the distance of the farthest point (B5) from the origin.
     """
-    degree=[]
+    results = []  # List to accumulate results
+    
     for degree in degree_list:
-        transformed_plane=get_transfomed_plane_for_sterimol(plane, degree)
+        transformed_plane = get_transfomed_plane_for_sterimol(plane, degree)  # Rotate the plane
+     
+        max_x = np.max(transformed_plane[:, 0])
+        min_x = np.min(transformed_plane[:, 0])
+        max_y = np.max(transformed_plane[:, 1])
+        min_y = np.min(transformed_plane[:, 1])
+        avs = np.abs([max_x, min_x, max_y, min_y])
+       
+        min_val = np.min(avs)
+        min_index = np.argmin(avs)
         
-        avs=np.abs([max(transformed_plane[:,0]),min(transformed_plane[:,0]), 
-                    max(transformed_plane[:,1]),min(transformed_plane[:,1])])
+        # Mimic R's switch to pick the B1 coordinate:
+        if min_index == 0:
+            b1_coords = (max_x, 0)
+        elif min_index == 1:
+            b1_coords = (min_x, 0)
+        elif min_index == 2:
+            b1_coords = (0, max_y)
+        else:
+            b1_coords = (0, min_y)
         
-        if min(avs) == 0:
-            min_avs_indices = np.where(avs == min(avs))[0]
-            if any(index in [0, 1] for index in min_avs_indices):
-                tc = np.round(transformed_plane, 1)
-                B1 = max(extended_df['radius'].iloc[np.where(tc[:, 0] == 0)])
-                B1_loc = extended_df['L'].iloc[np.argmax(extended_df['radius'].iloc[np.where(tc[:, 0] == 0)])]
-                b1s.append(B1)
-                b1s_loc.append(B1_loc)
-                continue  # Skip the rest of the loop
-
-            elif any(index in [2, 3] for index in min_avs_indices):
-                tc = np.round(transformed_plane, 1)
-                B1 = max(extended_df['radius'].iloc[np.where(tc[:, 1] == 0)])
-                B1_loc = extended_df['L'].iloc[np.argmax(extended_df['radius'].iloc[np.where(tc[:, 1] == 0)])]
-                b1s.append(B1)
-                b1s_loc.append(B1_loc)
-                continue
-
-        if np.where(avs==avs.min())[0][0] in [0,1]:
-            B1,B1_loc=calc_B1(transformed_plane,avs,extended_df,0)
-            
+        # Determine B5 as the farthest point from the origin.
+        norms_sq = np.sum(transformed_plane**2, axis=1)
+        b5_index = np.argmax(norms_sq)
+        b5_point = transformed_plane[b5_index]
+        b5_value = np.linalg.norm(b5_point)
+        
+        # Calculate angles for the arrows.
+        angle_b1 = np.arctan2(b1_coords[1], b1_coords[0]) % (2*np.pi)
+        angle_b5 = np.arctan2(b5_point[1], b5_point[0]) % (2*np.pi)
+        angle_diff = abs(angle_b5 - angle_b1)
+        if angle_diff > np.pi:
+            angle_diff = 2*np.pi - angle_diff
+        # Convert the angle difference to degrees.
+        B1_B5 = np.degrees(angle_diff)
+        B1 = min_val
+        
+        # Save the transformed plane for this iteration.
+        b1_planes.append(transformed_plane)
+        
+        # Accumulate the result for this degree.
+        results.append({
+            'degree': degree,
+            'B1': B1,
+            'B1_B5_angle': B1_B5,
+            'b1_coords': b1_coords,
+            'b5_value': b5_value,
+            'plane': transformed_plane
+        })
+    
+    # Create a DataFrame from the accumulated results.
+    sterimol_df = pd.DataFrame(results)
   
-        elif np.where(avs==avs.min())[0][0] in [2,3]:
-            B1,B1_loc=calc_B1(transformed_plane,avs,extended_df,1)
-             
+    return sterimol_df
+
+   
+    
+def get_b1s_list(extended_df, scans=90//5,plot_result=False):
+    """
+    Calculate B1 values by scanning over a range of rotation angles.
+    Instead of using only the center points, this version generates circle points
+    for each substituent from extended_df and then stacks them into one plane.
+    
+    Parameters
+    ----------
+    extended_df : pd.DataFrame
+        DataFrame with at least the columns: 'x', 'z', 'radius', 'L'.
+    scans : int, optional
+        Degree step for the initial scan.
         
-        b1s.append(np.unique(np.vstack(B1)).max())####check
-        b1s_loc.append(np.unique(np.vstack(B1_loc)).max())
+    Returns
+    -------
+    tuple
+        (np.array of B1 values, np.array of B1 location values, list of rotated planes)
+    """
+    b1s, b1s_loc, b1_planes = [], [], []
+    degree_list = list(range(18, 108, scans))
+    
+    # Generate circles for each substituent and combine them.
+    circles = []
+    for idx, row in extended_df.iterrows():
+        circle_points = generate_circle(row['x'], row['z'], row['radius'], n_points=100)
+        circles.append(circle_points)
+    plane = np.vstack(circles)  # All circle points combined.
+    
+    sterimol_df=b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane, b1_planes)
+
+    b1s=sterimol_df['B1']
+    
+    try:
+        back_ang=degree_list[np.where(b1s==min(b1s))[0][0]]-scans   
+        front_ang=degree_list[np.where(b1s==min(b1s))[0][0]]+scans
+        new_degree_list=range(back_ang,front_ang+1)
+    except:
+        
+        back_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]-scans
+        front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
+        new_degree_list=range(back_ang,front_ang+1)
+    # plane=sterimol_df['plane']
+    
+    b1s, b1s_loc, b1_planes = [], [], []
+    sterimol_df=b1s_for_loop_function(extended_df, b1s, b1s_loc, list(new_degree_list), plane, b1_planes)
+  
+    b1s=sterimol_df['B1']
+
+    b1_b5_angle=sterimol_df['B1_B5_angle']
+    plane=sterimol_df['plane']
     
 
-def get_b1s_list(extended_df, scans=90//5):
+    return [b1s, b1_b5_angle, plane]
+
+import matplotlib.pyplot as plt
+
+def plot_b1_visualization(rotated_plane, extended_df, n_points=100, title="Rotated Plane Visualization"):
+    """
+    Visualize the rotated plane by plotting:
+      - Complete circles (each generated from a substituent),
+      - Dashed lines at extreme x and y values,
+      - Arrows for the four extreme directions (with the B1 arrow highlighted),
+      - A B5 arrow (the farthest point from the origin),
+      - An arc indicating the angle between the B1 and B5 arrows.
     
-    b1s,b1s_loc=[],[]
-    scans=scans
-    degree_list=list(range(18,108,scans))
-    plane=np.array(extended_df[['x','z']].astype(float))
-    b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane)
+    Parameters
+    ----------
+    rotated_plane : np.array
+        Rotated plane points (stacked complete circles; shape: [n_total_points, 2]).
+    extended_df : pd.DataFrame
+        DataFrame with columns 'radius' and 'L' (used for annotations).
+    n_points : int, optional
+        Number of points per circle (default is 20).
+    title : str, optional
+        Title for the plot.
+    """
+    # Compute extreme values from all points
+    max_x = np.max(rotated_plane[:, 0])
+    min_x = np.min(rotated_plane[:, 0])
+    max_y = np.max(rotated_plane[:, 1])
+    min_y = np.min(rotated_plane[:, 1])
+    avs = np.abs([max_x, min_x, max_y, min_y])
+    min_val = np.min(avs)
+    min_index = np.argmin(avs)
     
-    if b1s:
-        try:
-            back_ang=degree_list[np.where(b1s==min(b1s))[0][0]]-scans   
-            front_ang=degree_list[np.where(b1s==min(b1s))[0][0]]+scans
-            degree_list=range(back_ang,front_ang+1)
-        except:
-           
-            back_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]-scans
-            front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
-            degree_list=range(back_ang,front_ang+1)
+    # Determine B1 arrow coordinates based on the minimum extreme
+    if min_index == 0:
+        b1_coords = np.array([max_x, 0])
+    elif min_index == 1:
+        b1_coords = np.array([min_x, 0])
+    elif min_index == 2:
+        b1_coords = np.array([0, max_y])
     else:
-        print('no b1s found')
-        return [np.array(b1s),np.array(b1s_loc)]
+        b1_coords = np.array([0, min_y])
     
-    b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane)
+    # Determine B5 as the farthest point from the origin
+    norms_sq = np.sum(rotated_plane**2, axis=1)
+    b5_index = np.argmax(norms_sq)
+    b5_point = rotated_plane[b5_index]
+    b5_value = np.linalg.norm(b5_point)
+  
+    # Calculate angles for the arrows
+    angle_b1 = np.arctan2(b1_coords[1], b1_coords[0]) % (2 * np.pi)
+    angle_b5 = np.arctan2(b5_point[1], b5_point[0]) % (2 * np.pi)
+    angle_diff = abs(angle_b5 - angle_b1)
+    if angle_diff > np.pi:
+        angle_diff = 2 * np.pi - angle_diff
+    angle_diff_deg = np.degrees(angle_diff)
     
-    return [np.array(b1s),np.array(b1s_loc)]
+    plt.figure(figsize=(8, 8))
+    
+    # Plot complete circles.
+    n_total = rotated_plane.shape[0]
+    n_circles = n_total // n_points
+    for i in range(n_circles):
+        circle_points = rotated_plane[i * n_points:(i + 1) * n_points, :]
+        # Close the circle by appending the first point to the end
+        circle_points = np.vstack([circle_points, circle_points[0]])
+        plt.plot(circle_points[:, 0], circle_points[:, 1], color='cadetblue', linewidth=1.5)
+    
+    # Plot dashed extreme lines
+    plt.axvline(x=max_x, color='darkred', linestyle='dashed')
+    plt.axvline(x=min_x, color='darkred', linestyle='dashed')
+    plt.axhline(y=max_y, color='darkgreen', linestyle='dashed')
+    plt.axhline(y=min_y, color='darkgreen', linestyle='dashed')
+    
+    # Draw arrows for each extreme (all black except the B1 arrow highlighted)
+    arrow_colors = ['black'] * 4
+    arrow_colors[min_index] = '#8FBC8F'
+    plt.arrow(0, 0, max_x, 0, head_width=0.1, length_includes_head=True, color=arrow_colors[0])
+    plt.arrow(0, 0, min_x, 0, head_width=0.1, length_includes_head=True, color=arrow_colors[1])
+    plt.arrow(0, 0, 0, max_y, head_width=0.1, length_includes_head=True, color=arrow_colors[2])
+    plt.arrow(0, 0, 0, min_y, head_width=0.1, length_includes_head=True, color=arrow_colors[3])
+    
+    # Draw the B5 arrow in red
+    plt.arrow(0, 0, b5_point[0], b5_point[1], head_width=0.1, length_includes_head=True, color="#CD3333")
+    
+    # Annotate B1 and B5 values
+    plt.text(b1_coords[0] * 0.5, b1_coords[1] * 0.5, f"B1\n{min_val:.2f}", 
+             fontsize=12, ha='center', va='bottom', fontweight='bold')
+    plt.text(b5_point[0] * 0.66, b5_point[1] * 0.66, f"B5\n{b5_value:.2f}", 
+             fontsize=12, ha='center', va='bottom', fontweight='bold')
+    
+    # Draw an arc between the B1 and B5 arrows to represent the angle difference.
+    arc_theta = np.linspace(min(angle_b1, angle_b5), max(angle_b1, angle_b5), 100)
+    arc_x = 0.5 * np.cos(arc_theta)
+    arc_y = 0.5 * np.sin(arc_theta)
+    plt.plot(arc_x, arc_y, color='gray', linewidth=1.5)
+    
+    # Annotate the angle in degrees at the midpoint of the arc.
+    mid_angle = (min(angle_b1, angle_b5) + max(angle_b1, angle_b5)) / 2
+    plt.text(0.8 * np.cos(mid_angle), 0.8 * np.sin(mid_angle), f"{angle_diff_deg:.1f}°",
+             fontsize=12, ha='center', va='center', fontweight='bold')
+    
+    plt.title(title)
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.axis('equal')
+    plt.show()
 
-def calc_sterimol(bonded_atoms_df,extended_df):
+
+
+# def get_b1s_list(extended_df, scans=90//5):
+    
+#     b1s,b1s_loc,b1_planes=[],[],[]
+#     scans=scans
+#     degree_list=list(range(18,108,scans))
+#     plane=np.array(extended_df[['x','z']].astype(float))
+#     b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane,b1_planes)
+
+#     if b1s:
+#         try:
+#             back_ang=degree_list[np.where(b1s==min(b1s))[0][0]]-scans   
+#             front_ang=degree_list[np.where(b1s==min(b1s))[0][0]]+scans
+#             degree_list=range(back_ang,front_ang+1)
+#         except:
+            
+#             back_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]-scans
+#             front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
+#             degree_list=range(back_ang,front_ang+1)
+#     else:
+     
+#         return [np.array(b1s),np.array(b1s_loc)]
+    
+#     b1s,b1s_loc,b1_planes=[],[] ,[]
+#     b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane,b1_planes)
+   
+#     return [np.array(b1s),np.array(b1s_loc),b1_planes]
+
+def calc_sterimol(bonded_atoms_df,extended_df,visualize=False):
     edited_coordinates_df=filter_atoms_for_sterimol(bonded_atoms_df,extended_df)
-    b1s,b1s_loc=get_b1s_list(edited_coordinates_df)
-    B1=min(b1s[b1s>=0])
-    loc_B1=max(b1s_loc[np.where(b1s[b1s>=0]==min(b1s[b1s>=0]))])
-    B5=max(edited_coordinates_df['B5'].values)
+  
+    b1s,b1_b5_angle,plane=get_b1s_list(edited_coordinates_df)
+   
+    valid_indices = np.where(b1s >= 0)[0]
+    best_idx = valid_indices[np.argmin(b1s[valid_indices])]
+    best_b1_plane = plane[best_idx]
+
+    max_x = np.max(best_b1_plane[:, 0])
+    min_x = np.min(best_b1_plane[:, 0])
+    max_y = np.max(best_b1_plane[:, 1])
+    min_y = np.min(best_b1_plane[:, 1])
+    avs = np.abs([max_x, min_x, max_y, min_y])
+    min_val = np.min(avs)
+    B1= min_val
+    b1_index=np.where(b1s==B1)[0][0]
+    angle=b1_b5_angle[b1_index]
+    norms_sq = np.sum(best_b1_plane**2, axis=1)
+    b5_index = np.argmax(norms_sq)
+    b5_point = best_b1_plane[b5_index]
+    b5_value = np.linalg.norm(b5_point)
+    # loc_B1=max(b1s_loc[np.where(b1s[b1s>=0]==min(b1s[b1s>=0]))])
+    # get the idx of the row with the  biggest b5 value from edited
+    max_row=edited_coordinates_df['B5'].idxmax()
+    max_row=int(max_row)
     L=max(edited_coordinates_df['L'].values)
-    loc_B5 = min(edited_coordinates_df['y'].iloc[np.where(edited_coordinates_df['B5'].values == B5)[0]])
-    sterimol_df = pd.DataFrame([B1, B5, L, loc_B1,loc_B5], index=XYZConstants.STERIMOL_INDEX.value)
-    return sterimol_df.T
+    loc_B5 = edited_coordinates_df['y'].iloc[np.where(edited_coordinates_df['B5']==max(edited_coordinates_df['B5']))[0][0]]
+    
+    sterimol_df = pd.DataFrame([B1, b5_value, L ,loc_B5,angle], index=['B1', 'B5', 'L','loc_B5','B1_B5_angle'])
+    if visualize:
+        plot_b1_visualization(best_b1_plane, edited_coordinates_df)
+
+    return sterimol_df.T 
 
 
-def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_direction, radii='bondi', sub_structure=True):
+def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_direction, radii='bondi', sub_structure=True, drop_atoms=None,visualize=False):
+
+    if drop_atoms is not None:
+        drop_atoms=adjust_indices(drop_atoms)
+        for atom in drop_atoms:
+            bonds_df = bonds_df[~((bonds_df[0] == atom) | (bonds_df[1] == atom))]
+            ## drop the rows from coordinates_df
+            coordinates_df = coordinates_df.drop(atom)
 
     bonds_direction = direction_atoms_for_sterimol(bonds_df, base_atoms)
+    
     new_coordinates_df = preform_coordination_transformation(coordinates_df, bonds_direction)
+
+
     if sub_structure:
         if connected_from_direction is None:
             connected_from_direction = get_molecule_connections(bonds_df, base_atoms[0], base_atoms[1])
@@ -918,16 +1205,21 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_directio
             connected_from_direction = connected_from_direction
     else:
         connected_from_direction = None
+    
+    
     bonded_atoms_df = get_specific_bonded_atoms_df(bonds_df, connected_from_direction, new_coordinates_df)
     
     extended_df = get_extended_df_for_sterimol(new_coordinates_df, bonds_df, radii)
-  
+    
     ###calculations
     
-    sterimol_df = calc_sterimol(bonded_atoms_df, extended_df)
+    sterimol_df = calc_sterimol(bonded_atoms_df, extended_df,visualize)
     sterimol_df= sterimol_df.rename(index={0: str(base_atoms[0]) + '-' + str(base_atoms[1])})
-    sterimol_df=sterimol_df.round(2)
+   
+    sterimol_df = sterimol_df.round(4)
+    
     return sterimol_df
+
 
 
 def calc_magnitude_from_coordinates_array(coordinates_array: npt.ArrayLike) -> List[float]:
@@ -970,12 +1262,13 @@ class Molecule():
 
 
 
-    def process_sterimol_atom_group(self, atoms, radii):
+    def process_sterimol_atom_group(self, atoms, radii, sub_structure=True, drop_atoms=None,visualize=False) -> pd.DataFrame:
 
         connected = get_molecule_connections(self.bonds_df, atoms[0], atoms[1])
-        return get_sterimol_df(self.xyz_df, self.bonds_df, atoms, connected, radii)
+        
+        return get_sterimol_df(self.xyz_df, self.bonds_df, atoms, connected, radii, sub_structure=sub_structure, drop_atoms=drop_atoms, visualize=visualize)
 
-    def get_sterimol(self, base_atoms: Union[None, Tuple[int, int]] = None, radii: str = 'bondi') -> pd.DataFrame:
+    def get_sterimol(self, base_atoms: Union[None, Tuple[int, int]] = None, radii: str = 'bondi',sub_structure=True, drop_atoms=None,visualize=False) -> pd.DataFrame:
         """
         Returns a DataFrame with the Sterimol parameters calculated based on the specified base atoms and radii.
 
@@ -987,20 +1280,20 @@ class Molecule():
             pd.DataFrame: A DataFrame with the Sterimol parameters.
             
             to add
-            - only_sub- sterimol of only one part - i only have that.
+            - only_sub- sterimol of only one part.
             - drop some atoms.
         """
         if base_atoms is None:
             base_atoms = get_sterimol_indices(self.xyz_df, self.bonds_df)
-
+        
         if isinstance(base_atoms[0], list):
             # If base_atoms is a list of lists, process each group individually and concatenate the results
-            sterimol_list = [self.process_sterimol_atom_group(atoms, radii) for atoms in base_atoms]
+            sterimol_list = [self.process_sterimol_atom_group(atoms, radii, sub_structure=sub_structure, drop_atoms=drop_atoms,visualize=visualize) for atoms in base_atoms]
             sterimol_df = pd.concat(sterimol_list, axis=0)
 
         else:
             # If base_atoms is a single group, just process that group
-            sterimol_df = self.process_sterimol_atom_group(base_atoms, radii)
+            sterimol_df = self.process_sterimol_atom_group(base_atoms, radii,sub_structure=sub_structure, drop_atoms=drop_atoms,visualize=visualize)
         return sterimol_df
 
 
@@ -1020,7 +1313,6 @@ class Molecule():
         xyz_df.iloc[pairs[0]] = self.coordinates_array[pairs[1]]
         xyz_df.iloc[pairs[1]] = temp
         return xyz_df
-
   
  
     def get_coordination_transformation_df(self, base_atoms_indices: List[int]) -> pd.DataFrame:
@@ -1077,7 +1369,47 @@ class Molecule():
         return bond_df
 
 
-    
+
+def dict_to_horizontal_df(data_dict):
+    # Initialize an empty DataFrame to store the transformed data
+    df_transformed = pd.DataFrame()
+    # Loop through each key-value pair in the original dictionary
+    for mol, df in data_dict.items():
+        transformed_data = {}
+        print(df.head())    
+        # Loop through each row and column in the DataFrame
+        for index, row in df.iterrows():
+            
+            index_words = set(index.split('_'))
+            for col in df.columns:
+                # Create a new key using the format: col_index
+                try:
+                    col_words = set(col.split('_'))
+                except:
+                    col_words = []
+                 # Check if the index and the column have the same words and remove one
+                common_words = index_words.intersection(col_words)
+                if col != 0 and '0':
+                    if common_words:
+                        unique_col_words = col_words - common_words
+                        unique_index_words = index_words - common_words
+                        new_key_parts = ['_'.join(common_words)] if common_words else []
+                        new_key_parts.extend([part for part in ['_'.join(unique_col_words), '_'.join(unique_index_words)] if part])
+                        new_key = '_'.join(new_key_parts)
+                    else:
+                        new_key = f"{col}_{index}"
+                else:
+                    new_key = f"{index}"
+                # Store the corresponding value in the transformed_data dictionary
+                transformed_data[new_key] = row[col]
+        # Convert the dictionary into a DataFrame row with the molecule name as the index
+        df_row = pd.DataFrame([transformed_data], index=[mol])
+        # Append the row to df_transformed
+        df_transformed = pd.concat([df_transformed, df_row], ignore_index=False)
+    return df_transformed
+
+
+
 
 class Molecules_xyz():
     
@@ -1103,17 +1435,23 @@ class Molecules_xyz():
         self.molecules = [self.molecules[i] for i in indices]
         self.molecules_names = [self.molecules_names[i] for i in indices]
 
-    def get_sterimol_dict(self,atom_indices,radii='bondi'):
+    def get_sterimol_dict(self,atom_indices,radii='CPK'):
         sterimol_dict={}
         for molecule in self.molecules:
             try:
-                sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices)
-            except:
+                sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices,radii)
+                print(f'calculated sterimol for {molecule.molecule_name}')
+            except ValueError as e:
+                print(f'Error: {e}')
                 print(f'failed to calculate for {molecule.molecule_name}')
                 sterimol_dict[molecule.molecule_name]=np.nan
 
         return sterimol_dict
    
+    def get_sterimol_df(self,atom_indices,radii='CPK'):
+        sterimol_dict=self.get_sterimol_dict(atom_indices,radii)
+        sterimol_df=dict_to_horizontal_df(sterimol_dict)
+        return sterimol_df
 
 if __name__=='__main__':
     pass

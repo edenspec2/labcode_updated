@@ -1,0 +1,6 @@
+Sterimol:
+Axis (or axes): 1,15
+Radii: CPK
+Only substituent?: Yes
+Drop any atoms?: No
+

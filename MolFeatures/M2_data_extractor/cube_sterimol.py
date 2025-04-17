@@ -458,7 +458,8 @@ class cube():
             sterimol_list=[]
             for base_atom in self.base_atoms:
                 sterimol_list.append(self.calc_sterimol(base_atom))
-            self.sterimol_df=pd.concat(sterimol_list)
+            self.sterimol_df=pd.concat(sterimol_list, axis=1)
+            print(self.sterimol_df)
         else:
             self.sterimol_df=self.calc_sterimol(self.base_atoms)
 
@@ -529,7 +530,6 @@ class cube():
             if np.where(avs==avs.min())[0][0] in [0,1]: 
 
                 idx=np.where(np.isclose(np.abs(tc_plane[:,0]),(avs.min()).round(3)))[0][0]
-                print(tcs)
                 value_from_tcs = tcs[idx, 1]
                 B1_loc=  value_from_tcs * 0.529177249
                 x_b1 = tcs[idx, 0]
@@ -544,22 +544,38 @@ class cube():
             b1=np.abs(min(avs))* 0.529177249
             b_df=pd.DataFrame({'b1': b1, 'b1_loc': B1_loc, 'x_b1': x_b1, 'z_b1': z_b1}, index=[0])
             df=pd.concat([df,b_df])
-
+        
         df=df.reset_index(drop=True)
-        print(f'data frame with b1s: {df}')
+        
         B1=df['b1'].min()
         x_b1=df['x_b1'].iloc[df['b1'].idxmin()]
         z_b1=df['z_b1'].iloc[df['b1'].idxmin()]
         loc_b1=df['b1_loc'].iloc[df['b1'].idxmin()]
         loc_b5=tcs[np.argmax(tcs[:,3]),1]*0.529177249
-        sterimol_df = pd.DataFrame({
-            'B1': [B1],
-            'B5': [B5],
-            'L': [L],
-            'loc_b5': [loc_b5],
-            'loc_b1': [loc_b1]
-        }, index=[f'indices_{base_atoms_indices}'])
+
+        idx_b5 = np.argmax(tcs[:, 3])
+        x_b5 = tcs[idx_b5, 0]
+        z_b5 = tcs[idx_b5, 2]
+        v1 = np.array([x_b1, z_b1])
+        v2 = np.array([x_b5, z_b5])
         
+        # Compute the angle (in radians) and convert to degrees
+        dot_product = np.dot(v1, v2)
+        norm_v1 = np.linalg.norm(v1)
+        norm_v2 = np.linalg.norm(v2)
+        angle_rad = np.arccos(dot_product / (norm_v1 * norm_v2))
+        angle_deg = np.degrees(angle_rad)
+
+        name=self.fname.split('.')[0]
+        sterimol_df = pd.DataFrame({
+            f'B1_{base_atoms_indices}': [B1],
+            f'B5_{base_atoms_indices}': [B5],
+            f'L_{base_atoms_indices}': [L],
+            f'loc_b5_{base_atoms_indices}': [loc_b5],
+            f'B1_B5_angle_{base_atoms_indices}': [angle_deg]
+        }, index=[name])
+        
+       
         return sterimol_df
 
 class cube_many():
@@ -572,14 +588,21 @@ class cube_many():
         self.get_sterimol_many()
 
     def get_sterimol_many(self):
-        self.sterimol_dict={}
-        for file in self.file_names:
-            try:
-                cube_file=cube(file,self.base_atoms)
-                self.sterimol_dict[f'{file}']=(cube_file.sterimol_df)
-            except:
-                print(f'file {file} failed')
+        sterimol_list = []
         
-    
+        for file in self.file_names:
+            # try:
+                cube_file = cube(file, self.base_atoms)
+                df = cube_file.sterimol_df.copy()
+                df.index = [file]  # Set the index to the file name
+                sterimol_list.append(df)
+            # except Exception as e:
+            #     print(f'File {file} failed: {e}')
+
+        # Concatenate all DataFrames, indexed by file name
+        self.sterimol_df = pd.concat(sterimol_list, axis=0)
+        print(self.sterimol_df)
+        return self.sterimol_df  # Return for debugging if needed
+
 if __name__ == "__main__":
     pass

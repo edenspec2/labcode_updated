@@ -24,7 +24,7 @@ try:
         from .utils import help_functions, file_handlers
         from .M2_data_extractor.data_extractor import Molecules
         from .M1_pre_calculations.main import Module1Handler
-        from .Mol_align.renumbering import batch_renumbering
+        # from .Mol_align.renumbering import batch_renumbering
         from .M2_data_extractor.feather_extractor import logs_to_feather
         from .M3_modeler.modeling import ClassificationModel, LinearRegressionModel
         from .M2_data_extractor.cube_sterimol import cube_many
@@ -34,7 +34,7 @@ try:
         import utils.file_handlers as file_handlers
         from M2_data_extractor.data_extractor import Molecules
         from M1_pre_calculations.main import Module1Handler
-        from Mol_align.renumbering import batch_renumbering
+        # from Mol_align.renumbering import batch_renumbering
         from M2_data_extractor.feather_extractor import logs_to_feather
         from M3_modeler.modeling import ClassificationModel, LinearRegressionModel
         from M2_data_extractor.cube_sterimol import cube_many
@@ -110,14 +110,45 @@ def createToolTip(widget, text):
         toolTip.hidetip()
     widget.bind('<Enter>', enter)
     widget.bind('<Leave>', leave)
-    
-def convert_to_list_or_nested_list(input_str):
 
+def convert_to_custom_nested_list(input_str):
+    """
+    Converts a comma-separated string into a nested list based on the format:
+    - "1,2,3,4,5,6" -> [[1,2,3,4], 5, 6]
+    - "1,2,3,4,5,6 2,3,1,5,6,7" -> [[[1,2,3,4], 5, 6], [[2,3,1,5], 6, 7]]
+    """
+    print(f"Input string: {input_str}")
+    split_by_space = input_str.split(' ')  # Split by space for multiple sections
+
+    def process_sublist(sublist_str):
+        """Convert a single comma-separated list to the required nested structure."""
+        elements = list(map(int, sublist_str.split(',')))  # Convert to list of integers
+        if len(elements) > 2:  # Ensure we separate all but the last two elements
+            return [elements[:-2]] + elements[-2:]
+        return elements  # If fewer than 3 elements, return as-is
+
+    # Process each segment and decide if it's a nested list or a single flat list
+    if len(split_by_space) == 1:
+        # Single segment, no spaces
+        return process_sublist(split_by_space[0])
+    else:
+        # Multiple segments separated by spaces
+        nested_list = []
+        for sublist_str in split_by_space:
+            nested_list.append(process_sublist(sublist_str))
+        return nested_list
+
+
+def convert_to_list_or_nested_list(input_str):
+    print(input_str)
     split_by_space = input_str.split(' ')
 
     # If there are no spaces, return a flat list
     if len(split_by_space) == 1:
-        return list(map(int, split_by_space[0].split(',')))
+        try:
+            return list(map(int, split_by_space[0].split(',')))
+        except:
+            return list(map(int, split_by_space[0]))
     
     # Otherwise, return a nested list
     nested_list = []
@@ -470,7 +501,7 @@ class MoleculeApp:
                 classification = ClassificationModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='class', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
                 classification_results = classification.fit_and_evaluate_combinations(top_n=top_n, accuracy_threshold=threshold)
             elif model_type =='linear_regression':
-                print(list(self))
+               
                 linear_regression = LinearRegressionModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
                 regression_results = linear_regression.fit_and_evaluate_combinations(top_n=top_n, initial_r2_threshold=threshold)
 
@@ -574,7 +605,7 @@ class MoleculeApp:
         """
         # If no loaded answers were provided, make it an empty dict
         loaded_entries = loaded_entries or {}
-
+       
         # -- 1. Create main Canvas + Scrollbar for scrolling --
         canvas = Canvas(parent)
         scrollbar = Scrollbar(parent, orient='vertical', command=canvas.yview)
@@ -604,12 +635,12 @@ class MoleculeApp:
             command=self.open_parameter_window
         ).pack(pady=5)
 
-        chosen_parameters = Label(container_frame, text=f"Chosen Parameters: {self.parameters}")
-        chosen_parameters.pack(pady=5)
+        self.chosen_parameters = Label(container_frame, text=f"Chosen Parameters: {self.parameters}")
+        self.chosen_parameters.pack(pady=5)
 
         # -- 3. Build the question/entry pairs --
         entry_widgets = {}
-        for question in questions:
+        for i, question in enumerate(questions):
             frame_q = Frame(container_frame)
             frame_q.pack(pady=5, fill='x')
 
@@ -621,6 +652,26 @@ class MoleculeApp:
 
             # If we have a pre-loaded answer for this question, insert it
             if question in loaded_entries:
+                if question.startswith("NPA manipulation"):
+                    # Create and pack the Sub-Atoms label and entry
+                    sub_atoms_label = Label(frame_q, text="Sub-Atoms:")
+                    sub_atoms_label.pack(side="left", padx=5)
+                    sub_atoms_entry = Entry(frame_q, width=10)
+                    sub_atoms_entry.pack(side="left", padx=5)
+
+                    # Get the next question's value
+                    if i + 1 < len(questions):  # Ensure there's a next question
+                        next_question = questions[i + 1]
+                        sub_atoms_entry.insert(0, loaded_entries[question])  # First question goes into sub_atoms
+                        entry.insert(0, loaded_entries[next_question])  # Next question's value goes into entry
+
+                    # Store the Sub-Atoms entry widget
+                    entry_widgets['Sub-Atoms'] = sub_atoms_entry
+
+                    # **Skip the next question by incrementing i**
+                    i += 1  # This ensures the next iteration will go to i+2 instead of i+1
+                    continue  # Skip to the next loop iteration
+
                 entry.insert(0, loaded_entries[question])
 
             # Special "Show" buttons if needed
@@ -652,6 +703,17 @@ class MoleculeApp:
                 bend_threshold_entry.pack(side="left", padx=5)
                 bend_threshold_entry.insert(0, 1600)
                 entry_widgets["Bend Threshold"] = bend_threshold_entry
+
+            elif question.startswith("NPA manipulation"):
+                try:
+                    sub_atoms_label
+                except NameError:
+                    sub_atoms_label = Label(frame_q, text="Sub-Atoms:")
+                    sub_atoms_label.pack(side="left", padx=5)
+                    sub_atoms_entry = Entry(frame_q, width=10)
+                    sub_atoms_entry.pack(side="left", padx=5)
+                    entry_widgets["Sub-Atoms"] = sub_atoms_entry
+
             elif question.startswith("Sterimol atoms"):
                 Button(
                     frame_q,
@@ -698,6 +760,7 @@ class MoleculeApp:
         Loads answers from a file, closes the old question window,
         and rebuilds it with loaded answers.
         """
+        
         loaded_entries = self.load_answers(questions)
         if not loaded_entries:
             return  # If user cancels or no entries found, do nothing
@@ -709,7 +772,7 @@ class MoleculeApp:
         # Create a fresh Toplevel
         self.new_window = Toplevel(self.master)
         self.new_window.title("Questions")
-
+        print(f'loading new window with input')
         # Build the interface with the loaded answers
         self.build_question_interface(self.new_window, questions, loaded_entries=loaded_entries)
 
@@ -717,36 +780,41 @@ class MoleculeApp:
         """
         Reads answers from a text file and returns a dict {question: answer}.
         """
+        import re
+        from tkinter import filedialog
+
+        # Open file dialog to select the file
         file_path = filedialog.askopenfilename(
             defaultextension=".txt",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
         )
+        
         if not file_path:
             return {}
 
+        # Read the file content
         with open(file_path, 'r') as f:
             lines = f.read()
-
+       
+        
         # Regex to identify lists or lists of lists
-        pattern = r'(\[[\d, ]*\])|(\[\[[\d, \[\]]*\]\])'
+        pattern = r'\[\[.*?\]\]|\[.*?\]'
         matches = re.findall(pattern, lines)
 
         final_strings = []
         for match in matches:
-            match_str = match[0] or match[1]
-            if match_str == '[]':
+            if match == '[]':
                 final_strings.append([])
-            elif match_str.startswith("[["):
+            elif match.startswith("[["):
                 # A list of lists
-                inner_lists = match_str[1:-1].split("], [")
-                joined_string = " ".join(
+                inner_lists = match[2:-2].split("], [")  # Strip outer [[ ]] and split by inner delimiters
+                final_string = " ".join(
                     [inner_list.replace(", ", ",") for inner_list in inner_lists]
                 )
-                final_string = joined_string.strip('[]')
                 final_strings.append(final_string if final_string else None)
             else:
                 # Single list
-                final_string = match_str[1:-1].replace(", ", ",")
+                final_string = match[1:-1].replace(", ", ",")  # Strip outer [ ] and handle commas
                 final_strings.append(final_string if final_string else None)
 
         # Convert loaded info into a dict: {question: answer}
@@ -754,8 +822,9 @@ class MoleculeApp:
         for i, ans in enumerate(final_strings):
             if ans is not None and i < len(questions):
                 dict_of_ints[questions[i]] = ans
-
+        
         return dict_of_ints
+
 
     def save_input(self, entry_widgets, save_as=False):
         """
@@ -764,9 +833,21 @@ class MoleculeApp:
         answers = {}
         for question, entry in entry_widgets.items():
             try:
-                answers[question] = entry.get()
+                value = entry.get() if hasattr(entry, 'get') else entry
+                
+                # Check if the entry is an integer greater than 100
+                if value.isdigit() and int(value) > 100:
+                    answers[question] = int(value)
+                else:
+                    # Convert the value using convert_to_list_or_nested_list
+                    answers[question] = convert_to_list_or_nested_list(value)
+                    
             except AttributeError:
-                answers[question] = entry
+                # Handle direct string or int entries
+                if isinstance(entry, int) and entry > 100:
+                    answers[question] = entry
+                else:
+                    answers[question] = convert_to_list_or_nested_list(entry)
 
         if save_as:
             file_path = filedialog.asksaveasfilename(
@@ -784,19 +865,21 @@ class MoleculeApp:
         extracts features, and optionally saves results to a file.
         """
         answers = {}
+        
         for question, entry in entry_widgets.items():
             try:
                 answers[question] = entry.get()
             except AttributeError:
                 answers[question] = entry
-        
+        print('answers',answers)
         # Use parameters or defaults
-        dipole = self.parameters['Dipole_mode'] if 'Dipole' in self.parameters else 'gaussian'
+
+        
         radii = self.parameters['Radii'] 
         iso= self.parameters['Isotropic'] if 'Isotropic' in self.parameters else False
         
         # Example: calling a method from self.molecules (stub for demonstration)
-        comp_set = self.molecules.get_molecules_comp_set_app(answers, dipole_mode=dipole, radii=radii, iso=iso)
+        comp_set = self.molecules.get_molecules_comp_set_app(answers, radii=radii, iso=iso)
         self.show_result(f"Extracted Features: {comp_set}")
 
         # For demonstration, just print
@@ -835,10 +918,7 @@ class MoleculeApp:
         frame.pack(pady=5)
 
         # Dipole Mode
-        var_dipole = StringVar(frame)
-        var_dipole.set(self.parameters.get('Dipole_mode', 'gaussian'))
-        var_dipole.trace_add("write", lambda *args: apply_parameters())
-
+      
         # Radii
         var_radii = StringVar(frame)
         var_radii.set(self.parameters.get('Radii', 'bondi'))
@@ -850,26 +930,34 @@ class MoleculeApp:
         var_iso.trace_add("write", lambda *args: apply_parameters())
 
         # Menu Widgets
-        OptionMenu(frame, var_dipole, 'gaussian', 'compute').grid(row=0, column=0, padx=5)
+     
         OptionMenu(frame, var_radii, 'bondi', 'CPK', 'Pyykko').grid(row=0, column=1, padx=5)
         OptionMenu(frame, var_iso, 'True', 'False').grid(row=0, column=2, padx=5)
 
         def apply_parameters():
-            self.parameters['Dipole_mode'] = var_dipole.get()
+            
+        
             self.parameters['Radii'] = var_radii.get()
-            # Convert 'True'/'False' strings to booleans
             self.parameters['Isotropic'] = (var_iso.get() == 'True')
+            if hasattr(self, 'chosen_parameters'):
+                self.chosen_parameters.config(text=f"Chosen Parameters: {self.parameters}")
+
+            print('parameters',self.parameters)
+            print('chosen',self.chosen_parameters)
             
 
         Button(frame, text="Apply", command=window.destroy).grid(row=0, column=3, padx=5)
 
     def open_question_window(self):
-        self.parameters={'Dipole_mode': 'gaussian', 'Radii': 'bondi', 'Isotropic': False}
+        if not hasattr(self, 'parameters'):
+            self.parameters = {'Radii': 'bondi', 'Isotropic': False}
+
         questions = [
                 "Ring Vibration atoms - by order -> Pick primary atom and para to it: \n example: 13,17",
                 "Strech Vibration atoms- enter bonded atom pairs: \n example: 1,2 4,5",
                 "Bending Vibration atoms - enter atom pairs that have a common atom: \n example: 4,7",
                 "Dipole atoms - indices for coordination transformation: \n example: 4,5,6 - origin, y-axis, new xy plane",
+                "NPA manipulation atoms - Insert atoms to show NPA: \n example: 1,2,4",
                 "charge values - Insert atoms to show charge: \n example: 1,2,3,4",
                 "charge difference - Insert atoms to show charge difference: \n example: 1,2 3,4",
                 "Sterimol atoms - Primary axis along: \n example: 7,8",
@@ -889,11 +977,11 @@ class MoleculeApp:
     def open_com_window(self):
         options_window = Toplevel(self.master)
         options_window.title("Conversion Options")
-        options_window.grab_set()  # Make the window modal
+        options_window.grab_set()  # Make the window moda
         gaussian_options = {
-            'functionals': ['HF','b97d3', 'B3LYP', 'PBE', 'M06-2X', 'CAM-B3LYP', 'MP2', 'CCSD'],
-            'basis_sets': ['STO-3G', '3-21G', '6-31G', '6-31G(d) int=sg1', '6-31G(d,p)','6-31G(2df,p)','6-31+G(d,p)', '6-311G(d,p)', '6-311+G(d,p)', '6-311++G(d,p)', '6-311++G(2d,p)', '6-311++G(3df,2p)'],
-            'tasks': ['single point', 'optimization']
+            'functionals': ['HF','b97d3', 'B3LYP', 'PBE', 'M062x', 'CAM-B3LYP', 'MP2', 'CCSD'],
+            'basis_sets': ['def2tzvp','STO-3G', '3-21G', '6-31G', '6-31G(d) int=sg1', '6-31G(d,p)','6-31G(2df,p)','6-31+G(d,p)', '6-311G(d,p)', '6-311+G(d,p)', '6-311++G(d,p)', '6-311++G(2d,p)', '6-311++G(3df,2p)'],
+            'tasks': ['sp', 'opt']
         }
 
         # Create OptionMenus for functional, basis_set, and task
@@ -905,7 +993,7 @@ class MoleculeApp:
         Label(options_window, text='Basis Set:').pack()
         OptionMenu(options_window, self.basisset_var, *gaussian_options['basis_sets']).pack()
 
-        self.task_var = StringVar(value='optimization')
+        self.task_var = StringVar(value='opt')
         Label(options_window, text='Task:').pack()
         OptionMenu(options_window, self.task_var, *gaussian_options['tasks']).pack()
 
@@ -1201,8 +1289,9 @@ class MoleculeApp:
             self.show_result(f"Ring Vibrations:\n {ring_data}\n")
 
     def get_dipole(self,base_atoms_str):
+
         if base_atoms_str:
-            base_atoms = convert_to_list_or_nested_list(base_atoms_str)
+            base_atoms = convert_to_custom_nested_list(base_atoms_str)
             dipole_data = self.molecules.get_dipole_dict(base_atoms)
             self.show_result(f"Dipole Moment:\n {dipole_data}\n")
     
@@ -1433,7 +1522,9 @@ def main():
             base_atoms = input("Enter the atom indices: ")
             base_atoms=convert_to_list_or_nested_list(base_atoms)
             sterimol=cube_many(cube_file_path, base_atoms)
-            print(sterimol.sterimol_dict)
+            ## save to csv
+            # df=pd.DataFrame(sterimol.sterimol_df)
+            sterimol.sterimol_df.to_csv('cube_sterimol.csv')
 
             another_dir = input("Do you want to input another directory? (yes/no): ").strip().lower()
             if another_dir != 'yes':
@@ -1442,18 +1533,24 @@ def main():
         while True:
             xyz_dir = input("Enter the path to the xyz files directory: ")
             base_atoms = input("Enter the atom indices: ")
-            params = inspect.signature(Molecules_xyz.get_sterimol_dict)
+            params = inspect.signature(Molecules_xyz.get_sterimol_df)
             radii=list(params.parameters.values())[2].default
             radius_input = input(f"Enter the radii (default: {radii}): ")
             if radius_input=='':
                 radius_input=radii
             base_atoms=convert_to_list_or_nested_list(base_atoms)
             sterimol=Molecules_xyz(xyz_dir)
-            print(sterimol.get_sterimol_dict(base_atoms, radii=radius_input))
+            sterimol_df=sterimol.get_sterimol_df(base_atoms, radii=radius_input)
+            os.chdir(xyz_dir)
+            sterimol_df.to_csv('xyz_sterimol.csv')
+            print(sterimol_df.head())
+            print(f"Sterimol values saved to xyz_sterimol.csv in {xyz_dir}")
 
             another_dir = input("Do you want to input another directory? (yes/no): ").strip().lower()
             if another_dir != 'yes':
                 break
+
+            
     elif args.command == "model":
         csv_path=input("Enter the path to the csv file: ")
 

@@ -123,7 +123,7 @@ def write_gaussian_file(filename, functional, basisset, charge, title, task, fre
         if task == 'sp':
             my_file.write(f"#P {functional}/{basisset}  Freq \n\n{title}\n\n{charge}\n")
         elif task == 'opt':
-            my_file.write(f"# opt Freq {functional}/{basisset}  pop=npa \n\n{title}\n\n{charge}\n") ## opt freq def2tzv pop=npa m062x
+            my_file.write(f"# opt Freq {functional}/{basisset}  pop=(full,nbo) \n\n{title}\n\n{charge}\n") ## opt freq def2tzv pop=npa m062x
         xyz_df = hf.get_df_from_file(filename)
         atoms_np_array = np.array(xyz_df)
         for atom_np_array in atoms_np_array:
