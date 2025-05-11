@@ -602,6 +602,8 @@ class cube_many():
         # Concatenate all DataFrames, indexed by file name
         self.sterimol_df = pd.concat(sterimol_list, axis=0)
         print(self.sterimol_df)
+        # save as csv
+        self.sterimol_df.to_csv('cube_sterimol')
         return self.sterimol_df  # Return for debugging if needed
 
 if __name__ == "__main__":

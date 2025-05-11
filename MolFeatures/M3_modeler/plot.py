@@ -150,294 +150,125 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 from adjustText import adjust_text
+ 
 
 def generate_q2_scatter_plot(
-    y, 
-    y_pred, 
-    labels, 
-    folds_df, 
-    formula, 
-    coefficients, 
-    r, 
-    X=None,
-    lower_bound=None, 
-    upper_bound=None, 
-    figsize=(10, 10), 
-    fontsize=12, 
-    scatter_color='#2ca02c',  # A more vibrant color
-    regression_color='#d62728',  # Distinct color for regression line
+    y,
+    y_pred,
+    labels,
+    folds_df,
+    formula,
+    coefficients,
+    r=None,
+    lower_bound=None,
+    upper_bound=None,
+    figsize=(16, 6),
+    fontsize=12,
+    scatter_color='#2ca02c',
+    band_color='cadetblue',
+    identity_color='#1f77b4',
     palette='deep',
     dpi=300
 ):
     """
-    Generates a beautiful and state-of-the-art scatter plot with regression analysis and prediction intervals.
-
-    Parameters:
-        y (array-like): Measured values.
-        y_pred (array-like): Predicted values.
-        labels (array-like): Labels for each data point.
-        folds_df (pd.DataFrame): DataFrame containing Q2 metrics.
-        formula (str): Regression formula.
-        coefficients (dict): Regression coefficients.
-        r (float): Pearson correlation coefficient.
-        X (array-like, optional): Feature matrix used for computing prediction intervals.
-        lower_bound (array-like, optional): [x_min, y_min].
-        upper_bound (array-like, optional): [x_max, y_max].
-        figsize (tuple, optional): Figure size in inches.
-        fontsize (int, optional): Base font size.
-        scatter_color (str, optional): Color of scatter points.
-        regression_color (str, optional): Color of regression line.
-        palette (str, optional): Seaborn color palette.
-        dpi (int, optional): Resolution of saved figure.
-
-    Returns:
-        plt.Figure: The matplotlib figure object.
+    Plots Predicted vs Measured with a smooth 90% confidence/prediction band
+    around the regression line using seaborn's regplot, plus identity line,
+    point labels, and Q² metrics.
     """
-    
-    # Convert inputs to numpy arrays for easier handling
-    y = np.array(y)
-    y_pred = np.array(y_pred)
-    labels = np.array(labels)
-    
-    # Validate y and y_pred
-    if np.isnan(y).any() or np.isnan(y_pred).any():
-        raise ValueError("Input data 'y' or 'y_pred' contains NaN values.")
-    if np.isinf(y).any() or np.isinf(y_pred).any():
-        raise ValueError("Input data 'y' or 'y_pred' contains Inf values.")
-    
-    # Validate lower_bound and upper_bound if provided
-    if lower_bound is not None:
-        lower_bound = np.array(lower_bound)
-        if lower_bound.shape != (2,):
-            raise ValueError("lower_bound must be an array-like with two elements: [x_min, y_min].")
-        if not np.isfinite(lower_bound).all():
-            raise ValueError("lower_bound contains NaN or Inf values.")
-    
-    if upper_bound is not None:
-        upper_bound = np.array(upper_bound)
-        if upper_bound.shape != (2,):
-            raise ValueError("upper_bound must be an array-like with two elements: [x_max, y_max].")
-        if not np.isfinite(upper_bound).all():
-            raise ValueError("upper_bound contains NaN or Inf values.")
-    
-    # Create a DataFrame for seaborn usage
+    y = np.asarray(y)
+    y_pred = np.asarray(y_pred)
+    labels = np.asarray(labels)
+
     data = pd.DataFrame({
-        'Measured': y,
+        'Measured':  y,
         'Predicted': y_pred,
-        'Labels': labels
+        'Labels':    labels
     })
-    
-    # Check if data is sufficient for plotting
-    if data.empty:
-        raise ValueError("No data available to plot.")
-    
-    # Set Seaborn theme
-    sns.set_theme(style="whitegrid", palette=palette)
-    
-    # Initialize the matplotlib figure
+
+    sns.set_theme(style='whitegrid', palette=palette)
     fig, ax = plt.subplots(figsize=figsize)
-    
-    # Scatter plot
-    scatter = sns.scatterplot(
-        data=data, 
-        x='Measured', 
-        y='Predicted', 
+
+    # Scatter
+    sns.scatterplot(
+        data=data,
+        x='Measured',
+        y='Predicted',
         hue='Labels',
         palette=palette,
         edgecolor='w',
-        s=100,  # Increased size for better visibility
+        s=100,
         ax=ax,
-        legend=False  # Disable legend to reduce clutter
+        legend=False
     )
-    
-    # Regression line using statsmodels for prediction intervals
-    # if X is not None:
-    #     # Add a constant for intercept
-    #     X = np.array(X)
-    #     X_sm = sm.add_constant(X)
-        
-    #     model_sm = sm.OLS(y, X_sm).fit()
-    #     predictions = model_sm.get_prediction(X_sm)
-    #     pred_summary = predictions.summary_frame(alpha=0.10)  # 90% prediction interval
-    #     data['Predicted'] = pred_summary['mean']
-    #     data['pi_lower'] = pred_summary['obs_ci_lower']
-    #     data['pi_upper'] = pred_summary['obs_ci_upper']
-    #     ## fit a linear line for pi_lower and pi_upper
-    #     sorted_data = data.sort_values('Measured')
 
-    #     x_min, x_max = sorted_data['Measured'].min(), sorted_data['Measured'].max()
-    #     x_extension = (x_max - x_min) * 0.05  # 5% extension
-    #     x_extended = np.linspace(x_min - x_extension, x_max + x_extension, 1000)
-    #     X_extended_const = sm.add_constant(x_extended)
-    #     print("Shape of X_extended_const:", X_extended_const.shape)
-    #     print("Shape of model parameters:", model_sm.params.shape)
-    #     predictions_extended = model_sm.get_prediction(X_extended_const)
-    #     pred_summary_extended = predictions_extended.summary_frame(alpha=0.10)
-    X=None
-    if X is not None:
-        X=4
-        # # Add a constant for intercept and fit the model
-        # X = np.array(X)
-        # X_sm = sm.add_constant(X)
-        
-        # model_sm = sm.OLS(y, X_sm).fit()
-        # predictions = model_sm.get_prediction(X_sm)
-        # pred_summary = predictions.summary_frame(alpha=0.10)  # 90% prediction interval
-        # data['Predicted'] = pred_summary['mean']
-        # data['pi_lower'] = pred_summary['obs_ci_lower']
-        # data['pi_upper'] = pred_summary['obs_ci_upper']
-        
-        # # Sort data by 'Measured' (assumed to be one of your variables or the response)
-        # sorted_data = data.sort_values('Measured')
-        # x_min, x_max = sorted_data['Measured'].min(), sorted_data['Measured'].max()
-        # x_extension = (x_max - x_min) * 0.05  # 5% extension
-
-        # # Create an extended range for the measured variable
-        # f1 = np.linspace(x_min - x_extension, x_max + x_extension, 1000)
-        
-        # # For the remaining features, use their mean values from the training data.
-        # # Here we assume that X has 4 columns (excluding the constant) and that f1 corresponds to the first feature.
-        # # Adjust the indices if your order is different.
-        # f2 = np.full_like(f1, np.mean(X[:, 1]))
-        # f3 = np.full_like(f1, np.mean(X[:, 2]))
-        # f4 = np.full_like(f1, np.mean(X[:, 3]))
-        
-        # # Combine these into one matrix: shape will be (1000, 4)
-        # X_extended = np.column_stack((f1, f2, f3, f4))
-        # # Add the constant column: resulting shape (1000, 5)
-        # X_extended_const = sm.add_constant(X_extended)
-        
-        # print("Shape of X_extended_const:", X_extended_const.shape)
-        # print("Shape of model parameters:", model_sm.params.shape)
-        
-        # predictions_extended = model_sm.get_prediction(X_extended_const)
-        # pred_summary_extended = predictions_extended.summary_frame(alpha=0.10)
- 
-        # ax.plot(
-        #     x_extended, 
-        #     pred_summary_extended['obs_ci_lower'], 
-        #     color='cadetblue', 
-        #     linestyle='--', 
-        #     linewidth=0.8, 
-        #     label='90% Prediction Interval'
-        # )
-        # ax.plot(
-        #     x_extended, 
-        #     pred_summary_extended['obs_ci_upper'], 
-        #     color='cadetblue', 
-        #     linestyle='--', 
-        #     linewidth=0.8
-        # )
-
-    else:
-        # If X is not provided, cannot compute prediction intervals
-        print("Warning: Feature matrix 'X' is required to compute prediction intervals.")
-    
-    # Regression line without confidence interval
+    # Smooth regression band (90% CI) around regressed fit
     sns.regplot(
-        data=data, 
-        x='Measured', 
-        y='Predicted', 
+        data=data,
+        x='Measured',
+        y='Predicted',
         scatter=False,
-        color=regression_color,
-        line_kws={'linewidth': 2, 'alpha': 0.8},
-        ci=None,  # Disable default confidence interval
+        ci=90,
+        line_kws={'color': band_color, 'linewidth': 0},
         ax=ax
     )
-    
-    # Compute Pearson correlation if not provided
-    if r is None:
-        pearson_r = np.corrcoef(y, y_pred)[0,1]
-    else:
-        pearson_r = r
-    
-    # Build regression equation string
-    equation = build_regression_equation(formula, coefficients, pearson_r)
-    
-    # Add regression equation and Pearson r
-    text_box = (
-        f"{equation}\n"
-        f"Pearson r = {pearson_r:.2f}"
-    )
+
+    # Identity line y = x
+    mn = min(data['Measured'].min(), data['Predicted'].min())
+    mx = max(data['Measured'].max(), data['Predicted'].max())
+    ax.plot([mn, mx], [mn, mx], linestyle='--', color=identity_color, linewidth=2)
+
+    # Equation & Pearson r
+    corr = r if r is not None else np.corrcoef(y, y_pred)[0,1]
+    eqn = build_regression_equation(formula, coefficients, corr)
     ax.text(
-        0.05, 0.95, text_box, 
+        0.05, 0.95,
+        f"{eqn}\nPearson r = {corr:.2f}",
         transform=ax.transAxes,
         fontsize=fontsize,
-        verticalalignment='top',
-        bbox=dict(boxstyle="round,pad=0.5", 
-                  edgecolor='gray', 
-                  facecolor='white', 
-                  alpha=0.8)
+        va='top',
+        bbox=dict(facecolor='white', alpha=0.8)
     )
-    
-    # Set axis limits if bounds are provided
-    if lower_bound is not None and upper_bound is not None:
-        ax.set_xlim(lower_bound[0], upper_bound[0])
-        ax.set_ylim(lower_bound[1], upper_bound[1])
-    else:
-        # Set limits based on data with some padding
-        buffer_x = (data['Measured'].max() - data['Measured'].min()) * 0.05
-        buffer_y = (data['Predicted'].max() - data['Predicted'].min()) * 0.05
-        ax.set_xlim(data['Measured'].min() - buffer_x, data['Measured'].max() + buffer_x)
-        ax.set_ylim(data['Predicted'].min() - buffer_y, data['Predicted'].max() + buffer_y)
-    
-    # Annotations using adjustText to prevent overlap
+
+    # Q² metrics
+    if not folds_df.empty:
+        q = folds_df.iloc[0]
+        q_txt = (
+            f"3-fold Q²: {q['Q2_3_Fold']:.2f}\n"
+            f"5-fold Q²: {q['Q2_5_Fold']:.2f}\n"
+            f"LOOCV Q²: {q['Q2_LOOCV']:.2f}"
+        )
+        ax.text(0.05, 0.80, q_txt, transform=ax.transAxes,
+                fontsize=fontsize, va='top', bbox=dict(facecolor='white', alpha=0.8))
+
+    # Axis bounds
+    # if lower_bound is not None and upper_bound is not None:
+    #     # Apply slightly more relaxed bounds
+    #     ax.set_xlim(lower_bound[0] - 0.05 * (upper_bound[0] - lower_bound[0]),
+    #                 upper_bound[0] + 0.05 * (upper_bound[0] - lower_bound[0]))
+    #     ax.set_ylim(lower_bound[1] - 0.05 * (upper_bound[1] - lower_bound[1]),
+    #                 upper_bound[1] + 0.05 * (upper_bound[1] - lower_bound[1]))
+
+
+    # Labels
     texts = []
     for _, row in data.iterrows():
-        texts.append(ax.text(
-            row['Measured'], 
-            row['Predicted'], 
-            row['Labels'],
-            fontsize=fontsize-2,
-            ha='center', 
-            va='bottom',
-            color='gray'
-        ))
-    adjust_text(texts, 
-                arrowprops=dict(arrowstyle='-', color='gray', lw=0.5),
-                ax=ax,
-                expand_points=(1.2, 1.2),
-                force_points=0.2,
-                force_text=0.2)
-    
-    # Plot the Q2 metrics if available
-    if not folds_df.empty:
-        # Assuming folds_df has only one relevant row
-        row = folds_df.iloc[0]
-        q2_text = (
-            f"3-fold Q²: {row.get('Q2_3_Fold', np.nan):.2f}\n"
-            f"5-fold Q²: {row.get('Q2_5_Fold', np.nan):.2f}\n"
-            f"LOOCV Q²: {row.get('Q2_LOOCV', np.nan):.2f}"
+        texts.append(
+            ax.text(row['Measured'], row['Predicted'], row['Labels'],
+                    fontsize=fontsize-2, ha='center', va='bottom', color='gray')
         )
-        ax.text(
-            0.05, 0.80, q2_text, 
-            transform=ax.transAxes,
-            fontsize=fontsize,
-            verticalalignment='top',
-            bbox=dict(boxstyle="round,pad=0.5", 
-                      edgecolor='gray', 
-                      facecolor='white', 
-                      alpha=0.8)
-        )
-    
-    # Customize labels and title
-    ax.set_xlabel("Measured", fontsize=fontsize+2, fontweight='bold')
-    ax.set_ylabel("Predicted", fontsize=fontsize+2, fontweight='bold')
-    ax.set_title('Regression Analysis with Labels and Prediction Intervals', fontsize=fontsize+4, fontweight='bold', pad=15)
-    
-    # Legend for Prediction Interval
-    ax.legend(title='Legend', loc='upper left')
-    
-    # Improve layout
+    adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+
+    ax.set_xlabel('Measured', fontsize=fontsize+2)
+    ax.set_ylabel('Predicted', fontsize=fontsize+2)
+    ax.set_title('Predicted vs Measured with Smooth Regression Band', fontsize=fontsize+4)
     plt.tight_layout()
-    
-    # Save the plot with high resolution
-    plt.savefig(f'model_plot_{formula}.png', dpi=dpi, bbox_inches='tight')
-    
-    # Show the plot
+    plt.savefig(f'model_plot_{formula}.png', dpi=dpi)
     plt.show()
-    
+
     return fig
+
+
+### chance to use sns.regplot to plot the regression line and confidence intervals
 
 
 # def generate_q2_scatter_plot(
@@ -642,50 +473,76 @@ def generate_q2_scatter_plot(
 
 import matplotlib.pyplot as plt
 
-def plot_probabilities(probabilities_df):
+def plot_probabilities(probabilities_df, sample_names):
     df = probabilities_df.copy()
     
-    # Ensure 'actual' and 'prediction' columns are present and rename them
+    # Rename if needed
     if 'prediction' in df.columns:
         df.rename(columns={'prediction': 'Predicted_Class'}, inplace=True)
     if 'True_Class' in df.columns:
         df.rename(columns={'True_Class': 'Actual_Class'}, inplace=True)
     
-    # Get the probability columns (assuming they are class labels)
-    prob_cols = [col for col in df.columns if col not in ['Predicted_Class', 'Actual_Class']]
+    # Identify probability columns by prefix
+    prob_cols = [col for col in df.columns if col.startswith('Prob_Class_')]
+    if not prob_cols:
+        raise ValueError("No probability columns found (expecting columns like 'Prob_Class_1', ...)")
     
-    # Ensure class labels are strings for consistent access
-    df['Actual_Class'] = df['Actual_Class'].astype(str)
+    # Ensure classes are integers for building column names
+    df['Actual_Class'] = df['Actual_Class'].astype(int)
     df['Predicted_Class'] = df['Predicted_Class'].astype(str)
-    prob_cols = [str(col) for col in prob_cols]
     
-    # Compute the rankings of the probabilities for each sample
+    # Compute rankings across the probability columns
     rankings = df[prob_cols].rank(axis=1, ascending=False, method='min')
     
-    # Get the rank of the actual class's probability for each sample
-    df['Rank'] = df.apply(lambda row: rankings.loc[row.name, row['Actual_Class']], axis=1)
-    df['Rank'] = df['Rank'].astype(int)
+    # Helper to get the rank of the true class
+    def _true_rank(row):
+        prob_col = f"Prob_Class_{row['Actual_Class']}"
+        if prob_col not in rankings.columns:
+            raise KeyError(f"Expected column {prob_col} in probabilities, got {prob_cols}")
+        return int(rankings.at[row.name, prob_col])
     
-    # Map the Rank to colors as per your requirement
+    df['Rank'] = df.apply(_true_rank, axis=1)
+    
+    # Color‐code by rank (1=green, 2=yellow, 3=red, >3=gray)
     color_map = {1: 'green', 2: 'yellow', 3: 'red'}
-    df['Color_Code'] = df['Rank'].map(color_map)
+    df['Color_Code'] = df['Rank'].map(color_map).fillna('gray')
     
-    # Create labels for each sample, indicating predicted and actual classes
-    df['Labels'] = df.apply(lambda row: f"Sample_{row.name} (Pred: {row['Predicted_Class']}, Actual: {row['Actual_Class']})", axis=1)
+    # Build sample labels from your list
+    if len(sample_names) != len(df):
+        raise ValueError("sample_names length must match number of rows in probabilities_df")
+    df['Label'] = [
+        f"{name} (Pred: {pred}, Actual: {act})"
+        for name, pred, act in zip(
+            sample_names,
+            df['Predicted_Class'].astype(str),
+            df['Actual_Class'].astype(str)
+        )
+    ]
     
-    # Plot heatmap of probabilities
+    # Plot heatmap
     plt.figure(figsize=(12, 10))
-    heatmap = sns.heatmap(df[prob_cols].astype(float),
-                          cmap='Blues', annot=True, fmt=".2f", cbar_kws={'label': 'Probability (%)'})
+    sns.heatmap(
+        df[prob_cols].astype(float),
+        cmap='Blues',
+        annot=True,
+        fmt=".2f",
+        cbar_kws={'label': 'Probability'}
+    )
+
+    ax = plt.gca()
+    # Y‐ticks: use your sample labels
+    ax.set_yticks(np.arange(0.5, len(df), 1))
+    ax.set_yticklabels(df['Label'], rotation=0, fontsize=10)
+    for label, color in zip(ax.get_yticklabels(), df['Color_Code']):
+        label.set_color(color)
     
-    # Set the y-axis labels to include sample info and color them based on correctness
-    plt.yticks(ticks=np.arange(0.5, len(df.index), 1), labels=df['Labels'], rotation=0, fontsize=10)
-    for ytick, color in zip(plt.gca().get_yticklabels(), df['Color_Code']):
-        ytick.set_color(color)
+    # X‐ticks: strip the prefix for readability
+    classes = [col.replace('Prob_Class_', '') for col in prob_cols]
+    ax.set_xticklabels(classes, rotation=45, ha='right')
     
-    plt.title('Probability Heatmap with Prediction Classes')
-    plt.xlabel('Classes')
-    plt.ylabel('Samples with Predictions')
+    plt.title('Probability Heatmap with Prediction vs. Actual')
+    plt.xlabel('Class')
+    plt.ylabel('Samples')
     plt.tight_layout()
     plt.show()
 
@@ -879,7 +736,8 @@ def print_models_classification_table(results , app=None):
         X=model.features_df[list(formulas[selected_model])]
         # x=pd.DataFrame(X, columns=formulas[selected_model])
         vif_df = model._compute_vif(X)
-        plot_probabilities(probablities_df)
+        samples_names=model.molecule_names
+        plot_probabilities(probablities_df, samples_names)
         print_models_vif_table(vif_df)
         # Print the confusion matrix
         y_pred = model.predict(model.features_df[list(formulas[selected_model])].to_numpy())
@@ -988,15 +846,15 @@ def print_models_regression_table(results, app=None):
         features = list(formulas[selected_model])
         X = model.features_df[features]
         vif_df = model._compute_vif(X)
-
+       
         X = model.features_df[features].to_numpy()
         y = model.target_vector.to_numpy()
         model.fit(X, y)
         pred, lwr, upr = model.predict(X, calc_covariance_matrix=True)
         coef_df = model.get_covariace_matrix(features)
 
-        x_min, y_min = min(y.min(), pred.min()), min(y.min(), pred.min())
-        x_max, y_max = max(y.max(), pred.max()), max(y.max(), pred.max())
+        x_min, y_min = y.min(), y.min()
+        x_max, y_max = pred.max(), pred.max()
         padding_x = (x_max - x_min) * 0.05
         padding_y = (y_max - y_min) * 0.05
         lwr = [x_min - padding_x, y_min - padding_y]
@@ -1127,34 +985,57 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
         print("Calculating cross-validation metrics for LOOCV...")
         Q2_loo, MAE_loo, rmsd_loo = model.calculate_q2_and_mae(X, y, n_splits=1)
         print("LOOCV metrics: Q2: {}, MAE: {}, RMSD: {}".format(Q2_loo, MAE_loo, rmsd_loo))
+
+
+        leftout_pred = None
+        # print models attributes and params
         
-        if model.leftout_features is not None:
-            features_for_leftout = model.leftout_features[features].to_numpy()
-            features_for_leftout = features_for_leftout.reshape(1, -1)
-            print("Left-out samples prediction and metrics:")
-            print('leftout_features:',features_for_leftout)
-            print("Trained model theta shape:", model.theta.shape)
-            print("Features for prediction shape:", features_for_leftout.shape)
-            print("Base Features prediction shape:", X.shape)
-            try:
-                leftout_pred, _, _ = model.predict_for_leftout(features_for_leftout, calc_covariance_matrix=False)
-            except :
-                leftout_pred = model.predict(features_for_leftout, calc_covariance_matrix=False)
-            print(f'leftout_pred:{leftout_pred}, real:{model.leftout_target_vector}')
-            leftout_mae = mean_absolute_error(model.leftout_target_vector, leftout_pred)
-            leftout_rmsd = np.sqrt(mean_squared_error(model.leftout_target_vector, leftout_pred))
-            print("Left-out MAE: {}, RMSD: {}".format(leftout_mae, leftout_rmsd))
-            # organize the results in a dataframe and print
-            prediction_df = pd.DataFrame({
-                'Molecule': model.leftout_molecule_names,
-                'Actual': model.leftout_target_vector,
-                'Predicted': leftout_pred,
-                'Error in precent': ((model.leftout_target_vector - leftout_pred) / model.leftout_target_vector) * 100,
-                'MAE': leftout_mae,
-                'RMSD': leftout_rmsd
-                
-            })
-            print(prediction_df)
+        try:
+            if model.leftout_samples is not None and len(model.leftout_samples) > 0:
+                print("Calculating left-out samples prediction and metrics...")
+
+                X_left = model.leftout_samples[features]  # DataFrame shape (n_leftout, 4)
+                X_left = X_left.reindex()
+                y_left = model.leftout_target_vector  # Series shape (n_leftout,)
+               
+
+                # 3) call your predictor; let it add constant & reorder itself
+                try:
+                    leftout_pred = model.predict_for_leftout(X_left, calc_interval=False)
+                    print(f"Successfully predicted left-out samples: {leftout_pred}")
+                except Exception as e:
+                    print("Error predicting left-out samples:", e)
+
+                # print(f'leftout_pred:{leftout_pred}, real:{model.leftout_target_vector}')
+
+                if leftout_pred is not None:
+                    # 1) ensure shapes
+                    y_pred = np.array(leftout_pred).ravel()
+                    y_true = np.array(model.leftout_target_vector).ravel()
+                    names  = list(model.molecule_names_predict)
+
+                    # 2) build DataFrame
+                    prediction_df = pd.DataFrame({
+                        'Molecule':   names,
+                        'Actual':     y_true,
+                        'Predicted':  y_pred
+                    })
+
+                    # 3) compute percent error (avoiding division by zero)
+                    prediction_df['Error in %'] = np.where(
+                        prediction_df['Actual'] != 0,
+                        (prediction_df['Actual'] - prediction_df['Predicted']) 
+                            / prediction_df['Actual'] * 100,
+                        np.nan
+                    )
+
+                    print(prediction_df)
+                else:
+                    print("No left-out predictions available; skipping result table.")
+        except Exception as e:
+            print("Error:", e)
+            print("No left-out samples available; skipping result table.")
+            pass
 
         # Prepare a folds DataFrame with CV results
         folds_df = pd.DataFrame({
@@ -1178,29 +1059,27 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
 
     # Compute axis bounds for plotting
     try:
-        print("Calculating axis bounds...")
-        x_min, y_min = min(y.min(), pred.min()), min(y.min(), pred.min())
-        x_max, y_max = max(y.max(), pred.max()), max(y.max(), pred.max())
-        padding_x = (x_max - x_min) * 0.05
-        padding_y = (y_max - y_min) * 0.05
-        lwr = [x_min - padding_x, y_min - padding_y]
-        upr = [x_max + padding_x, y_max + padding_y]
-        print(f"Axis bounds calculated. Lower: {lwr}, Upper: {upr}")
+        print("Calculating prediction intervals and axis bounds…")
+        # fit OLS for intervals
+        X_sm   = sm.add_constant(X, has_constant='add')
+        ols_sm = sm.OLS(y, X_sm).fit()
+        pred_summary = ols_sm.get_prediction(X_sm).summary_frame(alpha=0.10)
+
+        # unpack
+        pred     = pred_summary['mean'].values
+        pi_lower = pred_summary['obs_ci_lower'].values
+        pi_upper = pred_summary['obs_ci_upper'].values
+
+       
     except Exception as e:
         print("Error calculating axis bounds:", e)
         return
 
-    # Validate bounds
     try:
-        import numpy as np
-        if not (isinstance(lwr, (list, tuple, np.ndarray)) and len(lwr) == 2 and np.all(np.isfinite(lwr))):
-            print("Invalid lower_bound. Using default (None).")
-            lwr = None
-        if not (isinstance(upr, (list, tuple, np.ndarray)) and len(upr) == 2 and np.all(np.isfinite(upr))):
-            print("Invalid upper_bound. Using default (None).")
-            upr = None
+        vif_df = model._compute_vif(model.features_df[features])
+        print_models_vif_table(vif_df)
     except Exception as e:
-        print("Error validating axis bounds:", e)
+        print("Error calculating VIF:", e)
         return
 
     # Compute R^2 (or r-squared) as a measure of correlation
@@ -1213,14 +1092,14 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
         return
 
     # Finally, call the original plotting function
-    # try:
-    print("Calling generate_q2_scatter_plot with computed values...")
-    plot_output = generate_q2_scatter_plot(y, pred, model.molecule_names, folds_df, features, 
-                                            coef_df['Estimate'], r, X, lwr, upr)
-    print("Plot generated successfully.")
-    # except Exception as e:
-    #     print("Error in generate_q2_scatter_plot:", e)
-    #     return
+    try:
+        print("Calling generate_q2_scatter_plot with computed values...")
+        plot_output = generate_q2_scatter_plot(y, pred, model.molecule_names, folds_df, features, 
+                                                coef_df['Estimate'], r, pi_lower, pi_upper)
+        print("Plot generated successfully.")
+    except Exception as e:
+        print("Error in generate_q2_scatter_plot:", e)
+        return
 
     print("Finished generate_and_display_q2_scatter_plot.")
     return plot_output

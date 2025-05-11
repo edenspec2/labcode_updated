@@ -76,8 +76,14 @@ def feather_file_handler(feather_file):
     nbo_charge_df=nbo_charge_df.reset_index(drop=True)
 
     charge_dict={'nbo':nbo_charge_df, 'hirshfeld':hirshfeld_charge_df, 'cm5':cm5_charge_df}
+    # take the len of xyz and check if the length of the nbo_charge_df,hirshfeld and cm5 is equal to the length of the xyz_df
+    if len(xyz) != len(nbo_charge_df) or len(xyz) != len(hirshfeld_charge_df) or len(xyz) != len(cm5_charge_df):
+        # remove the rows from the charge_df that are not in the xyz_df
+        nbo_charge_df = nbo_charge_df[nbo_charge_df.index.isin(xyz.index)]
+        hirshfeld_charge_df = hirshfeld_charge_df[hirshfeld_charge_df.index.isin(xyz.index)]
+        cm5_charge_df = cm5_charge_df[cm5_charge_df.index.isin(xyz.index)]
 
-
+        
     pol_df.rename(columns={pol_df.columns[0]: 'aniso', pol_df.columns[1]: 'iso'}, inplace=True)
     pol_df=pol_df.astype(float)
     pol_df=pol_df.dropna()

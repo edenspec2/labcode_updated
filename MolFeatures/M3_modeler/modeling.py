@@ -42,9 +42,96 @@ except:
 
 
 
+import sqlite3
+import os
+
+def create_results_table_classification(db_path='results.db'):
+    """Create the classification_results table if it does not already exist."""
+    db_exists = os.path.isfile(db_path)
+
+    if db_exists:
+        print(f"Database already exists at: {db_path}")
+    else:
+        print(f"Database does not exist. It will be created at: {db_path}")
+
+    # Create table
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS classification_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            combination TEXT,
+            accuracy REAL,
+            precision REAL,
+            recall REAL,
+            f1_score REAL,
+            mc_fadden_r2 REAL,
+            threshold REAL
+        );
+    ''')
+    print("Table 'classification_results' has been ensured to exist.")
+    
+    conn.commit()
+    conn.close()
+
+def insert_result_into_db_classification(db_path, combination, results, threshold, csv_path='classification_results.csv'):
+    """
+    Insert classification metrics into the SQLite database and append to a CSV file.
+
+    Args:
+        db_path (str): Path to SQLite database.
+        combination (str): Feature combination used.
+        results (dict): Dictionary with keys: 'accuracy', 'precision', 'recall', 'f1_score', 'mc_fadden_r2'.
+        threshold (float): Threshold used.
+        csv_path (str): Path to CSV file for backup/logging.
+    """
+    accuracy = results.get('accuracy')
+    precision = results.get('precision')
+    recall = results.get('recall')
+    f1 = results.get('f1_score')
+    mc_fadden_r2 = results.get('mc_fadden_r2')
+
+    # Insert into SQLite
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO classification_results (
+            combination, accuracy, precision, recall, f1_score, mc_fadden_r2, threshold
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+    ''', (str(combination), accuracy, precision, recall, f1, mc_fadden_r2, threshold))
+    conn.commit()
+    conn.close()
+
+    # Append to CSV
+    result_dict = {
+        'combination': [str(combination)],
+        'accuracy': [accuracy],
+        'precision': [precision],
+        'recall': [recall],
+        'f1_score': [f1],
+        'mc_fadden_r2': [mc_fadden_r2],
+        'threshold': [threshold]
+    }
+
+    result_df = pd.DataFrame(result_dict)
+    if not os.path.isfile(csv_path):
+        result_df.to_csv(csv_path, index=False, mode='w')
+    else:
+        result_df.to_csv(csv_path, index=False, mode='a', header=False)
+
+
+
 def create_results_table(db_path='results.db'):
     """Create the regression_results table if it does not already exist."""
-    print('Creating table at location:', db_path)
+    # Check if DB file already exists
+    db_exists = os.path.isfile(db_path)
+    
+    if db_exists:
+        print(f"Database already exists at: {db_path}")
+    else:
+        print(f"Database does not exist. It will be created at: {db_path}")
+
+    # Connect and create table if needed
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute('''
@@ -58,10 +145,11 @@ def create_results_table(db_path='results.db'):
             threshold REAL
         );
     ''')
-    boolean_is_file = os.path.isfile(db_path)
-    print('Table has been created successfully at location:', db_path, '\nCreated flag:', boolean_is_file)
+    print("Table 'regression_results' has been ensured to exist.")
+    
     conn.commit()
     conn.close()
+
 
 def insert_result_into_db(db_path, combination, r2, q2, mae,rmsd, threshold, csv_path='results.csv'):
     """
@@ -109,14 +197,22 @@ def insert_result_into_db(db_path, combination, r2, q2, mae,rmsd, threshold, csv
         result_df.to_csv(csv_path, index=False, mode='a', header=False)
         # print(f'Result appended to existing CSV at: {csv_path}')
 
-def load_results_from_db(db_path=None):
-    """Load the entire results table from the SQLite database into a DataFrame."""
+def load_results_from_db(db_path, table='regression_results'):
+    """
+    Load the entire results table from the SQLite database.
+
+    Args:
+        db_path (str): Path to the SQLite database.
+        table   (str): Table name ('regression_results' or 'classification_results').
+
+    Returns:
+        List[dict]: One dict per row, with column names as keys.
+    """
     conn = sqlite3.connect(db_path)
-    df = pd.read_sql_query('SELECT * FROM regression_results', conn)
-  
+    df = pd.read_sql_query(f"SELECT * FROM {table}", conn)
+    
     conn.close()
     return df
-
 
 def sample(x, size=None, replace=False, prob=None, random_state=None):
     """
@@ -285,7 +381,7 @@ def get_feature_combinations(features, min_features_num=2, max_features_num=None
             yield combo
         
         # Print the count of combinations for each number of features
-def fit_and_evaluate_single_combination_classification(model, combination, threshold=0.5, return_probabilities=False):
+def fit_and_evaluate_single_combination_classification(model, combination, threshold=0.2, return_probabilities=False):
         selected_features = model.features_df[list(combination)]
         X = selected_features.to_numpy()
         y = model.target_vector.to_numpy()
@@ -362,7 +458,7 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
     # Check if R-squared is above the threshold
     t3=time.time()
     if evaluation_results['r2'] > r2_threshold:
-        q2, mae,rmsd = model.calculate_q2_and_mae(X, y, n_splits=1)
+        q2, mae,rmsd = model.calculate_q2_and_mae(X, y, n_splits=None)
         evaluation_results['Q2'] = q2
         evaluation_results['MAE'] = mae
         evaluation_results['RMSD'] = rmsd
@@ -399,7 +495,58 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
         )
     return result
 
+from statsmodels.stats.stattools import durbin_watson
+from statsmodels.stats.diagnostic import het_breuschpagan
+from scipy.stats import shapiro, probplot
 
+def check_linear_regression_assumptions(X,y):
+    # Load data
+    
+    
+    # Fit linear regression model
+    model = sm.OLS(y, sm.add_constant(X)).fit()
+    residuals = model.resid
+    predictions = model.predict(sm.add_constant(X))
+
+    # print("\n----- Linearity Check (scatter plots) -----")
+    # for col in X.columns:
+    #     plt.figure()
+    #     sns.scatterplot(x=X[col], y=y)
+    #     plt.title(f'{col} vs ''Output')
+    #     plt.xlabel(col)
+    #     plt.ylabel('Output')
+    #     plt.show()
+
+    print("\n----- Independence of Errors (Durbin-Watson) -----")
+    dw_stat = durbin_watson(residuals)
+    print(f"Durbin-Watson statistic: {dw_stat:.3f}")
+    if 1.5 < dw_stat < 2.5:
+        print("✅ No autocorrelation detected.")
+    else:
+        print("⚠️ Possible autocorrelation in residuals.")
+
+    print("\n----- Homoscedasticity (Breusch-Pagan Test) -----")
+    bp_test = het_breuschpagan(residuals, model.model.exog)
+    p_value_bp = bp_test[1]
+    print(f"Breusch-Pagan p-value: {p_value_bp:.3f}")
+    if p_value_bp > 0.05:
+        print("✅ Homoscedasticity assumed (good).")
+    else:
+        print("⚠️ Heteroscedasticity detected (bad).")
+
+    print("\n----- Normality of Errors (Shapiro-Wilk Test) -----")
+    shapiro_stat, shapiro_p = shapiro(residuals)
+    print(f"Shapiro-Wilk p-value: {shapiro_p:.3f}")
+    if shapiro_p > 0.05:
+        print("✅ Residuals appear normally distributed.")
+    else:
+        print("⚠️ Residuals may not be normally distributed.")
+
+    print("\n----- Normality of Errors (Q-Q Plot) -----")
+    plt.figure()
+    probplot(residuals, dist="norm", plot=plt)
+    plt.title('Q-Q plot of residuals')
+    plt.show()
 
 
 class PlotModel:
@@ -415,6 +562,7 @@ class LinearRegressionModel:
             self, 
             csv_filepaths, 
             process_method='one csv', 
+            names_column=None,
             output_name='output', 
             leave_out=None, 
             min_features_num=2, 
@@ -430,6 +578,7 @@ class LinearRegressionModel:
         self.csv_filepaths = csv_filepaths
         self.process_method = process_method
         self.output_name = output_name
+        self.names_column = names_column
         self.leave_out = leave_out
         self.min_features_num = min_features_num
         self.max_features_num = max_features_num
@@ -456,13 +605,13 @@ class LinearRegressionModel:
 
         if csv_filepaths:
             if process_method == 'one csv':
-                self.process_features_csv(csv_filepaths.get('features_csv_filepath'), output_name=output_name)
+                self.process_features_csv()
             elif process_method == 'two csvs':
-                self.process_features_csv(csv_filepaths.get('features_csv_filepath'))
+                self.process_features_csv()
                 self.process_target_csv(csv_filepaths.get('target_csv_filepath'))
 
             self.compute_correlation()
-            self.leave_out_samples(leave_out)
+            self.leave_out_samples(self.leave_out)
             self.determine_number_of_features()
             # self.get_feature_combinations()
             self.scaler = StandardScaler()
@@ -470,6 +619,11 @@ class LinearRegressionModel:
             self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
             self.feature_names = self.features_df.columns.tolist()
 
+
+    def check_linear_regression_assumptions(self):
+        return check_linear_regression_assumptions(self.features_df, self.target_vector)
+    
+    
     def compute_multicollinearity(self, vif_threshold=5.0):
         """
         Compute the Variance Inflation Factor (VIF) for each feature in the dataset.
@@ -483,21 +637,24 @@ class LinearRegressionModel:
         return vif_results
     
 
-    def process_features_csv(self, csv_filepath, output_name):
-
+    def process_features_csv(self):
+        csv_filepath=self.csv_filepaths.get('features_csv_filepath')
+        output_name=self.output_name
+        names_column=self.names_column if hasattr(self, 'names_column') else None
         df = pd.read_csv(csv_filepath)
-        ## change the name of the first column to 0
-        first_colindex = df.columns[0]
-        df.rename(columns={first_colindex: '0'}, inplace=True)
-        self.molecule_names = df['0'].tolist()
-        self.features_df = df.drop(columns=['0'])
+        if names_column is None:
+            self.molecule_names = df.iloc[:, 0].tolist()
+        else:
+            self.molecule_names = df[names_column].tolist()
+        self.features_df = df.drop(columns=[df.columns[0]])
         self.target_vector = df[output_name]
         self.features_df= self.features_df.drop(columns=[output_name])
+       
         self.features_list = self.features_df.columns.tolist()
        
-    def compute_correlation(self,correlation_threshold=0.8, vif_threshold=5.0):
-        app=self.app
-        
+    def compute_correlation(self, correlation_threshold=0.8, vif_threshold=5.0):
+        app = self.app
+
         self.corr_matrix = self.features_df.corr()
 
         # Identify highly-correlated features above correlation_threshold
@@ -505,61 +662,78 @@ class LinearRegressionModel:
             self.corr_matrix, threshold=correlation_threshold
         )
 
-    
-
-
-        if high_corr_features and app is not None:
-            # Show correlation report
-            app.show_result(f"\n--- Correlation Report ---\n")
-            app.show_result(
+        if high_corr_features:
+            # Report findings
+            msg = (
+                f"\n--- Correlation Report ---\n"
                 f"Features with correlation above {correlation_threshold}:\n"
                 f"{list(high_corr_features)}\n"
             )
-            
-            visualize_corr = messagebox.askyesno(
-            title="Visualize Correlated Features?",
-            message=(
-                "Would you like to see a heatmap of the correlation among these features?"
-            )
-        )
-            if visualize_corr:
-                # Subset the correlation matrix for the correlated features only
-                sub_corr = self.corr_matrix.loc[list(high_corr_features), list(high_corr_features)]
-                
-                # Create a heatmap with Seaborn
+            if app:
+                app.show_result(msg)
+            print(msg)
+
+            # === Always visualize if no app ===
+            visualize = True
+            if app:
+                visualize = messagebox.askyesno(
+                    title="Visualize Correlated Features?",
+                    message="Would you like to see a heatmap of the correlation among these features?"
+                )
+
+            if visualize:
+                sub_corr = self.corr_matrix.loc[
+                    list(high_corr_features), list(high_corr_features)
+                ]
                 fig, ax = plt.subplots(figsize=(6, 5))
                 sns.heatmap(sub_corr, annot=False, cmap='coolwarm', square=True, ax=ax)
                 ax.set_title(f"Correlation Heatmap (>{correlation_threshold})")
                 plt.tight_layout()
                 plt.show()
 
-            # Ask user if they want to drop them (yes/no)
-            drop_corr = messagebox.askyesno(
-                title="Drop Correlated Features?",
-                message=(
-                    f"Features above correlation {correlation_threshold}:\n"
-                    f"{list(high_corr_features)}\n\n"
-                    "Do you want to randomly drop some of these correlated features?"
+            # === Ask to drop correlated features ===
+            drop_corr = False
+            if app:
+                drop_corr = messagebox.askyesno(
+                    title="Drop Correlated Features?",
+                    message=(
+                        f"Features above correlation {correlation_threshold}:\n"
+                        f"{list(high_corr_features)}\n\n"
+                        "Do you want to randomly drop some of these correlated features?"
+                    )
                 )
-            )
+
             if drop_corr:
-                # Decide how many to drop. (Here: half the set, randomly)
                 count_to_drop = len(high_corr_features) // 2
                 features_to_drop = random.sample(list(high_corr_features), k=count_to_drop)
 
-                app.show_result(f"\nRandomly selected {count_to_drop} features to drop:")
-                app.show_result(f"{features_to_drop}\n")
+                drop_msg = (
+                    f"\nRandomly selected {count_to_drop} features to drop:\n"
+                    f"{features_to_drop}\n"
+                )
+                if app:
+                    app.show_result(drop_msg)
+                print(drop_msg)
 
-                # Remove from DataFrame
                 self.features_df.drop(columns=features_to_drop, inplace=True)
                 self.features_list = self.features_df.columns.tolist()
 
-                app.show_result(f"Remaining features: {self.features_list}\n")
+                remaining_msg = f"Remaining features: {self.features_list}\n"
+                if app:
+                    app.show_result(remaining_msg)
+                print(remaining_msg)
             else:
-                app.show_result("\nCorrelated features were not dropped.\n")
+                no_drop_msg = "\nCorrelated features were not dropped.\n"
+                if app:
+                    app.show_result(no_drop_msg)
+                print(no_drop_msg)
+
         else:
-            if app is not None:
-                app.show_result("\nNo features exceeded the correlation threshold.\n")
+            msg = "\nNo features exceeded the correlation threshold.\n"
+            if app:
+                app.show_result(msg)
+            print(msg)
+
 
 
     def _compute_vif(self, df):
@@ -623,30 +797,85 @@ class LinearRegressionModel:
 
     def process_target_csv(self, csv_filepath):
         target_vector_unordered = pd.read_csv(csv_filepath)[self.output_name]
+        
         self.target_vector = target_vector_unordered.loc[self.molecule_names]
 
-    def leave_out_samples(self, leave_out=None):
-        
-        if leave_out:
-            if len(leave_out) == 1:
-                leave_out = int(leave_out[0])
-                self.molecule_names_predict = self.molecule_names[leave_out] if leave_out else None
-                self.molecule_names = [name for i, name in enumerate(self.molecule_names) if i != leave_out] if leave_out else self.molecule_names
-            else:
-                self.molecule_names_predict = [self.molecule_names[i] for i in leave_out] if leave_out else None
-                self.molecule_names = [name for i, name in enumerate(self.molecule_names) if i not in leave_out] if leave_out else self.molecule_names
+    def leave_out_samples(self, leave_out=None, keep_only=False):
+        """
+        Remove or retain specific rows from features_df/target_vector based on indices or molecule names.
+        Stores the removed (or retained) samples into:
+            - self.leftout_samples
+            - self.leftout_target_vector
+            - self.molecule_names_predict
 
-            self.predict_features_df = self.features_df.loc[leave_out] if leave_out else None
-            self.predict_target_vector = self.target_vector.loc[leave_out] if leave_out else None
+        Parameters:
+            leave_out (int, str, list[int|str]): Indices or molecule names to leave out (or to keep if keep_only=True).
+            keep_only (bool): If True, only the given indices/names are kept, all others are left out.
+        """
+        if leave_out is None:
+            return
 
-            
+        # Normalize input to a list
+        if isinstance(leave_out, (int, np.integer, str)):
+            leave_out = [leave_out]
+        else:
+            leave_out = list(leave_out)
 
-        # add debugging print
-        print(f'leave_out: {leave_out}')
-        self.leftout_features= self.features_df.loc[leave_out] if leave_out else None
-        self.leftout_target_vector = self.target_vector.loc[leave_out] if leave_out else None
-        self.features_df = self.features_df.drop(index=leave_out) if leave_out else self.features_df
-        self.target_vector = self.target_vector.drop(index=leave_out) if leave_out else self.target_vector
+        # Determine if the input is indices or molecule names
+        if isinstance(leave_out[0], (int, np.integer)):
+            indices = [int(i) for i in leave_out]
+        elif isinstance(leave_out[0], str):
+            name_to_index = {name: idx for idx, name in enumerate(self.molecule_names)}
+            try:
+                indices = [name_to_index[name] for name in leave_out]
+            except KeyError as e:
+                raise ValueError(f"Molecule name {e} not found in molecule_names.") from e
+        else:
+            raise ValueError("leave_out must be a list of integers or strings.")
+
+        # --- stash the relevant data ---
+        selected_features = self.features_df.iloc[indices].copy()
+        selected_target   = self.target_vector.iloc[indices].copy()
+        selected_names    = [self.molecule_names[i] for i in indices]
+
+        # — ensure we have the full 106 columns in the right order —
+        if hasattr(self, 'feature_names'):
+            selected_features = selected_features.reindex(
+                columns=self.feature_names,
+                fill_value=0
+            )
+
+        # locate index labels for dropping
+        idx_labels = self.features_df.index[indices]
+
+        if keep_only:
+            # Everything *not* in indices becomes the "left out" set
+            self.leftout_samples       = self.features_df.drop(index=idx_labels).copy()
+            self.leftout_target_vector = self.target_vector.drop(index=idx_labels).copy()
+            self.molecule_names_predict = [
+                n for i, n in enumerate(self.molecule_names) if i not in indices
+            ]
+
+            # The new main set is just our selected rows (already reindexed)
+            self.features_df     = selected_features
+            self.target_vector   = selected_target
+            self.molecule_names  = selected_names
+        else:
+            # The selected rows become the "left out" set (already reindexed)
+            self.leftout_samples       = selected_features
+            self.leftout_target_vector = selected_target
+            self.molecule_names_predict = selected_names
+
+            # Drop them from the main set
+            self.features_df    = self.features_df.drop(index=idx_labels)
+            self.target_vector  = self.target_vector.drop(index=idx_labels)
+            self.molecule_names = [
+                n for i, n in enumerate(self.molecule_names) if i not in indices
+            ]
+
+        # debug prints
+        print(f"Left out samples:   {self.molecule_names_predict}")
+        print(f"Remaining samples:  {self.molecule_names}")
 
         
 
@@ -725,133 +954,113 @@ class LinearRegressionModel:
 
     #     return q2, mae, rmsd
 
-    def calculate_q2_and_mae(self, X, y, n_splits=None, test_size=0.1, random_state=84, n_iterations=100):
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import LeaveOneOut, RepeatedKFold
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, make_scorer
+    import numpy as np
+
+    def calculate_q2_and_mae(self, X, y,
+                        n_splits=None,
+                        test_size=0.1,
+                        random_state=42,
+                        n_iterations=100):
         """
-        Calculate Q², MAE, and RMSD using scikit-learn's cross-validation or single train/test split.
+        Calculate Q², MAE, and RMSD using scikit-learn's cross-validation or single train/test split,
+        and print each prediction vs. actual and the percentage error.
 
         Args:
             X (np.ndarray): Feature matrix of shape (n_samples, n_features).
             y (np.ndarray): Target vector of shape (n_samples,).
             n_splits (int, optional): Number of splits (folds) for cross-validation.
                                     If None, defaults to self.n_splits.
-                                    If 1, performs a single train/test evaluation on the entire dataset.
-
+                                    If 1, performs Leave-One-Out CV.
         Returns:
             tuple: (q2, mae, rmsd)
-                q2   -> The average R² (i.e., Q²) across the folds or single evaluation.
-                mae  -> The average Mean Absolute Error across the folds or single evaluation.
-                rmsd -> The average Root Mean Squared Deviation across the folds or single evaluation.
         """
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.model_selection import LeaveOneOut
+        from sklearn.metrics import mean_absolute_error, mean_squared_error
+        import numpy as np
+
         if n_splits is None:
             n_splits = self.n_splits
 
         if n_splits < 1:
             raise ValueError("n_splits must be at least 1.")
 
-       ## verify the X is normalized and normalize if not, check the variance of the X
+        # 0) Normalize if needed
         if np.var(X) > 1:
             X = StandardScaler().fit_transform(X)
 
-
+        # --- LOO case ---
         if n_splits == 1:
             loo = LeaveOneOut()
-                
-            # Initialize an array to store predictions
             y_pred = np.empty_like(y, dtype=float)
-            estimator = self.model
-            # Iterate through each split
-            for fold, (train_index, test_index) in enumerate(loo.split(X), 1):
-                # Split the data into training and testing sets
-                X_train, X_test = X[train_index], X[test_index]
-                y_train, y_test = y[train_index], y[test_index]
-                # Fit the model on the training data
-                estimator.fit(X_train, y_train)     
-                # Predict the target for the test data
-                y_pred[test_index] = estimator.predict(X_test)
-                
-            # Compute evaluation metrics on the aggregated predictions
-            q2 = r_squared(y, y_pred, formula="corr")
-            mae = mean_absolute_error(y, y_pred)
+            for idx, (train_idx, test_idx) in enumerate(loo.split(X), 1):
+                X_train, X_test = X[train_idx], X[test_idx]
+                y_train, y_test = y[train_idx], y[test_idx]
+
+                # Fit & predict
+                self.model.fit(X_train, y_train)
+                y_pred[test_idx] = self.model.predict(X_test)
+
+                # Print each with percentage error
+                i = test_idx[0]
+                actual    = y_test[0]
+                predicted = y_pred[i]
+                pct_err   = (predicted - actual) / actual * 100 if actual != 0 else float('nan')
+                # print(f"[LOO fold {idx}] Sample {i}: "
+                #     f"Pred={predicted:.4f}, Actual={actual:.4f}, Error={pct_err:.2f}%")
+
+            # Metrics
+            q2   = r_squared(y, y_pred, formula="corr")
+            mae  = mean_absolute_error(y, y_pred)
             rmsd = np.sqrt(mean_squared_error(y, y_pred))
-
             return q2, mae, rmsd
-        
-        else:
-            # Define a custom scorer for RMSD
-            def rmsd_scorer(y_true, y_pred):
-                return np.sqrt(mean_squared_error(y_true, y_pred))
-            # Create a scorer object for RMSD
-            rmsd_score = make_scorer(rmsd_scorer, greater_is_better=False)  # Lower RMSD is better
-            r2_score = make_scorer(r_squared, greater_is_better=True)  # Higher R² is better
-            # Define the cross-validation strategy
-            cv = RepeatedKFold(n_splits=n_splits, n_repeats=n_iterations, random_state=random_state)
-            # Define the scoring metrics
-            scoring = {
-                'r2': r2_score,
-                'mae': 'neg_mean_absolute_error',  # scikit-learn uses negative MAE for maximization
-                'rmsd': rmsd_score
-            }
-            q2_list = []
-            mae_list = []
-            rmsd_list = []
 
+        # --- Repeated K-Fold case ---
+        else:
+            from sklearn.model_selection import RepeatedKFold
+            q2_list   = []
+            mae_list  = []
+            rmsd_list = []
             n_samples = len(y)
 
-            for iteration in range(n_iterations):
-                # Assign each data point to a fold ensuring no fold is empty
+            for iteration in range(1, n_iterations + 1):
                 random_seed = random_state + iteration
                 fold_assignments = assign_folds_no_empty(n_samples, n_splits, random_seed)
-         
-                # print(f"Fold assignments in iteration {iteration + 1}: {fold_assignments}")
-                # Initialize arrays to store predictions
-                predictions = np.empty(n_samples)
-                predictions[:] = np.nan  # Initialize with NaN
+                predictions = np.full(n_samples, np.nan)
 
                 for fold in range(1, n_splits + 1):
-                    # Define training and testing indices
-                    test_indices = [i for i, x in enumerate(fold_assignments) if x == fold]
-                    train_indices = [i for i, x in enumerate(fold_assignments) if x != fold]
+                    test_idx  = [i for i, f in enumerate(fold_assignments) if f == fold]
+                    train_idx = [i for i, f in enumerate(fold_assignments) if f != fold]
 
-                    # Handle potential empty folds (shouldn't occur)
-                    if len(train_indices) == 0 or len(test_indices) == 0:
-                        print(f"Warning: Fold {fold} has no training or testing samples in iteration {iteration + 1}.")
-                        continue
+                    X_train, X_test = X[train_idx], X[test_idx]
+                    y_train, y_test = y[train_idx], y[test_idx]
 
-                    # Define training and testing sets
-                    X_train, X_test = X[train_indices], X[test_indices]
-                    y_train, y_test = y[train_indices], y[test_indices]
-
-                    # Train the model
                     self.model.fit(X_train, y_train)
+                    y_fold_pred = self.model.predict(X_test)
+                    predictions[test_idx] = y_fold_pred
 
-                    # Predict on the test set
-                    y_pred = self.model.predict(X_test)
+                    # Print each within this fold with percentage error
+                    for i, pred in zip(test_idx, y_fold_pred):
+                        actual  = y[i]
+                        pct_err = (pred - actual) / actual * 100 if actual != 0 else float('nan')
+                        # print(f"[Iter {iteration}, fold {fold}] Sample {i}: "
+                        #     f"Pred={pred:.4f}, Actual={actual:.4f}, Error={pct_err:.2f}%")
 
-                    # Store predictions
-                    predictions[test_indices] = y_pred
-
-                # After all folds, compute metrics
-                # Ensure no NaN predictions
+                # Compute metrics on valid samples
                 valid = ~np.isnan(predictions)
-                if not np.all(valid):
-                    print(f"Warning: Some samples were not assigned to any fold in iteration {iteration + 1}.")
-
-                # Calculate metrics
-                mae = mean_absolute_error(y[valid], predictions[valid])
-                q2 = r_squared(y[valid], predictions[valid])
+                mae  = mean_absolute_error(y[valid], predictions[valid])
+                q2   = r_squared(y[valid], predictions[valid])
                 rmsd = np.sqrt(mean_squared_error(y[valid], predictions[valid]))
-               
-                # Append to lists
-                mae_list.append(mae)
+
                 q2_list.append(q2)
+                mae_list.append(mae)
                 rmsd_list.append(rmsd)
 
-            # Compute the overall average metrics across all iterations
-            average_q2 = np.mean(q2_list)
-            average_mae = np.mean(mae_list)
-            average_rmsd = np.mean(rmsd_list)
+            return np.mean(q2_list), np.mean(mae_list), np.mean(rmsd_list)
 
-            return average_q2, average_mae, average_rmsd
 
 
 
@@ -916,86 +1125,130 @@ class LinearRegressionModel:
 
         return predictions
     
-    def predict_for_leftout(self, X, calc_covariance_matrix=False, confidence_level=0.95):
-        """
-        Make predictions using the trained linear regression model.
+    
+    # def predict_for_leftout(self, X, calc_interval=False, confidence_level=0.95):
+    #     """
+    #     Predict on new samples X using the trained linear model coefficients (self.theta).
+    #     Optionally return prediction intervals at the specified confidence level.
 
-        Optionally, calculate and store the covariance matrix of the model's coefficients.
+    #     Now: only uses the features you pass in (no reindexing to the full original features_df).
+
+    #     Args:
+    #         X (np.ndarray or pd.DataFrame): New feature matrix. Must have exactly
+    #             len(self.theta)-1 columns (in any order)—one column per trained predictor.
+    #         calc_interval (bool): If True, compute and return (preds, lower, upper).
+    #         confidence_level (float): CI level (default=0.95).
+
+    #     Returns:
+    #         preds : np.ndarray of shape (m,)
+    #         or
+    #         (preds, lower, upper) if calc_interval is True
+    #     """
+    #     import numpy as np
+    #     from scipy.stats import t
+
+    #     # 1) Convert X to a numpy array
+    #     if hasattr(X, "values"):
+    #         X_arr = X.values
+    #     else:
+    #         X_arr = np.atleast_2d(np.asarray(X))
+
+    #     # 2) Check that you passed exactly the right number of features
+    #     p = self.theta.shape[0] - 1   # number of predictors
+    #     if X_arr.shape[1] != p:
+    #         raise ValueError(
+    #             f"predict_for_leftout expected {p} features, but got {X_arr.shape[1]}"
+    #         )
+
+    #     # 3) Prepend intercept column
+    #     Xb = np.hstack([np.ones((X_arr.shape[0], 1)), X_arr])
+
+    #     # 4) Sanity‐check theta length
+    #     if Xb.shape[1] != self.theta.shape[0]:
+    #         raise ValueError(
+    #             f"Design matrix has {Xb.shape[1]} columns, but theta has length {self.theta.shape[0]}"
+    #         )
+
+    #     # 5) Point predictions
+    #     preds = Xb.dot(self.theta)
+    #     if not calc_interval:
+    #         return preds
+
+    #     # 6) Prediction intervals
+    #     if not hasattr(self, 'model_covariance_matrix') or not hasattr(self, 'residual_variance'):
+    #         raise AttributeError(
+    #             "To compute intervals, you need model_covariance_matrix and residual_variance."
+    #         )
+
+    #     cov    = self.model_covariance_matrix
+    #     sigma2 = self.residual_variance
+    #     dfree  = getattr(self, 'n_train', None)
+    #     if dfree is None:
+    #         raise AttributeError("To compute intervals, set self.n_train when you fit the model.")
+    #     dfree -= cov.shape[0]
+
+    #     leverages = np.sum(Xb.dot(cov) * Xb, axis=1)
+    #     se_pred   = np.sqrt(sigma2 * (1 + leverages))
+    #     tval      = t.ppf(1 - (1 - confidence_level) / 2, dfree)
+
+    #     lower = preds - tval * se_pred
+    #     upper = preds + tval * se_pred
+    #     return preds, lower, upper
+
+    def predict_for_leftout(self, X, y=None, calc_interval=False, confidence_level=0.95):
+        """
+        Predict on left-out samples using the already-fitted model.
 
         Args:
-            X (np.ndarray or pd.DataFrame): Feature matrix.
-            calc_covariance_matrix (bool): Whether to calculate and store the covariance matrix.
-            confidence_level (float): Confidence level for prediction intervals.
+            X (np.ndarray or pd.DataFrame): Left-out feature matrix, shape (n_samples, n_features).
+            y (np.ndarray or pd.Series, optional): Left-out target vector, length n_samples.
+            calc_interval (bool): If True, also compute prediction intervals.
+            confidence_level (float): Confidence level for intervals (default=0.95).
 
         Returns:
-            np.ndarray: Predicted values, or a tuple (predictions, lower_bounds, upper_bounds)
-                        if calc_covariance_matrix is True.
+            preds                : np.ndarray of shape (n_samples,)
+            or
+            (preds, errors)      : if y is provided and calc_interval=False  
+            (preds, lower, upper): if calc_interval=True and y is None  
+            (preds, lower, upper, errors): if calc_interval=True and y is provided  
         """
         import numpy as np
         import pandas as pd
-        import statsmodels.api as sm
-        from scipy.stats import t
 
-        # Ensure X has the same features as the training data
+        # 1) Convert X to numpy array
         if isinstance(X, pd.DataFrame):
-            if hasattr(self, 'feature_names'):
-                try:
-                    X = X[self.feature_names].values
-                except KeyError as e:
-                    raise KeyError(f"Missing training features in input X: {e}")
-            else:
-                X = X.values  # fallback if feature names aren't stored
-
-        # Ensure X is at least 2D
-        X = np.atleast_2d(X)
-
-        # Check dimensionality match (excluding intercept)
-        expected_features = self.theta.shape[0] - 1
-        if X.shape[1] != expected_features:
-            raise ValueError(
-                f"Expected input with {expected_features} features, but got {X.shape[1]}."
-            )
-
-        # Add bias (intercept) column
-        X_b = np.c_[np.ones((X.shape[0], 1)), X]
-
-        # Make predictions
-        predictions = X_b.dot(self.theta)
-
-        # If not calculating intervals, return plain predictions
-        if not calc_covariance_matrix:
-            return predictions
-
-        # Compute covariance matrix and prediction intervals
-        if hasattr(self, 'feature_names'):
-            X_train = self.features_df[self.feature_names].values
+            X_arr = X.values
         else:
-            X_train = self.features_df
-        X_train_b = sm.add_constant(X_train)
+            X_arr = np.atleast_2d(np.asarray(X))
 
-        # Residuals and variance from training
-        residuals = self.target_vector - X_train_b.dot(self.theta)
-        n_train, p = X_train_b.shape
-        self.residual_variance = np.sum(residuals ** 2) / (n_train - p)
+        # 2) Use existing predict() to get preds (and intervals if requested)
+        if calc_interval:
+            preds, lower, upper = self.predict(
+                X_arr, calc_covariance_matrix=True, confidence_level=confidence_level
+            )
+        else:
+            preds = self.predict(X_arr, calc_covariance_matrix=False)
 
-        # Covariance matrix
-        xtx_inv = np.linalg.inv(X_train_b.T.dot(X_train_b))
-        self.model_covariance_matrix = self.residual_variance * xtx_inv
+        # 3) If y is provided, compute errors
+        errors = None
+        if y is not None:
+            if isinstance(y, (pd.Series, pd.DataFrame)):
+                y_arr = y.values.ravel()
+            else:
+                y_arr = np.asarray(y).ravel()
+            if preds.shape != y_arr.shape:
+                raise ValueError(f"Predictions shape {preds.shape} != y shape {y_arr.shape}")
+            errors = preds - y_arr
 
-        # t-value for the confidence interval
-        t_value = t.ppf(1 - (1 - confidence_level) / 2, df=n_train - p)
+        # 4) Return appropriate tuple
+        if calc_interval:
+            if errors is not None:
+                return preds, lower, upper, errors
+            return preds, lower, upper
 
-        # Prediction variance terms
-        variance_terms = np.array([
-            np.sqrt(self.residual_variance * (1 + x_i.T @ xtx_inv @ x_i))
-            for x_i in X_b
-        ])
-
-        # Prediction bounds
-        lower_bounds = predictions - t_value * variance_terms
-        upper_bounds = predictions + t_value * variance_terms
-
-        return predictions, lower_bounds, upper_bounds
+        if errors is not None:
+            return preds, errors
+        return preds
 
     def evaluate(self, X, y):
         
@@ -1064,107 +1317,106 @@ class LinearRegressionModel:
 
 
 
-    def fit_and_evaluate_combinations(self, top_n=50, n_jobs=-1, initial_r2_threshold=0.85 ,bool_parallel=False): ## parallel is not working
-        app=self.app
+    def fit_and_evaluate_combinations(self, top_n=50, n_jobs=-1, initial_r2_threshold=0.85, bool_parallel=False):
+        app = self.app
         self.get_feature_combinations()
-        if multiprocessing.cpu_count() == 1 or bool_parallel==False:
+
+        # decide on parallel vs. single-thread
+        if multiprocessing.cpu_count() == 1 or not bool_parallel:
             n_jobs = 1
-        
-        print(f"Using {n_jobs} jobs for evaluation. found {multiprocessing.cpu_count()} cores")
+        print(f"Using {n_jobs} jobs for evaluation. Found {multiprocessing.cpu_count()} cores.")
+
+        # load any existing results so we can skip them
+        try:
+            existing_results = load_results_from_db(self.db_path)
+            done_combos=existing_results['combination'].tolist()
+            done_combos = set(done_combos)
+        except Exception:
+            existing_results = []
+            done_combos = set()
 
         def is_all_inf(results):
             return all(x['scores'].get('Q2', float('-inf')) == float('-inf') for x in results)
 
         def evaluate_with_threshold(threshold):
             """
-            Perform evaluation with the specified R2 threshold. 
-            Runs either in parallel or single thread depending on the final value of n_jobs.
+            Evaluate only the combos not yet in the database, then return the full up-to-date results list.
             """
-            try:
-                results=load_results_from_db(self.db_path)
-            except:
-                results=[]
-                
+            # start from whatever is already in the DB
+            results = existing_results.copy()
+
+            # filter out combos we've already done
+            combos_to_run = [
+                combo for combo in self.features_combinations
+                if str(combo) not in done_combos
+            ]
+            ## print the differences between the done_combos and the combos_to_run
+            print(f"Combos to run: {len(combos_to_run)}, done_combos: {len(done_combos)}")
+            if not combos_to_run:
+                print(f"No new combinations to evaluate at threshold {threshold}.")
+                return results
+
+            print(f"Evaluating {len(combos_to_run)} new combos with R2 >= {threshold}...")
+
             if n_jobs == 1:
-                # Non-parallel execution
                 results = []
-                for combination in tqdm(self.features_combinations,
-                                        desc=f'Calculating combos with threshold {threshold} (single-core)'):
-                    
-                    res = fit_and_evaluate_single_combination_regression(self,combination, threshold) # fit_and_evaluate_single_combination_with_prints
+                for combo in tqdm(combos_to_run, desc=f"Threshold {threshold} (single-core)"):
+                    res = fit_and_evaluate_single_combination_regression(self, combo, threshold)
                     results.append(res)
             else:
-                # Parallel execution
+                # parallel: each call writes its result into the DB
                 Parallel(n_jobs=n_jobs)(
-                    delayed(fit_and_evaluate_single_combination_regression)(self, combination, threshold) # fit_and_evaluate_single_combination_with_prints
-                    for combination in tqdm(self.features_combinations, 
-                                            desc=f'Calculating combos with threshold {threshold} (parallel)')
+                    delayed(fit_and_evaluate_single_combination_regression)(self, combo, threshold)
+                    for combo in tqdm(combos_to_run, desc=f"Threshold {threshold} (parallel)")
                 )
-                
-        
+                # reload everything (so results includes the new ones)
                 results = load_results_from_db(self.db_path)
-            
-           
-            # Filter out None entries if any exist
+
             return results
 
         def get_highest_r2(results):
-            # Extract the highest R2 value from the results that are not -inf
-            r2_values = [x['scores'].get('r2') for x in results ]
-            if r2_values:
-                
-                return max(r2_values)
-                
-            return None
+            r2_vals = [x['scores'].get('r2') for x in results if x['scores'].get('r2') is not None]
+            return max(r2_vals) if r2_vals else None
 
-        # Initial evaluation with the initial R2 threshold
+        # 1) initial pass
         sorted_results = evaluate_with_threshold(initial_r2_threshold)
-        sorted_results = sorted(sorted_results, key=lambda x: x['scores'].get('Q2', float('-inf')), reverse=True)
-        
+        sorted_results.sort(key=lambda x: x['scores'].get('Q2', float('-inf')), reverse=True)
 
-        # Check if all Q2 values are -inf and recalibrate if necessary
+        # 2) if all Q2 are -inf, lower threshold and retry
         if is_all_inf(sorted_results):
-            print("All Q2 values are -inf, recalculating with a new R2 threshold...")
+            print("All Q2 values are -inf, lowering R2 threshold and retrying...")
             highest_r2 = get_highest_r2(sorted_results)
-            if highest_r2 is not None:
-                new_threshold = highest_r2 - 0.15  # Reduce the highest found R2 by 0.15
-            else:
-                new_threshold = initial_r2_threshold - 0.15  # Default lowering if no R2 found
-            print('new threshold',new_threshold)
+            new_threshold = (highest_r2 - 0.15) if highest_r2 is not None else (initial_r2_threshold - 0.15)
+            print(f"New threshold: {new_threshold:.3f}")
             sorted_results = evaluate_with_threshold(new_threshold)
-            sorted_results = sorted(sorted_results, key=lambda x: x['scores'].get('Q2', float('-inf')), reverse=True)
-            sorted_results = sorted_results[:top_n]
+            sorted_results.sort(key=lambda x: x['scores'].get('Q2', float('-inf')), reverse=True)
 
+        # take your top-n
         sorted_results = sorted_results[:top_n]
-        # Print models regression table if sorted results are valid
-        if sorted_results:
-            print_models_regression_table(sorted_results,app)
-        
 
+        # print the regression table
+        if sorted_results:
+            print_models_regression_table(sorted_results, app)
+
+        # handle leave-out predictions if requested
         if self.leave_out:
             X = self.predict_features_df.to_numpy()
             y = self.predict_target_vector.to_numpy()
-            fit=self.fit(X,y)
-            predictions = self.predict(X)
-            result_dict={'sample_name':self.molecule_names_predict,'predictions':predictions,'true':y}
+            _ = self.fit(X, y)
+            preds = self.predict(X)
+            df_lo = pd.DataFrame({
+                'Molecule':   self.molecule_names_predict,
+                'True':       y.ravel(),
+                'Predicted':  np.array(preds).ravel()
+            })
             if app:
-                app.show_result('\n\n Predictions on left out samples\n\n')
-                app.show_result(pd.DataFrame(result_dict).to_markdown(tablefmt="pipe", index=False))
+                app.show_result("\n\nPredictions on left-out samples\n\n")
+                app.show_result(df_lo.to_markdown(tablefmt="pipe", index=False))
             else:
-                print(pd.DataFrame(result_dict).to_markdown(tablefmt="pipe", index=False))
+                print(df_lo.to_markdown(tablefmt="pipe", index=False))
 
         return sorted_results
-    
-    def fit_and_evaluate_single_combination_with_prints(self, combination, r2_threshold):
-        print(f"Starting evaluation for combination: {combination}")
-        start_time = time.time()
-        
-        # Call the original evaluation method
-        result = fit_and_evaluate_single_combination_regression(self, combination, r2_threshold=r2_threshold)
-        
-        end_time = time.time()
-        print(f"Finished evaluation for combination: {combination} in {end_time - start_time:.2f} seconds")
-        return result
+
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
@@ -1241,30 +1493,30 @@ class OrdinalLogisticRegression(BaseEstimator, ClassifierMixin):
 
 
 class ClassificationModel:
-    def __init__(self, csv_filepaths, process_method='one csv', output_name='class', leave_out=None, min_features_num=2, max_features_num=None,n_splits=5, metrics=None, return_coefficients=False,ordinal=False, exclude_columns=None,app=None):
+    def __init__(self, csv_filepaths, process_method='one csv', output_name='class', names_column=None, leave_out=None, min_features_num=2, max_features_num=None, n_splits=5, metrics=None, return_coefficients=False, ordinal=False, exclude_columns=None, app=None,db_path='results'):
         self.csv_filepaths = csv_filepaths
         self.process_method = process_method
         self.output_name = output_name
         self.leave_out = leave_out
+        self.names_column = names_column
         self.min_features_num = min_features_num
         self.max_features_num = max_features_num
-        self.metrics = metrics if metrics is not None else ['accuracy','precision','recall' ,'f1', 'roc_auc','mc_fadden_r2']
+        self.metrics = metrics if metrics is not None else ['accuracy', 'precision', 'recall', 'f1', 'roc_auc', 'mc_fadden_r2']
         self.return_coefficients = return_coefficients
         self.n_splits = n_splits
-        self.ordinal=ordinal
+        self.ordinal = ordinal
         self.app=app
-
+        name=name = os.path.splitext(os.path.basename(self.csv_filepaths.get('features_csv_filepath')))[0]
+        self.db_path = db_path + f'_{name}.db'
+        create_results_table_classification(self.db_path)
         if csv_filepaths:
       
             if process_method == 'one csv':
-                self.process_features_csv(csv_filepaths.get('features_csv_filepath'),  output_name=output_name)
+                self.process_features_csv()
             elif process_method == 'two csvs':
-                self.process_features_csv(csv_filepaths.get('features_csv_filepath'))
+                self.process_features_csv()
                 self.process_target_csv(csv_filepaths.get('target_csv_filepath'))
             self.compute_correlation()
-            self.leave_out_samples(leave_out)
-            self.determine_number_of_features()
-            self.get_feature_combinations()
             self.scaler = StandardScaler()
             if exclude_columns is None:
                 exclude_columns = []
@@ -1282,12 +1534,99 @@ class ClassificationModel:
 
             # Fit and transform the data
             self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+            self.leave_out_samples(self.leave_out, keep_only=False)
+            self.determine_number_of_features()
+            # self.get_feature_combinations()
+            
             
 
         if ordinal:
             self.model = OrdinalLogisticRegression()
         else:    
             self.model = LogisticRegression(solver='lbfgs', random_state=42)
+
+    def compute_correlation(self, correlation_threshold=0.8, vif_threshold=5.0):
+        app = self.app
+
+        self.corr_matrix = self.features_df.corr()
+
+        # Identify highly-correlated features above correlation_threshold
+        high_corr_features = self._get_highly_correlated_features(
+            self.corr_matrix, threshold=correlation_threshold
+        )
+
+        if high_corr_features:
+            # Report findings
+            msg = (
+                f"\n--- Correlation Report ---\n"
+                f"Features with correlation above {correlation_threshold}:\n"
+                f"{list(high_corr_features)}\n"
+            )
+            if app:
+                app.show_result(msg)
+            print(msg)
+
+            # === Always visualize if no app ===
+            visualize = True
+            if app:
+                visualize = messagebox.askyesno(
+                    title="Visualize Correlated Features?",
+                    message="Would you like to see a heatmap of the correlation among these features?"
+                )
+
+            if visualize:
+                sub_corr = self.corr_matrix.loc[
+                    list(high_corr_features), list(high_corr_features)
+                ]
+                fig, ax = plt.subplots(figsize=(6, 5))
+                sns.heatmap(sub_corr, annot=False, cmap='coolwarm', square=True, ax=ax)
+                ax.set_title(f"Correlation Heatmap (>{correlation_threshold})")
+                plt.tight_layout()
+                plt.show()
+
+            # === Ask to drop correlated features ===
+            drop_corr = False
+            if app:
+                drop_corr = messagebox.askyesno(
+                    title="Drop Correlated Features?",
+                    message=(
+                        f"Features above correlation {correlation_threshold}:\n"
+                        f"{list(high_corr_features)}\n\n"
+                        "Do you want to randomly drop some of these correlated features?"
+                    )
+                )
+
+            if drop_corr:
+                count_to_drop = len(high_corr_features) // 2
+                features_to_drop = random.sample(list(high_corr_features), k=count_to_drop)
+
+                drop_msg = (
+                    f"\nRandomly selected {count_to_drop} features to drop:\n"
+                    f"{features_to_drop}\n"
+                )
+                if app:
+                    app.show_result(drop_msg)
+                print(drop_msg)
+
+                self.features_df.drop(columns=features_to_drop, inplace=True)
+                self.features_list = self.features_df.columns.tolist()
+
+                remaining_msg = f"Remaining features: {self.features_list}\n"
+                if app:
+                    app.show_result(remaining_msg)
+                print(remaining_msg)
+            else:
+                no_drop_msg = "\nCorrelated features were not dropped.\n"
+                if app:
+                    app.show_result(no_drop_msg)
+                print(no_drop_msg)
+
+        else:
+            msg = "\nNo features exceeded the correlation threshold.\n"
+            if app:
+                app.show_result(msg)
+            print(msg)
+
 
     def simi_sampler_(self,class_label, compare_with=0, plot=False, sample_size=None):
         data=pd.concat([self.features_df,self.target_vector],axis=1)
@@ -1316,16 +1655,92 @@ class ClassificationModel:
         self.max_features_num = set_max_features_limit(total_features_num, self.max_features_num)
     
 
-    def leave_out_samples(self, leave_out=None):
-        self.predict_features_df = self.features_df.loc[leave_out] if leave_out else self.features_df
-        self.predict_target_vector = self.target_vector.loc[leave_out] if leave_out else self.target_vector
-        self.features_df = self.features_df.drop(index=leave_out) if leave_out else self.features_df
-        self.target_vector = self.target_vector.drop(index=leave_out) if leave_out else self.target_vector
+    def leave_out_samples(self, leave_out=None, keep_only=False):
+        """
+        Remove or retain specific rows from features_df/target_vector based on indices or molecule names.
+        Stores the removed (or retained) samples into:
+            - self.leftout_samples
+            - self.leftout_target_vector
+            - self.molecule_names_predict
 
+        Parameters:
+            leave_out (int, str, list[int|str]): Indices or molecule names to leave out (or to keep if keep_only=True).
+            keep_only (bool): If True, only the given indices/names are kept, all others are left out.
+        """
+        if leave_out is None:
+            return
+
+        # Normalize input to a list
+        if isinstance(leave_out, (int, np.integer, str)):
+            leave_out = [leave_out]
+        else:
+            leave_out = list(leave_out)
+
+        # Determine if the input is indices or molecule names
+        if isinstance(leave_out[0], (int, np.integer)):
+            indices = [int(i) for i in leave_out]
+        elif isinstance(leave_out[0], str):
+            name_to_index = {name: idx for idx, name in enumerate(self.molecule_names)}
+            try:
+                indices = [name_to_index[name] for name in leave_out]
+            except KeyError as e:
+                raise ValueError(f"Molecule name {e} not found in molecule_names.") from e
+        else:
+            raise ValueError("leave_out must be a list of integers or strings.")
+
+        # --- stash the relevant data ---
+        selected_features = self.features_df.iloc[indices].copy()
+        selected_target   = self.target_vector.iloc[indices].copy()
+        selected_names    = [self.molecule_names[i] for i in indices]
+
+        # — ensure we have the full 106 columns in the right order —
+        if hasattr(self, 'feature_names'):
+            selected_features = selected_features.reindex(
+                columns=self.feature_names,
+                fill_value=0
+            )
+
+        # locate index labels for dropping
+        idx_labels = self.features_df.index[indices]
+
+        if keep_only:
+            # Everything *not* in indices becomes the "left out" set
+            self.leftout_samples       = self.features_df.drop(index=idx_labels).copy()
+            self.leftout_target_vector = self.target_vector.drop(index=idx_labels).copy()
+            self.molecule_names_predict = [
+                n for i, n in enumerate(self.molecule_names) if i not in indices
+            ]
+
+            # The new main set is just our selected rows (already reindexed)
+            self.features_df     = selected_features
+            self.target_vector   = selected_target
+            self.molecule_names  = selected_names
+        else:
+            # The selected rows become the "left out" set (already reindexed)
+            self.leftout_samples       = selected_features
+            self.leftout_target_vector = selected_target
+            self.molecule_names_predict = selected_names
+
+            # Drop them from the main set
+            self.features_df    = self.features_df.drop(index=idx_labels)
+            self.target_vector  = self.target_vector.drop(index=idx_labels)
+            self.molecule_names = [
+                n for i, n in enumerate(self.molecule_names) if i not in indices
+            ]
+
+        # debug prints
+        print(f"Left out samples:   {self.molecule_names_predict}")
+        print(f"Remaining samples:  {self.molecule_names}")
         
-    def process_features_csv(self, csv_filepath, output_name):
+    def process_features_csv(self):
+        csv_filepath=self.csv_filepaths.get('features_csv_filepath')
+        output_name=self.output_name
+        names_column=self.names_column if hasattr(self, 'names_column') else None
         df = pd.read_csv(csv_filepath)
-        self.molecule_names = df.iloc[:, 0].tolist()
+        if names_column is None:
+            self.molecule_names = df.iloc[:, 0].tolist()
+        else:
+            self.molecule_names = df[names_column].tolist()
         self.features_df = df.drop(columns=[df.columns[0]])
         self.target_vector = df[output_name]
         self.features_df= self.features_df.drop(columns=[output_name])
@@ -1512,32 +1927,6 @@ class ClassificationModel:
         }
         return results
 
-    # def cross_validation(self, X, y):
-    #     n_splits=self.n_splits
-    #     # Perform k-fold cross-validation
-    #     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-        
-    #     # Define custom scorers
-    #     f1_scorer = make_scorer(f1_score, average='weighted', zero_division=0)  # Choose 'macro', 'micro', or 'weighted'
-    #     roc_auc_scorer = make_scorer(roc_auc_score, multi_class='ovr', average='weighted', zero_division=0)  # Choose 'ovr' or 'ovo', and averaging method
-
-    #     # Perform cross-validation
-    #     accuracy = cross_val_score(self.model, X, y, cv=kf, scoring='accuracy')
-    #     f1 = cross_val_score(self.model, X, y, cv=kf, scoring=f1_scorer)
-    #     # auc = cross_val_score(self.model, X, y, cv=kf, scoring=roc_auc_scorer)
-        
-    #     # Calculate mean values
-    #     avg_accuracy = np.mean(accuracy)
-    #     avg_f1 = np.mean(f1)
-    #     # avg_auc = np.mean(auc)
-
-    #     # calculate mcfadden r2
-    #     r2_scorer = make_scorer(self.mcfadden_r2, greater_is_better=True)
-    #     mcfadden_r2_var = cross_val_score(self.model, X, y, cv=kf, scoring=r2_scorer)
-    #     avg_mcfadden_r2 = np.mean(mcfadden_r2_var)
-        
-        
-    #     return avg_accuracy, avg_f1, avg_mcfadden_r2
 
 
     def cross_validation(self, X, y, n_splits=5):
@@ -1587,30 +1976,85 @@ class ClassificationModel:
         return avg_accuracy, avg_f1, avg_mcfadden_r2
 
 
-    def fit_and_evaluate_combinations(self,top_n, n_jobs=-1,threshold=0.5,bool_parallel=False):
-        app=self.app
-        results,vif_df=[fit_and_evaluate_single_combination_classification(self,combination, threshold=threshold) for combination in tqdm(self.features_combinations, desc='Calculating combinations')]
-        # print('results',results)
-        sorted_results = sorted(results, key=lambda x: x['scores'].get('mc_fadden_r2', 0), reverse=True)
-        sorted_results = sorted_results[:top_n]
-        print_models_classification_table(sorted_results,app)
-        self.models_list=[result['models'] for result in sorted_results]
-        self.combinations_list=[result['combination'] for result in sorted_results]
+    def fit_and_evaluate_combinations(self, top_n=50, n_jobs=-1, threshold=0.5, bool_parallel=False):
+        app = self.app
+        self.get_feature_combinations()
 
+        # --- Load existing classification results to avoid re-running ---
+        # try:
+        existing_results = load_results_from_db(self.db_path, table='classification_results')
+        print(f"Loaded {len(existing_results)} existing results from the database.")
+        done_combos=existing_results['combination'].tolist()
+        done_combos = set(done_combos)
+        print(f"Skipping {len(done_combos)} combinations already in the database.")
+        # except Exception:
+        #     existing_results = []
+        #     done_combos = set()
+        # --- Filter out combinations we've already evaluated ---sd
+        combos_to_run = [
+            combo for combo in self.features_combinations
+            if str(combo) not in done_combos
+        ]
+        print(f'Combos to run: {len(combos_to_run)}, done_combos: {len(done_combos)}')
+        def process_and_insert(combo):
+            # run the single-combo evaluation
+            result = fit_and_evaluate_single_combination_classification(
+                self, combo, threshold=threshold
+            )
+            # insert into DB & CSV
+            insert_result_into_db_classification(
+                self.db_path,
+                combo,
+                result['scores'],   # expects keys: accuracy, precision, recall, f1_score, mc_fadden_r2
+                threshold,
+                csv_path='classification_results.csv'
+            )
+
+        # --- Execute evaluations ---
+        if bool_parallel and n_jobs > 1 and multiprocessing.cpu_count() > 1:
+            Parallel(n_jobs=n_jobs)(
+                delayed(process_and_insert)(combo)
+                for combo in tqdm(combos_to_run, desc='Parallel evaluation')
+            )
+        else:
+            for combo in tqdm(combos_to_run, desc='Serial evaluation'):
+                process_and_insert(combo)
+
+        # --- Reload the full, up-to-date results from the database ---
+        all_results = load_results_from_db(self.db_path, table='classification_results')
+
+        # --- Sort by McFadden R² and take top N ---
+        sorted_results = sorted(
+            all_results,
+            key=lambda x: x['scores'].get('accuracy', 0),
+            reverse=True
+        )[:top_n]
+
+        # --- Display and store the best models/combinations ---
+        print_models_classification_table(sorted_results, app)
+        self.models_list = [r['models'] for r in sorted_results]
+        self.combinations_list = [r['combination'] for r in sorted_results]
+
+        # --- Optionally predict on left-out set ---
         if self.leave_out:
             X = self.predict_features_df.to_numpy()
             y = self.predict_target_vector.to_numpy()
             self.fit(X, y)
-            predictions = self.predict(X)
-            result_dict={'sample_name':self.molecule_names_predict,'predictions':predictions,'true':y}
+            preds = self.predict(X)
+            df_lo = pd.DataFrame({
+                'sample_name': self.molecule_names_predict,
+                'true': y.ravel(),
+                'predicted': np.array(preds).ravel()
+            })
             if app:
-                app.show_result('\n\n Predictions on left out samples\n\n')
-                app.show_result(pd.DataFrame(result_dict).to_markdown(tablefmt="pipe", index=False))
+                app.show_result("\n\nPredictions on left-out samples\n\n")
+                app.show_result(df_lo.to_markdown(tablefmt="pipe", index=False))
             else:
-                print(pd.DataFrame(result_dict).to_markdown(tablefmt="pipe", index=False))
-
+                print(df_lo.to_markdown(tablefmt="pipe", index=False))
 
         return sorted_results
+
+
     
     def iterative_cross_validation(self, combination, n_iter=10, n_splits=5):
         """

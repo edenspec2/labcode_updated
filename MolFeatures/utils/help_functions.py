@@ -654,6 +654,9 @@ def charge_dict_to_horizontal_df(charge_data: dict) -> pd.DataFrame:
 def dict_to_horizontal_df(data_dict):
     # Initialize an empty DataFrame to store the transformed data
     df_transformed = pd.DataFrame()
+    for mol, df in data_dict.items():
+        if isinstance(df, pd.Series):
+            df = df.to_frame().T  # Fix for inconsistent structure
     # Loop through each key-value pair in the original dictionary
     for mol, df in data_dict.items():
         transformed_data = {}

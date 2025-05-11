@@ -14,7 +14,7 @@
 # from ..Mol_align import renumbering
 # from sklearn.preprocessing import MinMaxScaler
 # from morfeus import Sterimol, read_xyz
-
+import traceback
 import pandas as pd
 import numpy as np
 import os
@@ -395,11 +395,12 @@ def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLik
                        0  0.097437 -0.611775  0.559625  0.834831
     """
 
-
+    
     dipole_xyz = np.vstack([(row[0] * row[1])for row in
                             list(zip(coordinates_array, charge_array))])
     dipole_vector=np.sum(dipole_xyz,axis=0)
     array_dipole=np.hstack([dipole_vector,np.linalg.norm(dipole_vector)])
+
     dipole_df=pd.DataFrame(array_dipole,index=help_functions.XYZConstants.DIPOLE_COLUMNS.value).T
  
     return dipole_df
@@ -422,8 +423,11 @@ def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indic
     recentered_coords = coordinates_array - new_origin
     basis_vector=calc_basis_vector(*calc_new_base_atoms(recentered_coords, indices))
     gauss_dipole_array = [np.concatenate((np.matmul(basis_vector, gauss_dipole_array[0, 0:3]), [gauss_dipole_array[0, 3]]))]
-    dipole_df=pd.DataFrame(gauss_dipole_array,columns=['dipole_x','dipole_y','dipole_z','total'])
+    if isinstance(gauss_dipole_array, pd.Series) or (isinstance(gauss_dipole_array, np.ndarray) and gauss_dipole_array.ndim == 1):
+        gauss_dipole_array = np.expand_dims(gauss_dipole_array, axis=0)
 
+    dipole_df=pd.DataFrame(gauss_dipole_array,columns=['dipole_x','dipole_y','dipole_z','total'])
+    
     return dipole_df
 
 def check_imaginary_frequency(info_df):##return True if no complex frequency, called ground.state in R
@@ -611,6 +615,7 @@ def direction_atoms_for_sterimol(bonds_df,base_atoms)->list: #help function for 
 def get_molecule_connections(bonds_df,source,direction):
     graph=ig.Graph.DataFrame(edges=bonds_df,directed=True)
     paths=graph.get_all_simple_paths(v=source,mode='all')
+    
     with_direction=[path for path in paths if (direction in path)]
     longest_path=np.unique(help_functions.flatten_list(with_direction))
    
@@ -619,27 +624,71 @@ def get_molecule_connections(bonds_df,source,direction):
 
 
 
-def get_specific_bonded_atoms_df(bonds_df,longest_path,coordinates_df):
-    """
-    a function that returns a dataframe of the atoms that are bonded in the longest path.
-    bonded_atoms_df: dataframe
-        the atom type and the index of each bond.
+# def get_specific_bonded_atoms_df(bonds_df,longest_path,coordinates_df):
+#     """
+#     a function that returns a dataframe of the atoms that are bonded in the longest path.
+#     bonded_atoms_df: dataframe
+#         the atom type and the index of each bond.
 
-       atom_1 atom_2 index_1 index_2
-0       C      N       1       4
-1       C      N       1       5
-2       C      N       2       3
+#        atom_1 atom_2 index_1 index_2
+# 0       C      N       1       4
+# 1       C      N       1       5
+# 2       C      N       2       3
+#     """
+#     if longest_path is not None:
+#         edited_bonds_df=bonds_df[(bonds_df.isin(longest_path))].dropna().reset_index(drop=True)
+#     else:
+#         edited_bonds_df=bonds_df
+#     bonds_array=(np.array(edited_bonds_df)-1).astype(int) # adjust indices? 
+#     atom_bonds=np.vstack([(coordinates_df.iloc[bond]['atom'].values) for bond in bonds_array]).reshape(-1,2)
+#     bonded_atoms_df=(pd.concat([pd.DataFrame(atom_bonds),edited_bonds_df],axis=1))
+#     bonded_atoms_df.columns=[help_functions.XYZConstants.BONDED_COLUMNS.value]
+#     return bonded_atoms_df
+
+def get_specific_bonded_atoms_df(bonds_df, longest_path, coordinates_df):
     """
+    Returns a DataFrame of atoms bonded along the longest path.
+    Includes debug prints to trace internal state.
+    """
+  
+
+    # 1) Filter bonds based on longest_path
     if longest_path is not None:
-        edited_bonds_df=bonds_df[(bonds_df.isin(longest_path))].dropna().reset_index(drop=True)
-    else:
-        edited_bonds_df=bonds_df
-    bonds_array=(np.array(edited_bonds_df)-1).astype(int) # adjust indices? 
-    atom_bonds=np.vstack([(coordinates_df.iloc[bond]['atom'].values) for bond in bonds_array]).reshape(-1,2)
-    bonded_atoms_df=(pd.concat([pd.DataFrame(atom_bonds),edited_bonds_df],axis=1))
-    bonded_atoms_df.columns=[help_functions.XYZConstants.BONDED_COLUMNS.value]
-    return bonded_atoms_df
+        mask = bonds_df.isin(longest_path)
 
+        edited_bonds_df = bonds_df[mask.any(axis=1)].dropna().reset_index(drop=True)
+    else:
+        edited_bonds_df = bonds_df.copy()
+
+
+    if edited_bonds_df.empty:
+      
+        return pd.DataFrame(columns=help_functions.XYZConstants.BONDED_COLUMNS.value)
+
+    # 2) Build bonds_array (zero-based indices)
+    bonds_array = (edited_bonds_df.values - 1).astype(int)
+
+    # 3) Lookup atom names for each bond
+    atom_bonds_list = []
+    for i, bond in enumerate(bonds_array):
+        try:
+            coords = coordinates_df.iloc[bond]['atom'].values
+       
+            atom_bonds_list.append(coords)
+        except Exception as e:
+            
+            raise
+
+    # 4) Stack into shape (n_bonds, 2)
+    atom_bonds = np.vstack(atom_bonds_list).reshape(-1, 2)
+   
+
+    # 5) Concatenate with edited_bonds_df
+    bonded_atoms_df = pd.concat([pd.DataFrame(atom_bonds), edited_bonds_df], axis=1)
+    bonded_atoms_df.columns = help_functions.XYZConstants.BONDED_COLUMNS.value
+
+  
+    return bonded_atoms_df
 
 def remove_atom_bonds(bonded_atoms_df,atom_remove='H'):
     atom_bonds_array=np.array(bonded_atoms_df)
@@ -1683,61 +1732,113 @@ def reindex_and_preserve(df, new_index_order):
         # Concatenate the two parts
         return pd.concat([reindexed_part, non_reindexed_part])
 
+import networkx as nx
 def get_benzene_ring_indices(bonds_df, ring_atoms):
     """
     Identifies benzene ring indices from a bond dataframe and a set of ring atoms.
+    Also detects and prints fused benzene rings (two rings sharing an edge).
     """
-
-    # Create a graph from the bonds dataframe
+    # Read atom indices
     atom1_idx = ring_atoms[0]
-    try:
-        atom2_idx = ring_atoms[1]
-    except IndexError:
-        atom2_idx = None
+    atom2_idx = ring_atoms[1] if len(ring_atoms) > 1 else None
 
-    graph = {}
+    # Build the molecular graph
+    G = nx.Graph()
     for _, row in bonds_df.iterrows():
-        atom1, atom2 = int(row[0]), int(row[1])
-        if atom1 not in graph:
-            graph[atom1] = []
-        if atom2 not in graph:
-            graph[atom2] = []
-        graph[atom1].append(atom2)
-        graph[atom2].append(atom1)
+        a1, a2 = int(row[0]), int(row[1])
+        G.add_edge(a1, a2)
 
-    visited = set()
-    ring_indices = []
+    # Find all simple cycles and filter 6-membered rings that include atom1_idx
+    cycles = nx.cycle_basis(G)
+    benzene_rings = [cycle for cycle in cycles if len(cycle) == 6 and atom1_idx in cycle]
 
-    def dfs(atom_idx, prev_idx, depth):
-        """
-        Depth-first search to find a benzene ring.
-        """
-        visited.add(atom_idx)
-        ring_indices.append(atom_idx)
-
-        # Check if we completed a cycle of 6 atoms
-        if depth == 5 and atom1_idx in graph[atom_idx]:
-            return True
-
-        for neighbor_idx in graph[atom_idx]:
-            if neighbor_idx != prev_idx and neighbor_idx not in visited:
-                if dfs(neighbor_idx, atom_idx, depth + 1):
-                    return True
-
-        ring_indices.pop()
-        return False
-
-
-    if len(ring_indices) == 6:
-        if atom2_idx in ring_indices:
-            # print("Second atom is in the benzene ring.")
-            return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
-        else:
-            # print("Second atom is NOT in the benzene ring.")
-            return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
-    else:
+    if not benzene_rings:
         print("No benzene ring found.")
         return None
+
+    # Report all found benzene rings
+    print(f"Found {len(benzene_rings)} benzene ring(s):")
+    for ring in benzene_rings:
+        print(f"  Ring atoms: {ring}")
+
+    # Detect fused rings: those sharing exactly two atoms
+    if len(benzene_rings) > 1:
+        print("\nDetected fused benzene ring pairs:")
+        for i in range(len(benzene_rings)):
+            for j in range(i + 1, len(benzene_rings)):
+                shared = set(benzene_rings[i]).intersection(benzene_rings[j])
+                if len(shared) == 2:
+                    print(f"  Ring1: {benzene_rings[i]}\n  Ring2: {benzene_rings[j]}\n  Shared atoms: {sorted(shared)}\n")
+                # take the second ring if it exists
+
+    # fix for future
+    selected_ring = benzene_rings[1] if len(benzene_rings) > 1 else benzene_rings[0]
+    return (
+        selected_ring[3],
+        selected_ring[0],
+        selected_ring[1],
+        selected_ring[-1],
+        selected_ring[2],
+        selected_ring[4]
+    )
+
+
+# def get_benzene_ring_indices(bonds_df, ring_atoms):
+#     """
+#     Identifies benzene ring indices from a bond dataframe and a set of ring atoms.
+#     """
+
+#     # Create a graph from the bonds dataframe
+#     atom1_idx = ring_atoms[0]
+#     try:
+#         atom2_idx = ring_atoms[1]
+#     except IndexError:
+#         atom2_idx = None
+
+#     graph = {}
+#     for _, row in bonds_df.iterrows():
+#         atom1, atom2 = int(row[0]), int(row[1])
+#         if atom1 not in graph:
+#             graph[atom1] = []
+#         if atom2 not in graph:
+#             graph[atom2] = []
+#         graph[atom1].append(atom2)
+#         graph[atom2].append(atom1)
+
+#     visited = set()
+#     ring_indices = []
+
+#     def dfs(atom_idx, prev_idx, depth):
+#         """
+#         Depth-first search to find a benzene ring.
+#         """
+#         visited.add(atom_idx)
+#         ring_indices.append(atom_idx)
+
+#         # Check if we completed a cycle of 6 atoms
+#         if depth == 5 and atom1_idx in graph[atom_idx]:
+#             return True
+
+#         for neighbor_idx in graph[atom_idx]:
+#             if neighbor_idx != prev_idx and neighbor_idx not in visited:
+#                 if dfs(neighbor_idx, atom_idx, depth + 1):
+#                     return True
+
+#         ring_indices.pop()
+#         return False
+
+#     dfs(atom1_idx, -1, 0)
+#     print(f'Ring indices: {ring_indices}')
+#     if len(ring_indices) == 6:
+#         if atom2_idx in ring_indices:
+#             # print("Second atom is in the benzene ring.")
+#             return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
+#         else:
+#             # print("Second atom is NOT in the benzene ring.")
+#             return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
+#     else:
+#         print("No benzene ring found.")
+#         return None
 
 
 def calculate_bond_lengths_matrix(coords, connections_df):
@@ -1999,23 +2100,30 @@ class Molecule():
         """
         def compute_diff(df: pd.DataFrame) -> pd.DataFrame:
             # If the first element of diff_indices is a list, assume multiple pairs are provided.
-            if isinstance(diff_indices[0], list):
-                diff_list = []
-                for atoms in diff_indices:
-                    atoms = adjust_indices(atoms)
-                    # Calculate difference between the two specified atoms.
-                    diff = pd.DataFrame(
-                        df.iloc[atoms[0]] - df.iloc[atoms[1]],
-                        columns=[f'diff_{atoms[0]+1}-{atoms[1]+1}']
+            try:
+                
+                if isinstance(diff_indices[0], list):
+                    diff_list = []
+                    for atoms in diff_indices:
+                        atoms = adjust_indices(atoms)
+                        # Calculate difference between the two specified atoms.
+                        diff = pd.DataFrame(
+                            [df.iloc[atoms[0]].values - df.iloc[atoms[1]].values],
+                            columns=[f'diff_{atoms[0]+1}-{atoms[1]+1}']
+                        )
+                        diff_list.append(diff)
+                        # print(f"Difference for atoms {atoms[0]+1} and {atoms[1]+1}: {diff.values}")
+                    return pd.concat(diff_list, axis=1)
+                else:
+                    diff_indices_adj = adjust_indices(diff_indices)
+                    diff_df=pd.DataFrame(
+                        [df.iloc[diff_indices_adj[0]].values - df.iloc[diff_indices_adj[1]].values],
+                        columns=[f'diff_{diff_indices_adj[0]+1}-{diff_indices_adj[1]+1}']
                     )
-                    diff_list.append(diff)
-                return pd.concat(diff_list, axis=1)
-            else:
-                diff_indices_adj = adjust_indices(diff_indices)
-                return pd.DataFrame(
-                    df.iloc[diff_indices_adj[0]] - df.iloc[diff_indices_adj[1]],
-                    columns=[f'diff_{diff_indices_adj[0]+1}-{diff_indices_adj[1]+1}']
-                )
+                    # print(f"Difference for atoms {diff_indices_adj[0]+1} and {diff_indices_adj[1]+1}: {diff_df.values}")
+                    return diff_df  
+            except Exception as e:
+                raise ValueError(f"Error in computing charge difference: {e}")
 
         # Handle different input cases for 'type'
         if isinstance(type, str):
@@ -2096,6 +2204,8 @@ class Molecule():
         pd.DataFrame
             DataFrame with the calculated NPA charges, renamed by the base atoms.
         """
+        if sub_atoms ==[]:
+            sub_atoms = None
         # Get the transformed coordinates DataFrame for the given atoms.
         df_trans = self.get_coordination_transformation_df(atoms,sub_atoms)
         # If sub_atoms is provided, select only those rows.
@@ -2107,7 +2217,7 @@ class Molecule():
         
         # Get the charges from the charge dictionary.
         charges = np.array(self.charge_dict[type])
-        
+
         # Calculate the NPA charges (assuming calc_npa_charges is defined elsewhere)
         npa_df = calc_npa_charges(coordinates_array, charges)
         npa_df = npa_df.rename(index={0: f'NPA_{atoms[0]}-{atoms[1]}-{atoms[2]}'})
@@ -2136,7 +2246,7 @@ class Molecule():
         # If the second element is a list, then base_atoms_indices is a list of groups.
         if isinstance(base_atoms_indices[1], list):
             # If sub_atoms is provided as a list of lists, then zip them.
-            if sub_atoms is not None and isinstance(sub_atoms[0], list):
+            if sub_atoms and isinstance(sub_atoms[0], list):
                 npa_list = [
                     self.get_npa_df_single(atoms, sub_atoms=sub_group, type=type)
                     for atoms, sub_group in zip(base_atoms_indices, sub_atoms)
@@ -2570,8 +2680,14 @@ class Molecules():
         3-4  1.7  6.45  9.45    1.70   -1.97
         """
         sterimol_dict={}
+        
         for molecule in self.molecules:
-            sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii, sub_structure=sub_structure, drop_atoms=drop_atoms)
+            try:
+                sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii, sub_structure=sub_structure, drop_atoms=drop_atoms)
+            except Exception as e:
+                print(f'Error: {molecule.molecule_name} sterimol could not be processed: {e}')
+                traceback.print_exc()
+                pass
         return sterimol_dict
     
     def get_npa_dict(self,atom_indices,sub_atoms=None):
@@ -2605,6 +2721,7 @@ class Molecules():
                 npa_dict[molecule.molecule_name]=molecule.get_npa_df(atom_indices,sub_atoms)
             except:
                 print(f'Error: {molecule.molecule_name} npa could not be processed')
+                traceback.print_exc()
                 pass
             
         return npa_dict
@@ -2638,9 +2755,12 @@ class Molecules():
         """
         ring_dict={}
         for molecule in self.molecules:
-      
-            ring_dict[molecule.molecule_name]=molecule.get_ring_vibrations(ring_atom_indices)
-
+            try:
+                ring_dict[molecule.molecule_name]=molecule.get_ring_vibrations(ring_atom_indices)
+            except Exception as e:
+                print(f'Error: {molecule.molecule_name} ring vibration could not be processed: {e}')
+                traceback.print_exc()
+                pass
         return ring_dict
     
     def get_dipole_dict(self,atom_indices,origin=None):
@@ -2648,8 +2768,8 @@ class Molecules():
         for molecule in self.molecules:
             try:
                 dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(atom_indices,origin=origin)
-            except:
-                print(f'Error: {molecule.molecule_name} Dipole could not be processed')
+            except Exception as e:
+                print(f'Error: {molecule.molecule_name} Dipole could not be processed: {e}')
                 pass
         return dipole_dict
     
@@ -2778,7 +2898,7 @@ class Molecules():
                 pass
         return nbo_dict
     
-    def get_charge_diff_df_dict(self,atom_indices,type='nbo'):
+    def get_charge_diff_df_dict(self,atom_indices,type='all'):
         """
         Returns a dictionary with the differences in Natural Bond Orbital (NBO) charges for the specified pairs of atoms.
 
@@ -2957,6 +3077,8 @@ class Molecules():
                 res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_npa_dict(answers_list[5],sub_atoms=answers_list[6]))],axis=1) ## add sub_atoms
             except Exception as e:
                 print(e)
+                traceback.print_exc()
+                
                 pass
         if answers_list[7] and answers_list[7]!= []:
             try:
@@ -2991,13 +3113,13 @@ class Molecules():
                 pass
 
         if answers_list[10] and answers_list[10]!= []:
-            # try:
+            try:
                 
                 res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_sterimol_dict(answers_list[10],radii=radii))],axis=1) ## add cpk and bondi
                 
-            # except Exception as e:
-            #     print(e)
-            #     pass
+            except Exception as e:
+                print(e)
+                pass
 
         if answers_list[11] and answers_list[11]!= []:
             try:

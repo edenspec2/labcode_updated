@@ -318,12 +318,9 @@ def process_gaussian_frequency_string(final_blocks):
     ordered_vibs=[]
     for i in range(1,int(final_atom)+1):
         ordered_vibs.append(vibs[vibs[:,0]==str(i)])
-    # print(ordered_vibs)
-    # ordered_vibs_list=[ordered_vibs[i:i + len(vibs_list)] for i in range(0, len(ordered_vibs), len(vibs_list))]
-    # print(ordered_vibs_list)
+
     vibs_df=vib_array_list_to_df(ordered_vibs) if ordered_vibs else None
-    # vibs_df=vib_array_list_to_df_5(ordered_vibs_list,new_arrays) if ordered_vibs_list else None
-    
+
     return vibs_df
 
 
@@ -467,14 +464,14 @@ def logs_to_feather(dir_path):
 
     for file in os.listdir(dir_path):
         if file.endswith(".log"):
-            # try:
-            df, gauss_string_report = gauss_file_handler(file)
-            string_report+=gauss_string_report
-            # except Exception as e:
-            #     print(f"Error processing file {file}: {e}")
-            #     string_report+=f"Error processing file {file}: {e}\n"
-            #     failed_files_string+=f"{file}\n"
-            #     continue  # Skip to the next file
+            try:
+                df, gauss_string_report = gauss_file_handler(file)
+                string_report+=gauss_string_report
+            except Exception as e:
+                print(f"Error processing file {file}: {e}")
+                string_report+=f"Error processing file {file}: {e}\n"
+                failed_files_string+=f"{file}\n"
+                continue  # Skip to the next file
 
             os.chdir('feather_files')
             
