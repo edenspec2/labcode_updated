@@ -619,6 +619,31 @@ class LinearRegressionModel:
             self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
             self.feature_names = self.features_df.columns.tolist()
 
+    def add_features(self, features_df):
+        """
+        Add new features to the existing features DataFrame.
+        If an incoming column name already exists, rename it by appending _1, _2, etc.
+        """
+        # Make a copy so we don't modify the original
+        new_df = features_df.copy()
+        new_df = pd.DataFrame(self.scaler.transform(new_df), columns=new_df.columns)
+        # For each column in the new data, check for conflicts and rename if needed
+        for col in list(new_df.columns):
+            if col in self.features_df.columns:
+                suffix = 1
+                new_col = f"{col}_{suffix}"
+                # find the next available name
+                while new_col in self.features_df.columns or new_col in new_df.columns:
+                    suffix += 1
+                    new_col = f"{col}_{suffix}"
+                new_df.rename(columns={col: new_col}, inplace=True)
+        
+        # Now concatenate the non-conflicting, renamed new_df
+        self.features_df = pd.concat([self.features_df, new_df], axis=1)
+        # Update the list of feature names
+        self.features_list = self.features_df.columns.tolist()
+        # Reset index if needed
+        self.features_df.reset_index(drop=True, inplace=True)
 
     def check_linear_regression_assumptions(self):
         return check_linear_regression_assumptions(self.features_df, self.target_vector)
@@ -889,70 +914,6 @@ class LinearRegressionModel:
        
         self.features_combinations = list(get_feature_combinations(self.features_list, self.min_features_num, self.max_features_num))
    
-
-    # def calculate_q2_and_mae(self, X, y, n_splits=None):
-    #     """
-    #     Calculate Q², MAE, and RMSD using fold-by-fold cross-validation.
-
-    #     Args:
-    #         X (np.ndarray): Feature matrix of shape (n_samples, n_features).
-    #         y (np.ndarray): Target vector of shape (n_samples,).
-    #         n_splits (int): Number of splits (folds) for cross-validation.
-    #                     If None, defaults to self.n_splits.
-
-    #     Returns:
-    #         tuple (q2, mae, rmsd):
-    #             q2  -> The average R² (i.e., Q²) across the folds
-    #             mae -> The average Mean Absolute Error across the folds
-    #             rmsd-> The average Root Mean Squared Deviation across the folds
-    #     """
-    #     if n_splits is None:
-    #         n_splits = self.n_splits
-
-    #     n_samples = X.shape[0]
-    #     indices = np.arange(n_samples)
-    #     np.random.shuffle(indices)
-
-    #     fold_size = n_samples // n_splits
-
-    #     # Lists to store metrics for each fold
-    #     fold_r2_scores = []
-    #     fold_mae_scores = []
-    #     fold_rmsd_scores = []
-
-    #     for i in range(n_splits):
-    #         # Determine start/end of this fold
-    #         start = i * fold_size
-    #         end = start + fold_size if i != n_splits - 1 else n_samples
-            
-    #         test_indices = indices[start:end]
-    #         train_indices = np.concatenate([indices[:start], indices[end:]])
-
-    #         # Split into training and test
-    #         X_train, y_train = X[train_indices], y[train_indices]
-    #         X_test, y_test = X[test_indices], y[test_indices]
-
-    #         # Fit on training
-    #         self.fit(X_train, y_train)
-
-    #         # Predict on test
-    #         y_pred_fold = self.predict(X_test)
-
-    #         # Compute fold metrics
-    #         r2_fold = r2_score(y_test, y_pred_fold)
-    #         mae_fold = mean_absolute_error(y_test, y_pred_fold)
-    #         rmsd_fold = np.sqrt(mean_squared_error(y_test, y_pred_fold))
-
-    #         fold_r2_scores.append(r2_fold)
-    #         fold_mae_scores.append(mae_fold)
-    #         fold_rmsd_scores.append(rmsd_fold)
-
-    #     # Average metrics across all folds
-    #     q2 = np.mean(fold_r2_scores)
-    #     mae = np.mean(fold_mae_scores)
-    #     rmsd = np.mean(fold_rmsd_scores)
-
-    #     return q2, mae, rmsd
 
     from sklearn.preprocessing import StandardScaler
     from sklearn.model_selection import LeaveOneOut, RepeatedKFold
@@ -1544,6 +1505,32 @@ class ClassificationModel:
             self.model = OrdinalLogisticRegression()
         else:    
             self.model = LogisticRegression(solver='lbfgs', random_state=42)
+
+    def add_features(self, features_df):
+        """
+        Add new features to the existing features DataFrame.
+        If an incoming column name already exists, rename it by appending _1, _2, etc.
+        """
+        # Make a copy so we don't modify the original
+        new_df = features_df.copy()
+        
+        # For each column in the new data, check for conflicts and rename if needed
+        for col in list(new_df.columns):
+            if col in self.features_df.columns:
+                suffix = 1
+                new_col = f"{col}_{suffix}"
+                # find the next available name
+                while new_col in self.features_df.columns or new_col in new_df.columns:
+                    suffix += 1
+                    new_col = f"{col}_{suffix}"
+                new_df.rename(columns={col: new_col}, inplace=True)
+        
+        # Now concatenate the non-conflicting, renamed new_df
+        self.features_df = pd.concat([self.features_df, new_df], axis=1)
+        # Update the list of feature names
+        self.features_list = self.features_df.columns.tolist()
+        # Reset index if needed
+        self.features_df.reset_index(drop=True, inplace=True)
 
     def compute_correlation(self, correlation_threshold=0.8, vif_threshold=5.0):
         app = self.app

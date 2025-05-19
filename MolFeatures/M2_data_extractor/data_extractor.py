@@ -26,6 +26,9 @@ from typing import *
 import warnings
 from scipy.spatial.distance import pdist, squareform
 from morfeus import Sterimol
+import traceback
+import sys
+from matplotlib.lines import Line2D
 
 # Add the parent directory to the sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,11 +37,13 @@ try:
 # Now you can import from the parent directory
     from gaussian_handler import feather_file_handler
     from utils import visualize, help_functions
+    
 
 except:
     from .gaussian_handler import feather_file_handler
     from ..utils import visualize
     from ..utils import help_functions
+    
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -164,6 +169,16 @@ class GeneralConstants(Enum):
 
 import numpy.typing as npt
 
+def log_exception(location="<unknown>"):
+    # Walk to the innermost traceback frame
+    tb = sys.exc_info()[2]
+    while tb.tb_next:
+        tb = tb.tb_next
+    lineno = tb.tb_lineno
+    print(f"Error in {location} at line {lineno}:")
+    traceback.print_exc()
+
+    
 def compare_cosine_distance_matrices(matrix1, matrix2):
     def cosine_distance(matrix):
         # Calculate norms
@@ -405,7 +420,7 @@ def calc_npa_charges(coordinates_array: npt.ArrayLike,charge_array: npt.ArrayLik
  
     return dipole_df
 
-def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indices, origin ):
+def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indices, origin):
     """
     a function that recives coordinates and gaussian dipole, transform the coordinates
     by the new base atoms and calculates the dipole in each axis
@@ -417,8 +432,9 @@ def calc_dipole_gaussian(coordinates_array, gauss_dipole_array, base_atoms_indic
     if origin is None:
         new_origin = coordinates_array[indices[0]]
     else:
-        new_origin = origin
-    
+        orig_indices = adjust_indices(origin)
+        new_origin = np.mean(coordinates_array[orig_indices], axis=0)
+       
     # Recenter the coordinates array using the new origin
     recentered_coords = coordinates_array - new_origin
     basis_vector=calc_basis_vector(*calc_new_base_atoms(recentered_coords, indices))
@@ -613,15 +629,36 @@ def direction_atoms_for_sterimol(bonds_df,base_atoms)->list: #help function for 
     
 
 def get_molecule_connections(bonds_df,source,direction):
-    graph=ig.Graph.DataFrame(edges=bonds_df,directed=True)
+    graph=ig.Graph.DataFrame(edges=bonds_df,directed=False)
     paths=graph.get_all_simple_paths(v=source,mode='all')
-    
-    with_direction=[path for path in paths if (direction in path)]
-    longest_path=np.unique(help_functions.flatten_list(with_direction))
    
+    with_direction=[path for path in paths if (direction in path)]
+    # print('with_direction:', with_direction)
+    longest_path=np.unique(help_functions.flatten_list(with_direction))
+    # take the longest path
+    longest=max(with_direction, key=len)
+    print('longest_path:', longest_path)
+    print('longest:', longest)
     return longest_path
 
-
+def find_longest_simple_path(bonds_df):
+    """
+    bonds_df : pandas.DataFrame with exactly two columns [u, v] (integer atom indices)
+    
+    Returns
+    -------
+    List[int]
+        The sequence of atom indices along the longest simple path (graph diameter)
+        in the undirected molecule graph.
+    """
+    # 1) Build an undirected igraph from your bond list
+    g = ig.Graph.DataFrame(edges=bonds_df, directed=False)
+    
+    # 2) Compute the diameter: the furthest‐apart pair of nodes and the path between them
+    diameter_path = g.get_diameter()  # returns a list of vertex indices
+    
+    # 3) Convert to plain Python ints and return
+    return [int(v) for v in diameter_path]
 
 
 # def get_specific_bonded_atoms_df(bonds_df,longest_path,coordinates_df):
@@ -687,7 +724,7 @@ def get_specific_bonded_atoms_df(bonds_df, longest_path, coordinates_df):
     bonded_atoms_df = pd.concat([pd.DataFrame(atom_bonds), edited_bonds_df], axis=1)
     bonded_atoms_df.columns = help_functions.XYZConstants.BONDED_COLUMNS.value
 
-  
+   
     return bonded_atoms_df
 
 def remove_atom_bonds(bonded_atoms_df,atom_remove='H'):
@@ -735,7 +772,6 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82):
         # Special condition for Cl and Br atoms, if the distance is greater than 2, don't remove
         if (row[3] in special_atoms or row[4] in special_atoms) and (row[2] > 1.8 and row[2] < 2.6):
             remove_flag = False  # Don't remove this bond if one atom is Cl, Br, F, or I
-        
 
         if remove_flag:
             remove_list.append(idx)
@@ -743,7 +779,28 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82):
     dist_df[['min_col', 'max_col']] = pd.DataFrame(np.sort(dist_df[['a1', 'a2']], axis=1), index=dist_df.index)
     dist_df = dist_df.drop(columns=['a1', 'a2']).rename(columns={'min_col': 0, 'max_col': 1})
     dist_df = dist_df.drop_duplicates(subset=[0, 1])
-    return pd.DataFrame(dist_df[[0,1]]+1) ## should be +1 
+    pd_mask = (dist_df['first_atom'] == 'Pd') | (dist_df['second_atom'] == 'Pd')
+    pd_bonds = dist_df[pd_mask].copy()
+    non_pd  = dist_df[~pd_mask].copy()
+    
+    kept_pd = []
+    for idx, row in pd_bonds.iterrows():
+        # determine which column holds the Pd index
+        pd_idx = row[0] if row['first_atom'] == 'Pd' else row[1]
+        row['pd_idx'] = pd_idx
+        pd_bonds.loc[idx, 'pd_idx'] = pd_idx
+    
+    # for each Pd, keep only the two shortest bonds
+    for pd_idx, group in pd_bonds.groupby('pd_idx'):
+        shortest = group.nsmallest(2, 'value').index
+        kept_pd.extend(shortest)
+    
+    pd_kept = pd_bonds.loc[kept_pd, [0, 1]]
+    
+    # combine and return, switching back to 1-based indexing
+    final = pd.concat([non_pd[[0,1]], pd_kept], ignore_index=True)
+
+    return pd.DataFrame(final[[0,1]]+1) ## should be +1 
 
 def get_center_of_mass(xyz_df):
     coordinates=np.array(xyz_df[['x','y','z']].values,dtype=float)
@@ -834,8 +891,7 @@ def get_sterimol_indices(coordinates,bonds_df):
 
 def filter_atoms_for_sterimol(bonded_atoms_df,coordinates_df):
     """
-    a function that filter out NOF bonds and H bonds and returns
-     a dataframe of the molecule coordinates without them.
+   
     """
     allowed_bonds_indices= pd.concat([bonded_atoms_df['index_1'],bonded_atoms_df['index_2']],axis=1).reset_index(drop=True)
     atom_filter=adjust_indices(np.unique([atom for sublist in allowed_bonds_indices.values.tolist() for atom in sublist]))
@@ -933,23 +989,7 @@ def calc_B1(transformed_plane,avs,edited_coordinates_df,column_index):
     
     ## get the index of the min value in the column compared to the avs.min
     idx=np.where(np.isclose(np.abs(transformed_plane[:,column_index]),(avs.min())))[0][0]  ## .round(4)
-    # Compute number of points per substituent (assumes evenly divided)
-    # print('inside calc_B1')
-    # n_total = transformed_plane.shape[0]
-    # n_subs = edited_coordinates_df.shape[0]
-    # n_points = n_total // n_subs if n_subs > 0 else 1
-
-    # # Print debug info
-    # print("calc_B1: transformed_plane.shape =", transformed_plane.shape)
-    # print("calc_B1: len(extended_df) =", n_subs)
-    # print("calc_B1: n_points per substituent =", n_points)
-    
-    # # Find first index where the absolute value is close to the minimum of avs
-    # idx = np.where(np.isclose(np.abs(transformed_plane[:, column_index]), avs.min()))[0][0]
-    # # Map the plane index back to the corresponding DataFrame row
-    # index_df = idx // n_points
-    # print("calc_B1: raw idx =", idx, "mapped index_df =", index_df)
-    # idx=index_df
+   
     if transformed_plane[idx,column_index]<0:
        
         new_idx=np.where(np.isclose(transformed_plane[:,column_index],transformed_plane[:,column_index].min()))[0][0]
@@ -1098,16 +1138,19 @@ def get_b1s_list(extended_df, scans=90//5,plot_result=False):
         (np.array of B1 values, np.array of B1 location values, list of rotated planes)
     """
     b1s, b1s_loc, b1_planes = [], [], []
-    degree_list = list(range(18, 108, scans))
     
-    # Generate circles for each substituent and combine them.
+    degree_list = list(range(18, 108, scans))
+    circles_y = []
     circles = []
     for idx, row in extended_df.iterrows():
         circle_points = generate_circle(row['x'], row['z'], row['radius'], n_points=100)
         circles.append(circle_points)
-    plane = np.vstack(circles)  # All circle points combined.
-    
-    sterimol_df=b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane, b1_planes)
+        circle_points_y = generate_circle(row['x'], row['z'], row['radius'], n_points=100)
+        circles_y.append(circle_points_y)
+    plane_xz = np.vstack(circles)  # All circle points combined.
+    plane_yz = np.vstack(circles_y)  # All circle points combined.
+
+    sterimol_df=b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane_xz, b1_planes)
 
     b1s=sterimol_df['B1']
     
@@ -1121,156 +1164,265 @@ def get_b1s_list(extended_df, scans=90//5,plot_result=False):
         front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
         new_degree_list=range(back_ang,front_ang+1)
     # plane=sterimol_df['plane']
-    
+    best_idx = np.where(sterimol_df['B1']==sterimol_df['B1'].min())[0][0]
+    # 4) *you should* take that rotated plane:
+    plane_xz = sterimol_df.loc[best_idx, 'plane']
+
     b1s, b1s_loc, b1_planes = [], [], []
-    sterimol_df=b1s_for_loop_function(extended_df, b1s, b1s_loc, list(new_degree_list), plane, b1_planes)
-  
+    sterimol_df=b1s_for_loop_function(extended_df, b1s, b1s_loc, list(new_degree_list), plane_xz, b1_planes)
+
     b1s=sterimol_df['B1']
 
     b1_b5_angle=sterimol_df['B1_B5_angle']
-    plane=sterimol_df['plane']
+    plane_xz=sterimol_df['plane']
     
 
-    return [b1s, b1_b5_angle, plane]
+    return [b1s, b1_b5_angle, plane_xz]
 
 import matplotlib.pyplot as plt
 
+
 def plot_b1_visualization(rotated_plane, extended_df, n_points=100, title="Rotated Plane Visualization"):
     """
-    Visualize the rotated plane by plotting:
-      - Complete circles (each generated from a substituent),
-      - Dashed lines at extreme x and y values,
-      - Arrows for the four extreme directions (with the B1 arrow highlighted),
-      - A B5 arrow (the farthest point from the origin),
-      - An arc indicating the angle between the B1 and B5 arrows.
-    
-    Parameters
-    ----------
-    rotated_plane : np.array
-        Rotated plane points (stacked complete circles; shape: [n_total_points, 2]).
-    extended_df : pd.DataFrame
-        DataFrame with columns 'radius' and 'L' (used for annotations).
-    n_points : int, optional
-        Number of points per circle (default is 20).
-    title : str, optional
-        Title for the plot.
+    Visualize the rotated plane and return B1/B5 metrics.
+
+    Returns
+    -------
+    result : dict
+        {
+            'B1_coords': np.array([x,y]),
+            'B1_value' : float,
+            'B5_coords': np.array([x,y]),
+            'B5_value' : float,
+            'angle_rad': float,
+            'angle_deg': float
+        }
     """
+    xyz_df = extended_df[['atom','x', 'y', 'z']]
     # Compute extreme values from all points
-    max_x = np.max(rotated_plane[:, 0])
-    min_x = np.min(rotated_plane[:, 0])
-    max_y = np.max(rotated_plane[:, 1])
-    min_y = np.min(rotated_plane[:, 1])
+    xs, ys = rotated_plane[:,0], rotated_plane[:,1]
+    max_x, min_x = xs.max(), xs.min()
+    max_y, min_y = ys.max(), ys.min()
     avs = np.abs([max_x, min_x, max_y, min_y])
-    min_val = np.min(avs)
-    min_index = np.argmin(avs)
-    
-    # Determine B1 arrow coordinates based on the minimum extreme
+    min_val = avs.min()
+    min_index = int(np.argmin(avs))
+
+    # Determine B1 arrow coordinates based on the minimum absolute extreme
     if min_index == 0:
-        b1_coords = np.array([max_x, 0])
+        b1_coords = np.array([max_x, 0.0])
     elif min_index == 1:
-        b1_coords = np.array([min_x, 0])
+        b1_coords = np.array([min_x, 0.0])
     elif min_index == 2:
-        b1_coords = np.array([0, max_y])
+        b1_coords = np.array([0.0, max_y])
     else:
-        b1_coords = np.array([0, min_y])
-    
+        b1_coords = np.array([0.0, min_y])
+    # L = largest absolute extreme
+    max_idx = int(np.argmax(avs))
+    max_val = avs[max_idx]
+    if max_idx == 0:
+        l_coords = np.array([ max_x, 0.0])
+    elif max_idx == 1:
+        l_coords = np.array([ min_x, 0.0])
+    elif max_idx == 2:
+        l_coords = np.array([0.0,  max_y])
+    else:
+        l_coords = np.array([0.0,  min_y])
     # Determine B5 as the farthest point from the origin
     norms_sq = np.sum(rotated_plane**2, axis=1)
-    b5_index = np.argmax(norms_sq)
-    b5_point = rotated_plane[b5_index]
-    b5_value = np.linalg.norm(b5_point)
-  
+    b5_index = int(np.argmax(norms_sq))
+    b5_coords = rotated_plane[b5_index]
+    b5_value = np.linalg.norm(b5_coords)
+
     # Calculate angles for the arrows
     angle_b1 = np.arctan2(b1_coords[1], b1_coords[0]) % (2 * np.pi)
-    angle_b5 = np.arctan2(b5_point[1], b5_point[0]) % (2 * np.pi)
+    angle_b5 = np.arctan2(b5_coords[1], b5_coords[0]) % (2 * np.pi)
     angle_diff = abs(angle_b5 - angle_b1)
     if angle_diff > np.pi:
         angle_diff = 2 * np.pi - angle_diff
     angle_diff_deg = np.degrees(angle_diff)
-    
+
+    # --- Plotting ---
     plt.figure(figsize=(8, 8))
-    
-    # Plot complete circles.
+
+    # Plot complete circles
     n_total = rotated_plane.shape[0]
     n_circles = n_total // n_points
     for i in range(n_circles):
-        circle_points = rotated_plane[i * n_points:(i + 1) * n_points, :]
-        # Close the circle by appending the first point to the end
-        circle_points = np.vstack([circle_points, circle_points[0]])
-        plt.plot(circle_points[:, 0], circle_points[:, 1], color='cadetblue', linewidth=1.5)
-    
-    # Plot dashed extreme lines
-    plt.axvline(x=max_x, color='darkred', linestyle='dashed')
-    plt.axvline(x=min_x, color='darkred', linestyle='dashed')
-    plt.axhline(y=max_y, color='darkgreen', linestyle='dashed')
-    plt.axhline(y=min_y, color='darkgreen', linestyle='dashed')
-    
-    # Draw arrows for each extreme (all black except the B1 arrow highlighted)
-    arrow_colors = ['black'] * 4
-    arrow_colors[min_index] = '#8FBC8F'
-    plt.arrow(0, 0, max_x, 0, head_width=0.1, length_includes_head=True, color=arrow_colors[0])
-    plt.arrow(0, 0, min_x, 0, head_width=0.1, length_includes_head=True, color=arrow_colors[1])
-    plt.arrow(0, 0, 0, max_y, head_width=0.1, length_includes_head=True, color=arrow_colors[2])
-    plt.arrow(0, 0, 0, min_y, head_width=0.1, length_includes_head=True, color=arrow_colors[3])
-    
-    # Draw the B5 arrow in red
-    plt.arrow(0, 0, b5_point[0], b5_point[1], head_width=0.1, length_includes_head=True, color="#CD3333")
-    
-    # Annotate B1 and B5 values
-    plt.text(b1_coords[0] * 0.5, b1_coords[1] * 0.5, f"B1\n{min_val:.2f}", 
+        pts = rotated_plane[i * n_points:(i + 1) * n_points]
+        pts = np.vstack([pts, pts[0]])
+        plt.plot(pts[:, 0], pts[:, 1], color='cadetblue', linewidth=1.5)
+
+    # Dashed extreme lines
+    plt.axvline(max_x, color='darkred', linestyle='dashed')
+    plt.axvline(min_x, color='darkred', linestyle='dashed')
+    plt.axhline(max_y, color='darkgreen', linestyle='dashed')
+    plt.axhline(min_y, color='darkgreen', linestyle='dashed')
+
+    # Arrows for extremes
+    arrow_cols = ['black']*4
+    arrow_cols[min_index] = '#8FBC8F'
+    plt.arrow(0, 0, max_x, 0, head_width=0.1, length_includes_head=True, color=arrow_cols[0])
+    plt.arrow(0, 0, min_x, 0, head_width=0.1, length_includes_head=True, color=arrow_cols[1])
+    plt.arrow(0, 0, 0, max_y, head_width=0.1, length_includes_head=True, color=arrow_cols[2])
+    plt.arrow(0, 0, 0, min_y, head_width=0.1, length_includes_head=True, color=arrow_cols[3])
+    # save arrow extreme as L
+    # B5 arrow
+    plt.arrow(0, 0, b5_coords[0], b5_coords[1], head_width=0.1,
+              length_includes_head=True, color="#CD3333")
+
+    # Annotations
+    plt.text(* (b1_coords * 0.5), f"B1\n{min_val:.2f}",
              fontsize=12, ha='center', va='bottom', fontweight='bold')
-    plt.text(b5_point[0] * 0.66, b5_point[1] * 0.66, f"B5\n{b5_value:.2f}", 
+    plt.text(* (b5_coords * 0.66), f"B5\n{b5_value:.2f}",
              fontsize=12, ha='center', va='bottom', fontweight='bold')
-    
-    # Draw an arc between the B1 and B5 arrows to represent the angle difference.
-    arc_theta = np.linspace(min(angle_b1, angle_b5), max(angle_b1, angle_b5), 100)
-    arc_x = 0.5 * np.cos(arc_theta)
-    arc_y = 0.5 * np.sin(arc_theta)
+
+    # Arc for angle
+    theta = np.linspace(min(angle_b1, angle_b5), max(angle_b1, angle_b5), 100)
+    arc_x, arc_y = 0.5*np.cos(theta), 0.5*np.sin(theta)
     plt.plot(arc_x, arc_y, color='gray', linewidth=1.5)
-    
-    # Annotate the angle in degrees at the midpoint of the arc.
-    mid_angle = (min(angle_b1, angle_b5) + max(angle_b1, angle_b5)) / 2
-    plt.text(0.8 * np.cos(mid_angle), 0.8 * np.sin(mid_angle), f"{angle_diff_deg:.1f}°",
-             fontsize=12, ha='center', va='center', fontweight='bold')
-    
+    mid_ang = (min(angle_b1, angle_b5) + max(angle_b1, angle_b5))/2
+    plt.text(0.8*np.cos(mid_ang), 0.8*np.sin(mid_ang),
+             f"{angle_diff_deg:.1f}°", fontsize=12,
+             ha='center', va='center', fontweight='bold')
+
     plt.title(title)
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.axis('equal')
     plt.show()
+    sterimol_params = {
+        'B1_coords': b1_coords,
+        'B1_value' : float(min_val),
+        'B5_coords': b5_coords,
+        'B5_value' : float(b5_value),
+        'L_coords' : l_coords,
+        'L_value'  : float(max_val),
+        'angle_rad': angle_diff,
+        'angle_deg': angle_diff_deg
+    }
+    # visualize.show_single_molecule('molecule',xyz_df,sterimol_params=sterimol_params)
+
+    # --- Return computed values ---
+    return 
 
 
+# Atom color map (CPK-like)
+atom_colors = {
+    'C': 'black', 'H': 'gray', 'O': 'red', 'N': 'blue', 'S': 'yellow',
+    'Cl': 'green', 'F': 'green', 'Br': 'brown', 'I': 'purple', 'P': 'orange'
+}
 
-# def get_b1s_list(extended_df, scans=90//5):
-    
-#     b1s,b1s_loc,b1_planes=[],[],[]
-#     scans=scans
-#     degree_list=list(range(18,108,scans))
-#     plane=np.array(extended_df[['x','z']].astype(float))
-#     b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane,b1_planes)
+def plot_L_B5_plane(edited_coordinates_df, sterimol_df, n_points=100, title="L–B5 Plane (Y–Z)"):
+    """
+    Plot Y–Z plane with B1, L, and B5 arrows.
+    Circles colored by atom type; atom index labels near each circle (no box).
+    Summary labels below the legend; include B1–B5 angle at bottom.
+    """
+    # Build Y–Z circles & centers
+    circles, centers = [], []
+    for atom_idx, r in edited_coordinates_df.iterrows():
+        pts = generate_circle(r['y'], r['z'], r['radius'], n_points=n_points)
+        circles.append(pts)
+        centers.append((atom_idx, r['atom'], r['y'], r['z'], r['radius']))
+    plane_yz = np.vstack(circles)
 
-#     if b1s:
-#         try:
-#             back_ang=degree_list[np.where(b1s==min(b1s))[0][0]]-scans   
-#             front_ang=degree_list[np.where(b1s==min(b1s))[0][0]]+scans
-#             degree_list=range(back_ang,front_ang+1)
-#         except:
-            
-#             back_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]-scans
-#             front_ang=degree_list[np.where(np.isclose(b1s, min(b1s), atol=1e-8))[0][0]]+scans
-#             degree_list=range(back_ang,front_ang+1)
-#     else:
-     
-#         return [np.array(b1s),np.array(b1s_loc)]
-    
-#     b1s,b1s_loc,b1_planes=[],[] ,[]
-#     b1s_for_loop_function(extended_df, b1s, b1s_loc, degree_list, plane,b1_planes)
-   
-#     return [np.array(b1s),np.array(b1s_loc),b1_planes]
+    # Extract sterimol values
+    L_val   = float(sterimol_df['L'].iloc[0])
+    B5_val  = float(sterimol_df['B5'].iloc[0])
+    loc_B5  = float(sterimol_df['loc_B5'].iloc[0])
+    angle   = float(sterimol_df['B1_B5_angle'].iloc[0]) if 'B1_B5_angle' in sterimol_df.columns else None
+
+    # Compute extremes
+    ys, zs = plane_yz[:,0], plane_yz[:,1]
+    max_y, min_y = ys.max(), ys.min()
+    max_z, min_z = zs.max(), zs.min()
+    abs_ext = np.abs([max_y, min_y, max_z, min_z])
+
+    # Compute B1
+    i_b1 = int(np.argmin(abs_ext))
+    if i_b1 == 0:
+        b1_y, b1_z = max_y, 0.0
+    elif i_b1 == 1:
+        b1_y, b1_z = min_y, 0.0
+    elif i_b1 == 2:
+        b1_y, b1_z = 0.0, max_z
+    else:
+        b1_y, b1_z = 0.0, min_z
+    B1_val = abs_ext[i_b1]
+
+    # Plot setup
+    fig, ax = plt.subplots(figsize=(8,8))
+    colors = {}
+    # Plot circles and atom labels
+    for i, pts in enumerate(circles):
+        closed = np.vstack([pts, pts[0]])
+        atom_idx, atom_type, y0, z0, radius = centers[i]
+        color = atom_colors.get(atom_type, 'black')
+        colors[atom_type]=color
+        ax.plot(closed[:,0], closed[:,1], color=color, lw=1.5)
+        offset = 0
+        ax.text(y0 + offset, z0 + offset, str(atom_idx),
+                ha='center', va='center', fontsize=9, color='black')
+
+    # Dashed extremes
+    ax.axvline(max_y, color='steelblue', ls='--')
+    ax.axvline(min_y, color='steelblue', ls='--')
+    ax.axhline(max_z, color='firebrick', ls='--')
+    ax.axhline(min_z, color='firebrick', ls='--')
+
+    # Plot arrows
+    ax.arrow(0, 0, b1_y, b1_z, head_width=0.1, length_includes_head=True,
+             color='gold', lw=2)
+    y_L = max_y if abs(max_y) >= abs(min_y) else min_y
+    ax.arrow(0, 0, y_L, 0, head_width=0.1, length_includes_head=True,
+             color='forestgreen', lw=2)
+    row = edited_coordinates_df.iloc[(edited_coordinates_df['y'] - loc_B5).abs().argmin()]
+    y5, z5 = row['y'], row['z']
+    ax.arrow(0, 0, y5, z5, head_width=0.1, length_includes_head=True,
+             color='firebrick', lw=2)
+
+    # Legend for atom types (upper right)
+    legend_handles = [Line2D([0], [0], color=color, lw=3, label=atom)
+                      for atom, color in colors.items()]
+    ax.legend(handles=legend_handles, title="Atom Types",
+              loc='upper left', bbox_to_anchor=(1.02, 1))
+
+    # Summary labels below legend
+    start_y = 0.5  # adjust as needed
+    dy      = 0.1
+    for i, (label, color) in enumerate([
+            (f"B1: {B1_val:.2f}", 'gold'),
+            (f"L:  {L_val:.2f}", 'forestgreen'),
+            (f"B5: {B5_val:.2f}", 'firebrick'),
+        ]):
+        ax.text(
+            1.02,
+            start_y - i*dy,
+            label,
+            transform=ax.transAxes,
+            ha='left', va='bottom',
+            color=color,
+            fontweight='bold',
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=color, lw=1)
+        )
+
+    # Angle annotation at bottom center
+    if angle is not None:
+        ax.text(0.5, -0.1, f"B1–B5 angle: {angle:.1f}°",
+                transform=ax.transAxes, ha='center', va='top',
+                fontsize=12, fontweight='bold')
+
+    ax.set_title(title)
+    ax.set_xlabel("Y")
+    ax.set_ylabel("Z")
+    ax.set_aspect('equal', 'box')
+    plt.tight_layout()
+    plt.show()
+
 
 def calc_sterimol(bonded_atoms_df,extended_df,visualize=False):
     edited_coordinates_df=filter_atoms_for_sterimol(bonded_atoms_df,extended_df)
-  
+
     b1s,b1_b5_angle,plane=get_b1s_list(edited_coordinates_df)
    
     valid_indices = np.where(b1s >= 0)[0]
@@ -1300,7 +1452,9 @@ def calc_sterimol(bonded_atoms_df,extended_df,visualize=False):
     sterimol_df = pd.DataFrame([B1, b5_value, L ,loc_B5,angle], index=help_functions.XYZConstants.STERIMOL_INDEX.value)
     if visualize:
         plot_b1_visualization(best_b1_plane, edited_coordinates_df)
-
+        plot_L_B5_plane(edited_coordinates_df, sterimol_df.T)
+        
+    
     return sterimol_df.T 
 
 
@@ -1328,14 +1482,9 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_directio
     
     
     bonded_atoms_df = get_specific_bonded_atoms_df(bonds_df, connected_from_direction, new_coordinates_df)
-    
     extended_df = get_extended_df_for_sterimol(new_coordinates_df, bonds_df, radii)
-    
-    ###calculations
-    
     sterimol_df = calc_sterimol(bonded_atoms_df, extended_df,visualize)
     sterimol_df= sterimol_df.rename(index={0: str(base_atoms[0]) + '-' + str(base_atoms[1])})
-   
     sterimol_df = sterimol_df.round(4)
     
     return sterimol_df
@@ -1756,10 +1905,7 @@ def get_benzene_ring_indices(bonds_df, ring_atoms):
         print("No benzene ring found.")
         return None
 
-    # Report all found benzene rings
-    print(f"Found {len(benzene_rings)} benzene ring(s):")
-    for ring in benzene_rings:
-        print(f"  Ring atoms: {ring}")
+  
 
     # Detect fused rings: those sharing exactly two atoms
     if len(benzene_rings) > 1:
@@ -1782,63 +1928,6 @@ def get_benzene_ring_indices(bonds_df, ring_atoms):
         selected_ring[4]
     )
 
-
-# def get_benzene_ring_indices(bonds_df, ring_atoms):
-#     """
-#     Identifies benzene ring indices from a bond dataframe and a set of ring atoms.
-#     """
-
-#     # Create a graph from the bonds dataframe
-#     atom1_idx = ring_atoms[0]
-#     try:
-#         atom2_idx = ring_atoms[1]
-#     except IndexError:
-#         atom2_idx = None
-
-#     graph = {}
-#     for _, row in bonds_df.iterrows():
-#         atom1, atom2 = int(row[0]), int(row[1])
-#         if atom1 not in graph:
-#             graph[atom1] = []
-#         if atom2 not in graph:
-#             graph[atom2] = []
-#         graph[atom1].append(atom2)
-#         graph[atom2].append(atom1)
-
-#     visited = set()
-#     ring_indices = []
-
-#     def dfs(atom_idx, prev_idx, depth):
-#         """
-#         Depth-first search to find a benzene ring.
-#         """
-#         visited.add(atom_idx)
-#         ring_indices.append(atom_idx)
-
-#         # Check if we completed a cycle of 6 atoms
-#         if depth == 5 and atom1_idx in graph[atom_idx]:
-#             return True
-
-#         for neighbor_idx in graph[atom_idx]:
-#             if neighbor_idx != prev_idx and neighbor_idx not in visited:
-#                 if dfs(neighbor_idx, atom_idx, depth + 1):
-#                     return True
-
-#         ring_indices.pop()
-#         return False
-
-#     dfs(atom1_idx, -1, 0)
-#     print(f'Ring indices: {ring_indices}')
-#     if len(ring_indices) == 6:
-#         if atom2_idx in ring_indices:
-#             # print("Second atom is in the benzene ring.")
-#             return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
-#         else:
-#             # print("Second atom is NOT in the benzene ring.")
-#             return ring_indices[3], ring_indices[0], ring_indices[1], ring_indices[-1], ring_indices[2], ring_indices[4]
-#     else:
-#         print("No benzene ring found.")
-#         return None
 
 
 def calculate_bond_lengths_matrix(coords, connections_df):
@@ -1961,12 +2050,14 @@ class Molecule():
                 var_value.to_csv(f"{var_name}.csv", index=False)
 
 
-    def visualize_molecule(self) -> None:
+    def visualize_molecule(self, vector=None) -> None:
         """
         Visualizes the molecule using the `visualize` module.
         """
-        
-        visualize.show_single_molecule(molecule_name=self.molecule_name, xyz_df=self.xyz_df)
+        if vector is not None:
+            visualize.show_single_molecule(molecule_name=self.molecule_name, xyz_df=self.xyz_df, dipole_df=vector,origin=[0,0,0])
+        else:
+            visualize.show_single_molecule(molecule_name=self.molecule_name, xyz_df=self.xyz_df, dipole_df=self.gauss_dipole_df,origin=[0,0,0])
 
 
     def process_sterimol_atom_group(self, atoms, radii, sub_structure=True, drop_atoms=None,visualize=False) -> pd.DataFrame:
@@ -1975,7 +2066,7 @@ class Molecule():
         
         return get_sterimol_df(self.xyz_df, self.bonds_df, atoms, connected, radii, sub_structure=sub_structure, drop_atoms=drop_atoms, visualize=visualize)
 
-    def get_sterimol(self, base_atoms: Union[None, Tuple[int, int]] = None, radii: str = 'bondi',sub_structure=True, drop_atoms=None,visualize=False) -> pd.DataFrame:
+    def get_sterimol(self, base_atoms: Union[None, Tuple[int, int]] = None, radii: str = 'CPK',sub_structure=True, drop_atoms=None,visualize=False) -> pd.DataFrame:
         """
         Returns a DataFrame with the Sterimol parameters calculated based on the specified base atoms and radii.
 
@@ -2262,13 +2353,16 @@ class Molecule():
             npa_df = self.get_npa_df_single(base_atoms_indices, sub_atoms=sub_atoms, type=type)
         return npa_df
     
-    def get_dipole_gaussian_df_single(self, atoms,origin):
+    def get_dipole_gaussian_df_single(self, atoms,origin ,visualize_bool=False) -> pd.DataFrame:
         
         dipole_df = calc_dipole_gaussian(self.coordinates_array, np.array(self.gauss_dipole_df), atoms,origin=origin)
         dipole_df = dipole_df.rename(index={0: f'dipole_{atoms[0]}-{atoms[1]}-{atoms[2]}'})
+        if visualize_bool:
+            visualize.plot_interactions(xyz_df=self.xyz_df,color='black', dipole_df=dipole_df,origin=origin)
+
         return dipole_df
 
-    def get_dipole_gaussian_df(self, base_atoms_indices: List[int], origin=None) -> pd.DataFrame:
+    def get_dipole_gaussian_df(self, base_atoms_indices: List[int], origin=None, visualize_bool=False) -> pd.DataFrame:
         """
         Returns a DataFrame with the dipole moments calculated based on the specified base atoms.
 
@@ -2280,13 +2374,12 @@ class Molecule():
         """
      
         if isinstance(base_atoms_indices[1], list):
-           
-            # If base_atoms_indices is a list of lists, process each group individually and concatenate the results
-            dipole_list = [self.get_dipole_gaussian_df_single(atoms,origin=origin) for atoms in base_atoms_indices]
+           # If base_atoms_indices is a list of lists, process each group individually and concatenate the results
+            dipole_list = [self.get_dipole_gaussian_df_single(atoms,origin=origin,visualize_bool=visualize_bool) for atoms in base_atoms_indices]
             dipole_df = pd.concat(dipole_list, axis=0)
         else:
             # If base_atoms_indices is a single group, just process that group
-            dipole_df = self.get_dipole_gaussian_df_single(base_atoms_indices,origin=origin)
+            dipole_df = self.get_dipole_gaussian_df_single(base_atoms_indices,origin=origin,visualize_bool=visualize_bool)
         return dipole_df
 
 
@@ -2447,6 +2540,7 @@ class Molecule():
                 return calc_min_max_ring_vibration(filtered_df)
         except:
             print("this molecule is ",self.molecule_name)
+            log_exception()
     
     def get_bend_vibration_single(self, atom_pair: List[int], threshold: float = 1300)-> pd.DataFrame:
         # Create the adjacency dictionary for the pair of atoms
@@ -2686,7 +2780,7 @@ class Molecules():
                 sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii, sub_structure=sub_structure, drop_atoms=drop_atoms)
             except Exception as e:
                 print(f'Error: {molecule.molecule_name} sterimol could not be processed: {e}')
-                traceback.print_exc()
+                log_exception("get_sterimol_dict")
                 pass
         return sterimol_dict
     
@@ -2721,7 +2815,7 @@ class Molecules():
                 npa_dict[molecule.molecule_name]=molecule.get_npa_df(atom_indices,sub_atoms)
             except:
                 print(f'Error: {molecule.molecule_name} npa could not be processed')
-                traceback.print_exc()
+                log_exception("get_npa_dict")
                 pass
             
         return npa_dict
@@ -2770,7 +2864,7 @@ class Molecules():
                 dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(atom_indices,origin=origin)
             except Exception as e:
                 print(f'Error: {molecule.molecule_name} Dipole could not be processed: {e}')
-                pass
+                log_exception("get_dipole_dict")
         return dipole_dict
     
     def get_bond_angle_dict(self,atom_indices):
@@ -2800,6 +2894,7 @@ class Molecules():
                 bond_angle_dict[molecule.molecule_name]=molecule.get_bond_angle(atom_indices)
             except:
                 print(f'Error: {molecule.molecule_name} Angle could not be processed')
+                log_exception("get_bond_angle_dict")
                 pass
         return bond_angle_dict
     
@@ -2833,6 +2928,7 @@ class Molecules():
                 bond_length_dict[molecule.molecule_name]=molecule.get_bond_length(atom_pairs)
             except:
                 print(f'Error: {molecule.molecule_name} Bond Length could not be processed')
+                print(log_exception("get_bond_length_dict"))
                 pass
         return bond_length_dict
     
@@ -2865,6 +2961,8 @@ class Molecules():
                 stretch_vibration_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs,threshold)
             except:
                 print(f'Error: could not calculate strech vibration for {molecule.molecule_name} ')
+                log_exception("get_stretch_vibration_dict")
+                pass
 
         return stretch_vibration_dict
     
@@ -2895,6 +2993,7 @@ class Molecules():
                 nbo_dict[molecule.molecule_name]=molecule.get_charge_df(atom_indices,type='all')
             except:
                 print(f'Error: could not calculate nbo value for {molecule.molecule_name} ')
+                log_exception("get_charge_df_dict")
                 pass
         return nbo_dict
     
@@ -2925,6 +3024,7 @@ class Molecules():
                 charge_diff_dict[molecule.molecule_name]=molecule.get_charge_diff_df(atom_indices,type)
             except:
                 print(f'Error: could not calculate nbo difference for {molecule.molecule_name} ')
+                log_exception("get_charge_diff_df_dict")
                 pass
         return charge_diff_dict
     
@@ -2958,6 +3058,7 @@ class Molecules():
                 bending_dict[molecule.molecule_name]=molecule.get_bend_vibration(atom_pairs,threshold)
             except:
                 print(f'Error: could not calculate bend vibration for {molecule.molecule_name} ')
+                log_exception("get_bend_vibration_dict")
                 pass
         return bending_dict
     
@@ -3009,139 +3110,200 @@ class Molecules():
         sterimol.draw_3D()
         
     
-    def get_molecules_comp_set_app(self,answers_dict: dict,
-                                    radii = 'CPK', export_csv=False, answers_list_load=None, iso=False):
+    def get_molecules_comp_set_app(self,
+                               answers_dict: dict,
+                               radii='CPK',
+                               export_csv=False,
+                               answers_list_load=None,
+                               iso=False):
         """
         molecules.get_molecules_comp_set()
-        Ring atoms - by order -> primary axis (para first), ortho atoms and meta atoms: 1,3 1,6 3,4
-        your atom pairs: 1,6 3,4
-        Enter atoms - origin atom, y axis atom and xy plane atom: 1,2,3
-        Insert atom pairs for which you wish calculate differences: 1,2 3,4
-        Primary axis along: 1,2
-        Distances - Atom pairs: 1,2 3,4
-        Bending - Atom pairs: 1,2 3,4
-        Do you want to compute any angles/dihedrals? y/n: y
-        Insert a list of atom triads/quartets for which you wish to have angles/dihedrals.
-        For several angles/dihedrals, insert triads/quartets with a double space between them.
-        Make sure there are spaces between atoms as well.
-        For example - 1,2,3  1,2,3,4 will give angle(1, 2, 3) and dihedral(1, 2, 3, 4)
-        Insert a list of atom triads/quartets for which you wish to have angles/dihedrals: 1,2,3  1,2,3,4
-        -------
-        df : 
-            
+        ...
         """
-        answers_list=[]
+        answers_list = []
         print(answers_dict)
         if answers_dict is not None:
             for question, answer in answers_dict.items():
                 if answer is not None:
-                    if answer==[]:
+                    if answer == []:
                         answers_list.append([])
-                    elif question.startswith('Dipole atoms'):
-                        
-                        answers_dict[question]=help_functions.convert_to_list_or_nested_list(answer)
-                        answers_list.append(answers_dict[question])
-                    
                     else:
-                        answers_dict[question]=help_functions.convert_to_list_or_nested_list(answer)
+                        answers_dict[question] = help_functions.convert_to_list_or_nested_list(answer)
                         answers_list.append(answers_dict[question])
-        
+
         if answers_list_load is not None:
-            answers_list=answers_list_load
-        
-      
-        res_df=pd.DataFrame()
-        
-        if  answers_list[0] and answers_list[0] != []:
-            try:
-                res_df=help_functions.dict_to_horizontal_df(self.get_ring_vibration_dict(answers_list[0])) ### get_ring_vibration_dict change all of them later
-            except Exception as e:
-                print(e)
-                pass
-        if answers_list[2] and answers_list[2]!= []:
-            try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_stretch_vibration_dict(answers_list[2],answers_list[1][0]))],axis=1)
-            except Exception as e:
-                print(e)
-                pass
+            answers_list = answers_list_load
 
-        if answers_list[4] and answers_list[4]!= []:
+        res_df = pd.DataFrame()
+
+        # ring vibration
+        if len(answers_list) > 0 and answers_list[0]:
             try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bend_vibration_dict(answers_list[4],answers_list[3][0]))],axis=1)
-            except Exception as e:
-                print(e)
-                pass
-        if answers_list[5] and answers_list[5]!= []:
+                res_df = help_functions.dict_to_horizontal_df(
+                    self.get_ring_vibration_dict(answers_list[0])
+                )
+            except Exception:
+                log_exception("get_molecules_comp_set_app – ring vibration")
+
+        # stretch vibration
+        if len(answers_list) > 2 and answers_list[2]:
             try:
-    
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_npa_dict(answers_list[5],sub_atoms=answers_list[6]))],axis=1) ## add sub_atoms
-            except Exception as e:
-                print(e)
-                traceback.print_exc()
-                
-                pass
-        if answers_list[7] and answers_list[7]!= []:
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.dict_to_horizontal_df(
+                        self.get_stretch_vibration_dict(
+                            answers_list[2],
+                            answers_list[1][0]
+                        )
+                    )
+                ], axis=1)
+            except Exception:
+                log_exception("get_molecules_comp_set_app – stretch vibration")
+
+        # bend vibration
+        if len(answers_list) > 4 and answers_list[4]:
             try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_dipole_dict(answers_list[7]))],axis=1)
-            except Exception as e:
-                print(e)
-                pass
-                
-        if answers_list[8] and answers_list[8]!= []:
-            try:  
-                res_df=pd.concat([res_df,help_functions.charge_dict_to_horizontal_df(self.get_charge_df_dict(answers_list[8]))],axis=1)
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.dict_to_horizontal_df(
+                        self.get_bend_vibration_dict(
+                            answers_list[4],
+                            answers_list[3][0]
+                        )
+                    )
+                ], axis=1)
+            except Exception:
+                log_exception("get_molecules_comp_set_app – bend vibration")
+
+        # NPA
+        if len(answers_list) > 5 and answers_list[5]:
+            try:
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.dict_to_horizontal_df(
+                        self.get_npa_dict(
+                            answers_list[5],
+                            sub_atoms=answers_list[6]
+                        )
+                    )
+                ], axis=1)
+            except Exception:
+                log_exception("get_molecules_comp_set_app – NPA")
+
+        # Dipole
+        if len(answers_list) > 7 and answers_list[7]:
+            try:
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.dict_to_horizontal_df(
+                        self.get_dipole_dict(
+                            answers_list[7],
+                            origin=answers_list[6]
+                        )
+                    )
+                ], axis=1)
+            except Exception:
+                log_exception("get_molecules_comp_set_app – dipole")
+
+        # Charge
+        if len(answers_list) > 8 and answers_list[8]:
+            try:
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.charge_dict_to_horizontal_df(
+                        self.get_charge_df_dict(answers_list[8])
+                    )
+                ], axis=1)
                 if res_df.empty:
                     try:
-                        res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_charge_diff_df_dict(answers_list[8]))],axis=1)
-                    except Exception as e:
-                        print(e)
-                        pass
-            except Exception as e:
-                print(e)
-                pass
-        if answers_list[9] and answers_list[9]!= []:
+                        res_df = pd.concat([
+                            res_df,
+                            help_functions.dict_to_horizontal_df(
+                                self.get_charge_diff_df_dict(answers_list[8])
+                            )
+                        ], axis=1)
+                    except Exception:
+                        log_exception("get_molecules_comp_set_app – charge fallback")
+            except Exception:
+                log_exception("get_molecules_comp_set_app – charge")
+
+        # Charge differences
+        if len(answers_list) > 9 and answers_list[9]:
             try:
-                res_df=pd.concat([res_df,help_functions.charge_dict_to_horizontal_df(self.get_charge_diff_df_dict(answers_list[9]))],axis=1)
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.charge_dict_to_horizontal_df(
+                        self.get_charge_diff_df_dict(answers_list[9])
+                    )
+                ], axis=1)
                 if res_df.empty:
                     try:
-                        res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_charge_diff_df_dict(answers_list[9]))],axis=1)
-                    except Exception as e:
-                        print(e)
-                        pass
-            except Exception as e:
-                print(e)
-                pass
+                        res_df = pd.concat([
+                            res_df,
+                            help_functions.dict_to_horizontal_df(
+                                self.get_charge_diff_df_dict(answers_list[9])
+                            )
+                        ], axis=1)
+                    except Exception:
+                        log_exception("get_molecules_comp_set_app – charge diff fallback")
+            except Exception:
+                log_exception("get_molecules_comp_set_app – charge diff")
 
-        if answers_list[10] and answers_list[10]!= []:
+        # Sterimol
+        if len(answers_list) > 10 and answers_list[10]:
             try:
-                
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_sterimol_dict(answers_list[10],radii=radii))],axis=1) ## add cpk and bondi
-                
-            except Exception as e:
-                print(e)
-                pass
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.dict_to_horizontal_df(
+                        self.get_sterimol_dict(answers_list[10], radii=radii)
+                    )
+                ], axis=1)
+            except Exception:
+                log_exception("get_molecules_comp_set_app – sterimol")
 
-        if answers_list[11] and answers_list[11]!= []:
+        # Bond lengths
+        if len(answers_list) > 11 and answers_list[11]:
             try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_length_dict(answers_list[11]))],axis=1)
-            except Exception as e:
-                print(e)
-                pass
-        if answers_list[12] and answers_list[12]!= []:
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.dict_to_horizontal_df(
+                        self.get_bond_length_dict(answers_list[11])
+                    )
+                ], axis=1)
+            except Exception:
+                log_exception("get_molecules_comp_set_app – bond length")
+
+        # Bond angles
+        if len(answers_list) > 12 and answers_list[12]:
             try:
-                res_df=pd.concat([res_df,help_functions.dict_to_horizontal_df(self.get_bond_angle_dict(answers_list[12]))],axis=1)
-            except Exception as e:
-                print(e)
-                pass
+                res_df = pd.concat([
+                    res_df,
+                    help_functions.dict_to_horizontal_df(
+                        self.get_bond_angle_dict(answers_list[12])
+                    )
+                ], axis=1)
+            except Exception:
+                log_exception("get_molecules_comp_set_app – bond angle")
+
+        # Isotropic polarizability
         if iso:
-            self.polarizability_df_concat=pd.DataFrame()
+            self.polarizability_df_concat = pd.DataFrame()
             for molecule in self.molecules:
-                info=molecule.polarizability_df
-                info=info.rename(index={0:molecule.molecule_name})
-                self.polarizability_df_concat=pd.concat([self.polarizability_df_concat,info],axis=0)
-            res_df=pd.concat([res_df,self.polarizability_df_concat],axis=1)
+                info = molecule.polarizability_df.rename(index={0: molecule.molecule_name})
+                self.polarizability_df_concat = pd.concat(
+                    [self.polarizability_df_concat, info],
+                    axis=0
+                )
+            res_df = pd.concat([res_df, self.polarizability_df_concat], axis=1)
 
         return res_df
+
+
+
+
+
+
+
 
             
     def extract_all_dfs(self):

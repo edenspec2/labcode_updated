@@ -1001,6 +1001,10 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
 
                 # 3) call your predictor; let it add constant & reorder itself
                 try:
+                    print("Model class:", model.__class__)
+                    print("Has predict_for_leftout:", hasattr(model, "predict_for_leftout"))
+                    print("All leftout-related attrs:", 
+                        [attr for attr in dir(model) if "leftout" in attr.lower()])
                     leftout_pred = model.predict_for_leftout(X_left, calc_interval=False)
                     print(f"Successfully predicted left-out samples: {leftout_pred}")
                 except Exception as e:

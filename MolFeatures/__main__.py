@@ -117,7 +117,7 @@ def convert_to_custom_nested_list(input_str):
     - "1,2,3,4,5,6" -> [[1,2,3,4], 5, 6]
     - "1,2,3,4,5,6 2,3,1,5,6,7" -> [[[1,2,3,4], 5, 6], [[2,3,1,5], 6, 7]]
     """
-    print(f"Input string: {input_str}")
+   
     split_by_space = input_str.split(' ')  # Split by space for multiple sections
 
     def process_sublist(sublist_str):
@@ -140,7 +140,7 @@ def convert_to_custom_nested_list(input_str):
 
 
 def convert_to_list_or_nested_list(input_str):
-    print(input_str)
+    
     split_by_space = input_str.split(' ')
 
     # If there are no spaces, return a flat list

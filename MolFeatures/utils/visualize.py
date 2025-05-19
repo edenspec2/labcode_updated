@@ -65,101 +65,311 @@ def flatten_list(nested_list_arg: List[list]) -> List:
     return flat_list
 
 
-def plot_interactions(xyz_df,color):
-    """Creates a 3D plot of the molecule"""
-
+def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params=None):
+    """Creates a 3D plot of the molecule, bonds, and (optionally) dipole arrows."""
     atomic_radii = GeneralConstants.COVALENT_RADII.value
-    cpk_colors = dict(C='black', F='green', H='white', N='blue', O='red', P='orange', S='yellow', Cl='green', Br='brown', I='purple', Ni='blue', Fe='red', Cu='orange', Zn='yellow', Ag='grey', Au='gold',Si='grey', B='pink',Pd='green')
+    cpk_colors = dict(
+        C='black', F='green', H='white', N='blue', O='red', P='orange',
+        S='yellow', Cl='green', Br='brown', I='purple',
+        Ni='blue', Fe='red', Cu='orange', Zn='yellow', Ag='grey',
+        Au='gold', Si='grey', B='pink', Pd='green'
+    )
 
-    # if molecule_name not in train_df.molecule_name.unique():
-    #     print(f'Molecule "{molecule_name}" is not in the training set!')
-    #     return
-    #
+    # coordinates and atoms
+    coords = xyz_df[['x','y','z']].values.astype(float)
+    atoms = xyz_df['atom'].astype(str).tolist()
+    ids = xyz_df.index.tolist()
 
-    coordinates = np.array(xyz_df[['x', 'y', 'z']].values,dtype=float)
-    x_coordinates = coordinates[:, 0]
-    y_coordinates = coordinates[:, 1]
-    z_coordinates = coordinates[:, 2]
-    atoms = ((xyz_df['atom'].astype(str)).values.tolist())
-    atom_ids = xyz_df.index.tolist()
+    # radii
     try:
-        radii = [atomic_radii[atom] for atom in atoms]
+        radii = [atomic_radii[a] for a in atoms]
     except TypeError:
         atoms = flatten_list(atoms)
-        radii = [atomic_radii[atom] for atom in atoms]
+        radii = [atomic_radii[a] for a in atoms]
 
-
+    # bonds finder
     def get_bonds():
-        """Generates a set of bonds from atomic cartesian coordinates"""
-        ids = np.arange(coordinates.shape[0])
-        bonds = dict()
-        coordinates_compare, radii_compare, ids_compare = coordinates, radii, ids
-
-        for _ in range(len(ids)):
-            coordinates_compare = np.roll(coordinates_compare, -1, axis=0)
-            radii_compare = np.roll(radii_compare, -1, axis=0)
-            ids_compare = np.roll(ids_compare, -1, axis=0)
-            distances = np.linalg.norm(coordinates - coordinates_compare, axis=1)
-            bond_distances = (radii + radii_compare) * 1.3
-            mask = np.logical_and(distances > 0.1, distances < bond_distances)
-            distances = distances.round(2)
-            new_bonds = {frozenset([i, j]): dist for i, j, dist in zip(ids[mask], ids_compare[mask], distances[mask])}
-            bonds.update(new_bonds)
+        ids_arr = np.arange(len(coords))
+        bonds = {}
+        c2, r2, id2 = coords.copy(), radii.copy(), ids_arr.copy()
+        for _ in ids_arr:
+            c2 = np.roll(c2, -1, axis=0)
+            r2 = np.roll(r2, -1)
+            id2 = np.roll(id2, -1)
+            dists = np.linalg.norm(coords - c2, axis=1)
+            thresh = (np.array(radii) + np.array(r2)) * 1.3
+            mask = (dists > 0.1) & (dists < thresh)
+            for i,j,dist in zip(ids_arr[mask], id2[mask], dists[mask].round(2)):
+                bonds[frozenset([i,j])] = dist
         return bonds
 
-    def atom_trace():
-        """Creates an atom trace for the plot"""
-        colors = [cpk_colors[atom] for atom in atoms]
-        markers = dict(color=colors, line=dict(color='lightgray', width=2), size=5, symbol='circle', opacity=0.8)
-        trace = go.Scatter3d(x=x_coordinates, y=y_coordinates, z=z_coordinates, mode='markers', marker=markers,
-                             text=atoms, name='')
-        return trace
-
-    def bond_trace(color):
-        """"Creates a bond trace for the plot"""
-        trace = go.Scatter3d(x=[], y=[], z=[], hoverinfo='none', mode='lines',
-                             marker=dict(color=color , size=7, opacity=1), line=dict(width=3))
-        for i, j in bonds.keys():
-            trace['x'] += (x_coordinates[i], x_coordinates[j], None)
-            trace['y'] += (y_coordinates[i], y_coordinates[j], None)
-            trace['z'] += (z_coordinates[i], z_coordinates[j], None)
-        return trace
-
     bonds = get_bonds()
-    print(bonds)
+
+    # atom trace
+    def atom_trace():
+   
+        colors = [cpk_colors[a] for a in atoms]
+        return go.Scatter3d(
+            x=coords[:,0], y=coords[:,1], z=coords[:,2],
+            mode='markers',
+            marker=dict(color=colors, size=5, line=dict(color='lightgray', width=2)),
+            text=atoms, name='atoms'
+        )
+
+    # bond trace
+    def bond_trace():
+        trace = go.Scatter3d(
+            x=[], y=[], z=[], mode='lines',
+            line=dict(color=color, width=3), hoverinfo='none',
+            name='bonds'
+        )
+        for pair in bonds:
+            i,j = tuple(pair)
+            trace.x += (coords[i,0], coords[j,0], None)
+            trace.y += (coords[i,1], coords[j,1], None)
+            trace.z += (coords[i,2], coords[j,2], None)
+        return trace
     
-    zipped = zip(atom_ids, x_coordinates, y_coordinates, z_coordinates)
-    annotations_id = [dict(text=num+1, x=x, y=y, z=z, showarrow=False, yshift=15, font=dict(color="blue"))
-                      for num, x, y, z in zipped]
+    def sterimol_trace(sterimol_params, origin=None):
+        """
+        Return a list of 3D traces for the Sterimol B1, B5, and L arrows.
+        
+        sterimol_params must include keys:
+        - 'B1_coords', 'B1_value'
+        - 'B5_coords', 'B5_value'
+        - 'L_coords',  'L_value'
+        """
+        try:
+            traces = []
+            # Extract vectors and magnitudes
+            b1 = np.asarray(sterimol_params['B1_coords'], float)
+            b5 = np.asarray(sterimol_params['B5_coords'], float)
+            l  = np.asarray(sterimol_params['L_coords'],  float)
+            
+            vecs = [
+                (b1, 'forestgreen', sterimol_params['B1_value'], 'B1'),
+                (b5, 'firebrick',   sterimol_params['B5_value'], 'B5'),
+                (l,  'steelblue',   sterimol_params['L_value'],  'L'),
+            ]
 
-    annotations_length = []
-    for (i, j), dist in bonds.items():
-        x_middle, y_middle, z_middle = (coordinates[i] + coordinates[j]) / 2
-        annotation = dict(text=dist, x=x_middle, y=y_middle, z=z_middle, showarrow=False, yshift=10)
-        annotations_length.append(annotation)
+            # Tail point in 3D (z=0 plane)
+            tail = np.array(origin, float) if origin is not None else np.zeros(3)
 
-    updatemenus = list([
-        dict(buttons=list([
-                 dict(label = 'Atom indices',
-                      method = 'relayout',
-                      args = [{'scene.annotations': annotations_id}]),
-                 dict(label = 'Bond lengths',
-                      method = 'relayout',
-                      args = [{'scene.annotations': annotations_length}]),
-                 dict(label = 'Atom indices & Bond lengths',
-                      method = 'relayout',
-                      args = [{'scene.annotations': annotations_id + annotations_length}]),
-                 dict(label = 'Hide all',
-                      method = 'relayout',
-                      args = [{'scene.annotations': []}])
-                 ]),
-                 direction='down',
-                 xanchor = 'left',
-                 yanchor = 'top'
+            for vec2d, col, mag, name in vecs:
+                # lift into 3D
+                vec3d = np.array([vec2d[0], vec2d[1], 0.0], float)
+                length = np.linalg.norm(vec3d)
+                if length < 1e-8:
+                    continue
+
+                # compute endpoints
+                end = tail + vec3d
+                shaft_end = end - 0.1 * (vec3d / length)
+
+                # Shaft line trace
+                traces.append(go.Scatter3d(
+                    x=[tail[0], shaft_end[0]],
+                    y=[tail[1], shaft_end[1]],
+                    z=[tail[2], shaft_end[2]],
+                    mode='lines',
+                    line=dict(color=col, width=4),
+                    name=f"{name}-shaft",
+                    showlegend=True
+                ))
+
+                # Cone head trace
+                traces.append(go.Cone(
+                    x=[end[0]], y=[end[1]], z=[end[2]],
+                    u=[vec3d[0]], v=[vec3d[1]], w=[vec3d[2]],
+                    anchor='tip',
+                    sizemode='absolute',
+                    sizeref=length * 0.07,  # head ~7% of length
+                    showscale=False,
+                    colorscale=[[0, col], [1, col]],
+                    name=name
+                ))
+        except Exception as e:
+            print(f"🔥 sterimol_trace failed: {e!r}")
+            return []
+
+        return traces
+
+    def dipole_trace():
+        """Return a list of 3D arrow traces for each dipole component (x,y,z)."""
+        traces = []
+        if dipole_df is None:
+            return traces
+
+        try:
+            
+            # get the 3‐component dipole vector, drop the “total” column
+            vec = dipole_df.iloc[0].to_numpy(dtype=float)[:-1]
+            # determine arrow tail
+            tail = origin if origin is not None else coords.mean(axis=0)
+            x0, y0, z0 = tail
+
+            # prepare red/green/blue arrows for x/y/z
+            comps = [
+                ((vec[0], 0,      0     ), 'red'),
+                ((0,      vec[1], 0     ), 'green'),
+                ((0,      0,      vec[2]), 'blue'),
+            ]
+
+            for (u, v, w), col in comps:
+                length = np.linalg.norm([u, v, w])
+                if length < 1e-8:
+                    continue
+
+                # Shaft: a thin line from tail to just before the tip
+                end = np.array([x0 + u, y0 + v, z0 + w])
+                shaft_end = end - 0.1 * (end - tail) / length
+                traces.append(go.Scatter3d(
+                    x=[x0, shaft_end[0]],
+                    y=[y0, shaft_end[1]],
+                    z=[z0, shaft_end[2]],
+                    mode='lines',
+                    line=dict(color=col, width=3),
+                    showlegend=False
+                ))
+
+                # Head: a tiny cone at the tip
+                traces.append(go.Cone(
+                    x=[end[0]], y=[end[1]], z=[end[2]],
+                    u=[u], v=[v], w=[w],
+                    anchor='tip',
+                    sizemode='absolute',
+                    sizeref=length * 0.05,    # 5% of vector length
+                    showscale=False,
+                    colorscale=[[0, col], [1, col]],
+                    showlegend=False
+                ))
+
+        except Exception as e:
+            print(f"🔥 dipole_trace failed: {e!r}")
+
+        return traces
+
+
+    annotations_idx = [
+    dict(text=str(i+1), x=coords[i,0], y=coords[i,1], z=coords[i,2],
+         showarrow=False, yshift=15, font=dict(color="blue"))
+    for i in range(len(coords))
+    ]
+    annotations_len = [
+        dict(
+            text=str(dist),
+            x=(coords[i,0]+coords[j,0])/2,
+            y=(coords[i,1]+coords[j,1])/2,
+            z=(coords[i,2]+coords[j,2])/2,
+            showarrow=False, yshift=10
+        )
+        for (i,j), dist in bonds.items()
+    ]
+
+    # assemble data
+    data = [ atom_trace(), bond_trace() ]
+    dip_trs = dipole_trace() or []  # list of arrow traces
+    sterimol_trs= sterimol_trace(sterimol_params, origin=origin) or []  # list of arrow traces
+
+    # hide each dipole trace initially
+    for tr in dip_trs:
+        tr.visible = False
+    data.extend(dip_trs)
+
+    for tr in sterimol_trs:
+        tr.visible = False
+    data.extend(sterimol_trs)
+    # add the sterimol arrows to the data
+
+
+    # compute visibility masks
+    n_base   = 2                # atoms + bonds
+    n_arrows = len(dip_trs)
+    vis_hide = [True]*n_base + [False]*n_arrows
+    vis_show = [True]*n_base + [True]*n_arrows
+
+    # updatemenu buttons
+    buttons = [
+        dict(
+            label='Atom indices',
+            method='relayout',
+            args=[{'scene.annotations': annotations_idx}]
+        ),
+        dict(
+            label='Bond lengths',
+            method='relayout',
+            args=[{'scene.annotations': annotations_len}]
+        ),
+        dict(
+            label='Both',
+            method='relayout',
+            args=[{'scene.annotations': annotations_idx + annotations_len}]
+        ),
+        dict(
+            label='Hide all',
+            method='relayout',
+            args=[{'scene.annotations': []}]
+        )
+    ]
+
+    # add dipole toggle buttons
+    if dipole_df is not None:
+        buttons.extend([
+            dict(
+                label='Show dipole',
+                method='update',
+                args=[{'visible': vis_show}, {}]
             ),
-    ])
-    data = [atom_trace(), bond_trace(color)]
-    return data, annotations_id, updatemenus
+            dict(
+                label='Hide dipole',
+                method='update',
+                args=[{'visible': vis_hide}, {}]
+            ),
+        ])
+
+    updatemenus = [
+        dict(
+            buttons=buttons,
+            direction='down', xanchor='left', yanchor='top'
+        )
+    ]
+    # add sterimol arrows
+    if sterimol_params is not None:
+        buttons.extend([
+            dict(
+                label='Show Sterimol',
+                method='update',
+                args=[{'visible': vis_show}, {}]
+            ),
+            dict(
+                label='Hide Sterimol',
+                method='update',
+                args=[{'visible': vis_hide}, {}]
+            ),
+        ])
+        # add sterimol toggle buttons
+        updatemenus[0]['buttons'].extend([
+            dict(
+                label='Show Sterimol',
+                method='update',
+                args=[{'visible': vis_show}, {}]
+            ),
+            dict(
+                label='Hide Sterimol',
+                method='update',
+                args=[{'visible': vis_hide}, {}]
+            ),
+        ])
+
+    return data, annotations_idx, updatemenus
+
+
+
+
+
+
+
+
 
 def choose_conformers_input():
     string=input('Enter the conformers numbers: ')
@@ -232,11 +442,13 @@ from dash import html, dcc, Output, Input, State
 import plotly.graph_objects as go
 import pandas as pd
 
-def show_single_molecule(molecule_name,xyz_df=None, color='black'):
+def show_single_molecule(molecule_name,xyz_df=None,dipole_df=None, origin=None,sterimol_params=None,color='black'):
     if xyz_df is None:
         xyz_df=get_df_from_file(choose_filename()[0])
+   
+    # Create a subplot with 3D scatter plot
+    data_main, annotations_id_main, updatemenus = plot_interactions(xyz_df,color,dipole_df=dipole_df, origin=origin,sterimol_params=sterimol_params)
 
-    data_main, annotations_id_main, updatemenus = plot_interactions(xyz_df,color)
     # Set axis parameters
     axis_params = dict(showgrid=False, showbackground=False, showticklabels=False, zeroline=False,
                        titlefont=dict(color='white'))
