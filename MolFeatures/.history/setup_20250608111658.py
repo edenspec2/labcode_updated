@@ -6,7 +6,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='MolFeatures',
-    version='0.9006',
+    version='0.9005',
     packages=find_packages(),
     description='Your package description',
     long_description=long_description,
