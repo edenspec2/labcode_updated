@@ -263,7 +263,7 @@ def generate_q2_scatter_plot(
     ax.set_title('Predicted vs Measured with Smooth Regression Band', fontsize=fontsize+4)
     plt.tight_layout()
     plt.savefig(f'model_plot_{formula}.png', dpi=dpi)
-    plt.show()
+    # plt.show()
 
     return fig
 
@@ -850,7 +850,7 @@ def print_models_regression_table(results, app=None):
         X = model.features_df[features].to_numpy()
         y = model.target_vector.to_numpy()
         model.fit(X, y)
-        pred, lwr, upr = model.predict(X, calc_covariance_matrix=True)
+        pred, lwr, upr = model.predict(X, return_interval=True)
         coef_df = model.get_covariace_matrix(features)
 
         x_min, y_min = y.min(), y.min()
@@ -956,7 +956,7 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
         print("Model fitted successfully.")
         
         print("Generating predictions with covariance calculation...")
-        pred, _, _ = model.predict(X, calc_covariance_matrix=True)
+        pred, _, _ = model.predict(X, return_interval=True)
         print("Predictions generated. pred shape: {}".format(pred.shape))
     except Exception as e:
         print("Error during model fitting/prediction:", e)
@@ -964,8 +964,9 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
 
     # Retrieve coefficient estimates
     try:
+       
         print("Retrieving coefficient estimates...")
-        coef_df = model.get_covariace_matrix(features)
+        coef_df = model.get_covariance_matrix(features)
         print("Coefficient estimates retrieved:")
         print(coef_df.head())
     except Exception as e:
@@ -1001,10 +1002,6 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
 
                 # 3) call your predictor; let it add constant & reorder itself
                 try:
-                    print("Model class:", model.__class__)
-                    print("Has predict_for_leftout:", hasattr(model, "predict_for_leftout"))
-                    print("All leftout-related attrs:", 
-                        [attr for attr in dir(model) if "leftout" in attr.lower()])
                     leftout_pred = model.predict_for_leftout(X_left, calc_interval=False)
                     print(f"Successfully predicted left-out samples: {leftout_pred}")
                 except Exception as e:
@@ -1109,110 +1106,3 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
     return plot_output
 
 
-# def print_models_regression_table(results, app=None, auto_select_first_model=True):
-
-#     formulas = [result['combination'] for result in results]
-#     r_squared = [result['scores']['r2'] for result in results]
-#     q_squared = [result['scores'].get('Q2', float('-inf')) for result in results]
-#     mae = [result['scores'].get('MAE', float('-inf')) for result in results]
-#     model_ids = [i for i in range(len(results))]
-#     intercepts = [result['intercept'] for result in results]
-#     model_coefficients = [result['coefficients'] for result in results]
-#     models = [result['models'] for result in results]
-
-#     # Create a DataFrame from the inputs
-#     df = pd.DataFrame({
-#         'formula': formulas,
-#         'R.sq': r_squared,
-#         'Q.sq': q_squared,
-#         'MAE': mae,
-#         'Model_id': model_ids
-#     })
-
-#     # Sort the DataFrame by Q.sq (descending) for a similar order
-#     df = df.sort_values(by='Q.sq', ascending=False)
-
-#     # Set the index to range from 1 to n (1-based indexing)
-#     df.index = range(1, len(df) + 1)
-
-#     # Print the DataFrame as a markdown-like table
-#     if app:
-#         messagebox.showinfo("3-fold CV", pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
-#         messagebox.showinfo("5-fold CV", pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
-#     else:
-#         print(df.to_markdown(index=False, tablefmt="pipe"))
-
-#     # Automatically select the first model if `auto_select_first_model` is True or run in nohup
-#     selected_model = 0 if auto_select_first_model else None
-
-#     while True:
-#         if auto_select_first_model or app:
-#             selected_model = selected_model if selected_model is not None else get_valid_integer('Select a model number: default is 0', 0)
-#         else:
-#             try:
-#                 selected_model = int(input("Select a model number (or -1 to exit): "))
-#             except ValueError:
-#                 print("Invalid input. Please enter a number.")
-#                 continue
-
-#         if selected_model == -1:
-#             print("Exiting model selection.")
-#             break
-
-#         try:
-#             model = models[selected_model]
-#         except IndexError:
-#             print("Invalid model number. Please try again.")
-#             continue
-
-#         features = list(formulas[selected_model])
-#         X = model.features_df[features].to_numpy()
-#         y = model.target_vector.to_numpy()
-#         model.fit(X, y)
-#         pred, lwr, upr = model.predict(X, calc_covariance_matrix=True)
-#         coef_df = model.get_covariace_matrix(features)
-
-#         if app:
-#             app.show_result('\nModel Coefficients\n')
-#             app.show_result(coef_df.to_markdown(tablefmt="pipe"))
-#         else:
-#             print("\nModel Coefficients\n")
-#             print(coef_df.to_markdown(tablefmt="pipe"))
-#             print(f"\nSelected Model: {formulas[selected_model]}\n")
-
-        # Q2_3, MAE_3 = model.calculate_q2_and_mae(X, y, n_splits=3)
-        # Q2_5, MAE_5 = model.calculate_q2_and_mae(X, y, n_splits=5)
-
-#         if app:
-#             app.show_result(f'\n\n Model Picked: {selected_model}_{formulas[selected_model]}\n')
-#             app.show_result(pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
-#             app.show_result(pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
-#         else:
-#             print("\n3-fold CV\n")
-#             print(pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt="pipe", index=False))
-#             print("\n5-fold CV\n")
-#             print(pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt="pipe", index=False))
-
-#         # Create a text file with the results
-#         with open('regression_results.txt', 'a') as f:
-#             f.write(f"Models list {df.to_markdown(index=False, tablefmt='pipe')} \n\n Model Coefficients\n\n{coef_df.to_markdown(tablefmt='pipe')}\n\n3-fold CV\n\n{pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt='pipe', index=False)}\n\n5-fold CV\n\n{pd.DataFrame({'Q2': [Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt='pipe', index=False)}\n\n")
-#             print('Results saved to regression_results.txt in {}'.format(os.getcwd()))
-
-#         # If auto-select mode, break after processing the first model
-#         if auto_select_first_model:
-#             print("Processed the first model, exiting.")
-#             break
-
-#         # Generate and display the Q2 scatter plot
-#         _ = generate_q2_scatter_plot(y, pred, model.molecule_names, features, lwr, upr)
-
-#         # Ask the user if they want to select another model or exit
-#         if not app:
-#             cont = input("Do you want to select another model? (y/n): ").strip().lower()
-#             if cont != 'y':
-#                 print("Exiting model selection.")
-#                 break
-#         else:
-#             cont = messagebox.askyesno('Continue', 'Do you want to select another model?')
-#             if not cont:
-#                 break
