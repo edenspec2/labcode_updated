@@ -1,6 +1,6 @@
 pandas
 rdkit
-igraph
+python-igraph
 XlsxWriter
 dgl
 pyarrow
@@ -11,4 +11,16 @@ torch
 matplotlib
 rmsd
 networkx
-MolFeatures==0.4
+dash
+pyvista
+pyvistaqt
+morfeus-ml
+scikit-learn
+seaborn
+Pillow  # PIL is installed as Pillow
+scipy
+tqdm
+statsmodels
+adjustText
+multiprocess
+shap

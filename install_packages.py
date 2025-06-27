@@ -31,6 +31,7 @@ packages = [
     "adjustText",
     "multiprocess",
     'random',
+    'shap',
 ]
 
 # (Optional) Map any package name to its import name if they differ
