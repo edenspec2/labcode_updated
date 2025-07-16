@@ -942,7 +942,7 @@ def remove_atom_bonds(bonded_atoms_df,atom_remove='H'):
 
 
 
-def extract_connectivity(xyz_df, threshhold_distance=1.82):
+def extract_connectivity(xyz_df, threshhold_distance=1.82, metal_atom='Pd'):
     coordinates = np.array(xyz_df[['x', 'y', 'z']].values)
     atoms_symbol = np.array(xyz_df['atom'].values)
     distances = pdist(coordinates)
@@ -970,11 +970,11 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82):
             remove_flag = True
 
         # If not a Pd bond, apply strict threshold
-        if (atom1 != 'Pd' and atom2 != 'Pd') and (float(dist) >= threshhold_distance or float(dist) == 0):
+        if (atom1 != metal_atom and atom2 != metal_atom) and (float(dist) >= threshhold_distance or float(dist) == 0):
             remove_flag = True
 
         # Allow Pd bonds up to 2.6 Å
-        if ('Pd' in (atom1, atom2)) and (float(dist) > 2.6):
+        if (metal_atom in (atom1, atom2)) and (float(dist) > 2.6):
             remove_flag = True
 
         # Allow halogen bonds between 1.8 and 2.6 Å
@@ -1008,13 +1008,13 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82):
     dist_df = dist_df.drop(special_atoms_to_remove)
 
     # Filter Pd bonds: keep only the 4 shortest per Pd atom
-    pd_mask = (dist_df['first_atom'] == 'Pd') | (dist_df['second_atom'] == 'Pd')
+    pd_mask = (dist_df['first_atom'] == metal_atom) | (dist_df['second_atom'] == metal_atom)
     pd_bonds = dist_df[pd_mask].copy()
     non_pd = dist_df[~pd_mask].copy()
 
     kept_pd = []
     for idx, row in pd_bonds.iterrows():
-        pd_idx = row[0] if row['first_atom'] == 'Pd' else row[1]
+        pd_idx = row[0] if row['first_atom'] == metal_atom else row[1]
         pd_bonds.loc[idx, 'pd_idx'] = pd_idx
 
     try:
@@ -1022,7 +1022,7 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82):
             shortest = group.nsmallest(4, 'value').index
             kept_pd.extend(shortest)
     except Exception as e:
-        print(f"[Warning] Pd group filtering failed: {e}")
+        
         pass
 
     pd_kept = pd_bonds.loc[kept_pd, [0, 1]] if kept_pd else pd.DataFrame(columns=[0, 1])

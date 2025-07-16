@@ -182,8 +182,8 @@ def generate_q2_scatter_plot(
 ):
     """
     Plots Predicted vs Measured with a smooth 90% confidence/prediction band
-    around the regression line using seaborn's regplot, plus identity line,
-    fixed margin lines, point labels, and Q² metrics.
+    around the regression line using seaborn's regplot, plus actual regression line,
+    point labels, and Q² metrics.
     """
     y = np.asarray(y)
     y_pred = np.asarray(y_pred)
@@ -196,9 +196,9 @@ def generate_q2_scatter_plot(
     })
 
     sns.set_theme(style='whitegrid', palette=palette)
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
-    # Scatter
+    # Scatter plot
     sns.scatterplot(
         data=data,
         x='Measured',
@@ -211,33 +211,40 @@ def generate_q2_scatter_plot(
         legend=False
     )
 
-    # Smooth regression band (90% CI) around regressed fit
+    # Plot CI band only, no line (regplot)
     sns.regplot(
         data=data,
         x='Measured',
         y='Predicted',
         scatter=False,
         ci=90,
-        line_kws={'color': band_color, 'linewidth': 0},
+        line_kws={'color': band_color, 'linewidth': 1},
         ax=ax
     )
 
-    # Identity line y = x and margin lines
+    # Range for plotting regression line
     mn = min(data['Measured'].min(), data['Predicted'].min())
     mx = max(data['Measured'].max(), data['Predicted'].max())
-
     x_ideal = np.linspace(mn, mx, 100)
-    dev_line_color = 'grey'
 
-    # Plot margin lines: identity, ±0.25, ±0.5
-    ax.plot(x_ideal, x_ideal, linestyle='--', color=identity_color, linewidth=2, label='Identity (y=x)')
-    ax.plot(x_ideal, x_ideal + 0.25, linestyle='--', color=dev_line_color, linewidth=1, label='y=x+0.25')
-    ax.plot(x_ideal, x_ideal - 0.25, linestyle='--', color=dev_line_color, linewidth=1, label='y=x-0.25')
-    ax.plot(x_ideal, x_ideal + 0.50, linestyle=':', color=dev_line_color, linewidth=1, label='y=x+0.50')
-    ax.plot(x_ideal, x_ideal - 0.50, linestyle=':', color=dev_line_color, linewidth=1, label='y=x-0.50')
+    # Plot your regression line, dotted and clearly visible
+    if coefficients is not None and len(coefficients) == 2:
+        a, b = coefficients
+        y_reg = a * x_ideal + b
+        ax.plot(
+            x_ideal, y_reg,
+            linestyle='-',      # solid for visibility (change to ':' if you prefer)
+            color='black',      # stands out
+            linewidth=2.5,
+            label='Regression Line'
+        )
+
+    # Set plot limits so the line is always visible
+    ax.set_xlim(mn, mx)
+    ax.set_ylim(mn, mx)
 
     # Equation & Pearson r
-    corr = r if r is not None else np.corrcoef(y, y_pred)[0,1]
+    corr = r if r is not None else np.corrcoef(y, y_pred)[0, 1]
     eqn = build_regression_equation(formula, coefficients, corr)
     ax.text(
         0.05, 0.95,
@@ -249,17 +256,21 @@ def generate_q2_scatter_plot(
     )
 
     # Q² metrics
-    if not folds_df.empty:
+    if folds_df is not None and not folds_df.empty:
         q = folds_df.iloc[0]
         q_txt = (
             f"3-fold Q²: {q['Q2_3_Fold']:.2f}\n"
             f"5-fold Q²: {q['Q2_5_Fold']:.2f}\n"
             f"LOOCV Q²: {q['Q2_LOOCV']:.2f}"
         )
-        ax.text(0.05, 0.80, q_txt, transform=ax.transAxes,
-                fontsize=fontsize, va='top', bbox=dict(facecolor='white', alpha=0.8))
+        ax.text(
+            0.05, 0.80, q_txt,
+            transform=ax.transAxes,
+            fontsize=fontsize, va='top',
+            bbox=dict(facecolor='white', alpha=0.8)
+        )
 
-    # Labels
+    # Add point labels (optional, but can clutter if many points)
     texts = []
     for _, row in data.iterrows():
         texts.append(
@@ -272,19 +283,21 @@ def generate_q2_scatter_plot(
     ax.set_ylabel('Predicted', fontsize=fontsize+2)
     ax.set_title('Predicted vs Measured with Smooth Regression Band', fontsize=fontsize+4)
 
-    # Optional: show a legend for the margin lines
+    # Show only your regression line in the legend
     handles, labels_ = ax.get_legend_handles_labels()
-    margin_labels = ['Identity (y=x)', 'y=x+0.25', 'y=x-0.25', 'y=x+0.50', 'y=x-0.50']
-    display_handles = [h for h, l in zip(handles, labels_) if l in margin_labels]
-    display_labels = [l for l in labels_ if l in margin_labels]
-    if display_handles:
-        ax.legend(display_handles, display_labels, loc='lower right', frameon=True)
+    reg_handles = [h for h, l in zip(handles, labels_) if l == 'Regression Line']
+    reg_labels = [l for l in labels_ if l == 'Regression Line']
+    if reg_handles:
+        ax.legend(reg_handles, reg_labels, loc='lower right', frameon=True)
+    else:
+        ax.legend().remove()  # Hide legend if only points
 
     plt.tight_layout()
     plt.savefig(f'model_plot_{formula}.png', dpi=dpi)
     # plt.show()
 
     return fig
+
 
 
 ### chance to use sns.regplot to plot the regression line and confidence intervals

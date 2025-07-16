@@ -1,104 +1,85 @@
 import pandas as pd
 import numpy as np
-import os
 from enum import Enum
-from typing import List, Optional
-import pandas as pd
+from typing import List, Dict, Any, Union
 
 
 class Names(Enum):
-    
-    DIPOLE_COLUMNS=['dip_x','dip_y','dip_z','total_dipole']
-    STANDARD_ORIENTATION_COLUMNS=['atom','x','y','z']
-    DF_LIST=['standard_orientation_df', 'dipole_df', 'pol_df', 'info_df']
+    DIPOLE_COLUMNS = ['dip_x', 'dip_y', 'dip_z', 'total_dipole']
+    STANDARD_ORIENTATION_COLUMNS = ['atom', 'x', 'y', 'z']
+    DF_LIST = ['standard_orientation_df', 'dipole_df', 'pol_df', 'info_df']
 
 
+def df_list_to_dict(df_list: List[pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+    """Maps list of DataFrames to names specified in Names.DF_LIST."""
+    return {name: df for name, df in zip(Names.DF_LIST.value, df_list)}
 
 
-def df_list_to_dict(df_list):
-    my_dict={}
-    for name,df in zip(Names.DF_LIST.value,df_list):
-        my_dict[name]=df
-    return my_dict
+def split_to_vib_dict(vectors: pd.DataFrame) -> Dict[str, np.ndarray]:
+    """Splits vibration vector columns into separate NumPy arrays per atom."""
+    num_columns = vectors.shape[1]
+    vib_dict = {}
+    for i in range(num_columns // 3):
+        key = f'vibration_atom_{i + 1}'
+        vib_dict[key] = vectors.iloc[:, i*3:(i+1)*3].dropna().to_numpy(dtype=float)
+    return vib_dict
 
 
-
-def feather_file_handler(feather_file):
-    # Read the feather file
-    
+def feather_file_handler(feather_file: str) -> List[Any]:
+    """
+    Reads a feather file with molecular data, processes, and returns:
+    [df_dict, vib_dict, charge_dict, ev_df]
+    """
     data = pd.read_feather(feather_file)
-    
-    data.columns=range(len(data.columns))
-    ## change pandas options to display all columns
-  
+    data.columns = range(len(data.columns))
+
+    # Extract core DataFrames
     xyz = data.iloc[:, 0:4].dropna()
-    ev = data.iloc[1, 1].astype(float)  # Extract the energy value from the second row, second column
-    ev=pd.DataFrame({'energy': [ev]})  # Convert to DataFrame for consistency
-    dipole_df = data.iloc[:, 4:8].dropna()
-    pol_df = data.iloc[:, 8:10].dropna()
-    nbo_charge_df = data.iloc[:, 10:11].dropna()
-    ## if the whole column is NaN, it will be removed
-    hirshfeld_charge_df = data.iloc[:,11:12].dropna().reset_index(drop=True)
-    cm5_charge_df = data.iloc[:,12:13].dropna().reset_index(drop=True)
-    info_df = data.iloc[:, 13:15].dropna()
-    vectors = data.iloc[:, 15:].dropna()    
-    xyz.rename(columns={xyz.columns[0]: 'atom', xyz.columns[1]: 'x', xyz.columns[2]: 'y', xyz.columns[3]: 'z'}, inplace=True)
-
     try:
+        xyz.columns = Names.STANDARD_ORIENTATION_COLUMNS.value
         xyz = xyz.reset_index(drop=True)
         xyz[['x', 'y', 'z']] = xyz[['x', 'y', 'z']].astype(float)
-    except :
-        xyz=xyz.iloc[2:]
-        xyz = xyz.reset_index(drop=True)
+    except Exception:
+        # fallback: sometimes header is off by a few rows
+        xyz = xyz.iloc[2:].reset_index(drop=True)
+        xyz.columns = Names.STANDARD_ORIENTATION_COLUMNS.value
         xyz[['x', 'y', 'z']] = xyz[['x', 'y', 'z']].astype(float)
-        
-    xyz=xyz.dropna()
-    # Calculate the length of the DataFrame
-    dipole_df.rename(columns={dipole_df.columns[0]: 'dip_x', dipole_df.columns[1]: 'dip_y', dipole_df.columns[2]: 'dip_z', dipole_df.columns[3]: 'total_dipole'}, inplace=True)
-    dipole_df=dipole_df.astype(float)
-    dipole_df=dipole_df.dropna()
-    dipole_df=dipole_df.reset_index(drop=True)
-    nbo_charge_df.rename(columns={nbo_charge_df.columns[0]: 'charge'}, inplace=True)
-    nbo_charge_df=nbo_charge_df.astype(float)
-    nbo_charge_df=nbo_charge_df.dropna()
-    nbo_charge_df=nbo_charge_df.reset_index(drop=True)
+    xyz = xyz.dropna()
+    # Extract energy value as single-row DataFrame
+    ev = pd.DataFrame({'energy': [float(data.iloc[1, 1])]})
+    # Extract charge DataFrames
+    nbo_charge_df = data.iloc[:, 10:11].dropna().rename(columns={10: 'charge'}).astype(float).reset_index(drop=True)
+    hirshfeld_charge_df = data.iloc[:, 11:12].dropna().rename(columns={11: 'charge'}).astype(float).reset_index(drop=True)
+    cm5_charge_df = data.iloc[:, 12:13].dropna().rename(columns={12: 'charge'}).astype(float).reset_index(drop=True)
 
-    charge_dict={'nbo':nbo_charge_df, 'hirshfeld':hirshfeld_charge_df, 'cm5':cm5_charge_df}
-    # take the len of xyz and check if the length of the nbo_charge_df,hirshfeld and cm5 is equal to the length of the xyz_df
-    if len(xyz) != len(nbo_charge_df) or len(xyz) != len(hirshfeld_charge_df) or len(xyz) != len(cm5_charge_df):
-        # remove the rows from the charge_df that are not in the xyz_df
-        nbo_charge_df = nbo_charge_df[nbo_charge_df.index.isin(xyz.index)]
-        hirshfeld_charge_df = hirshfeld_charge_df[hirshfeld_charge_df.index.isin(xyz.index)]
-        cm5_charge_df = cm5_charge_df[cm5_charge_df.index.isin(xyz.index)]
+    # Ensure charge DataFrames align with xyz atoms
+    for cdf in [nbo_charge_df, hirshfeld_charge_df, cm5_charge_df]:
+        if len(cdf) != len(xyz):
+            cdf = cdf[cdf.index.isin(xyz.index)].reset_index(drop=True)
 
-        
-    pol_df.rename(columns={pol_df.columns[0]: 'aniso', pol_df.columns[1]: 'iso'}, inplace=True)
-    pol_df=pol_df.astype(float)
-    pol_df=pol_df.dropna()
-    pol_df=pol_df.reset_index(drop=True)
-    info_df.rename(columns={info_df.columns[0]: 'Frequency', info_df.columns[1]: 'IR'}, inplace=True)
-    info_df=info_df.astype(float)
-    info_df=info_df.dropna()
-    info_df=info_df.reset_index(drop=True)
-    
-    def split_to_dict(dataframe):
-        
-        num_columns = dataframe.shape[1]
-        num_dfs = num_columns // 3  # Integer division to get the number of 3-column dataframes
+    charge_dict = {'nbo': nbo_charge_df, 'hirshfeld': hirshfeld_charge_df, 'cm5': cm5_charge_df}
 
-        dfs_dict = {}
-        for i in range(num_dfs):
-            start_col = i * 3
-            end_col = start_col + 3
-            key = f'vibration_atom_{i + 1}'
-            dfs_dict[key] = np.array(dataframe.iloc[:, start_col:end_col].values.astype(float))  # Storing as a NumPy array
+    # Dipole, polarizability, info, vibration vectors
+    dipole_df = data.iloc[:, 4:8].dropna().rename(
+        columns={4: 'dip_x', 5: 'dip_y', 6: 'dip_z', 7: 'total_dipole'}
+    ).astype(float).reset_index(drop=True)
 
-        return dfs_dict
-    
-    vib_dict=split_to_dict(vectors)
-    df_list=[xyz ,dipole_df, pol_df, info_df]
-    df_list=[df.dropna(how='all') for df in df_list if not df.empty]
-    df_dict=df_list_to_dict(df_list)
-    dict_list=[df_dict,vib_dict,charge_dict, ev]
+    pol_df = data.iloc[:, 8:10].dropna().rename(
+        columns={8: 'aniso', 9: 'iso'}
+    ).astype(float).reset_index(drop=True)
 
-    return dict_list
+    info_df = data.iloc[:, 13:15].dropna().rename(
+        columns={13: 'Frequency', 14: 'IR'}
+    ).astype(float).reset_index(drop=True)
+
+    # Vibration vectors as dict of numpy arrays
+    vectors = data.iloc[:, 15:].dropna()
+    vib_dict = split_to_vib_dict(vectors)
+
+    # Main DataFrames as dict
+    df_list = [xyz, dipole_df, pol_df, info_df]
+    df_list = [df for df in df_list if not df.empty and df.dropna(how='all').shape[0] > 0]
+    df_dict = df_list_to_dict(df_list)
+
+    return [df_dict, vib_dict, charge_dict, ev]
+
