@@ -249,6 +249,7 @@ def filter_atoms_for_sterimol(bonded_atoms_df,coordinates_df):
     allowed_bonds_indices= pd.concat([bonded_atoms_df['index_1'],bonded_atoms_df['index_2']],axis=1).reset_index(drop=True)
     atom_filter=adjust_indices(np.unique([atom for sublist in allowed_bonds_indices.values.tolist() for atom in sublist]))
     edited_coordinates_df=coordinates_df.loc[atom_filter].reset_index(drop=True)
+
     return edited_coordinates_df
 
 
@@ -535,19 +536,27 @@ def direction_atoms_for_sterimol(bonds_df,base_atoms)->list: #help function for 
         
     
 
-def get_molecule_connections(bonds_df,source,direction):
+def get_molecule_connections(bonds_df, source, direction, mode='all'):
     bonds_df.columns = [0, 1]  # Ensure correct names for igraph
+
     bonds_df[[0, 1]] = bonds_df[[0, 1]].apply(pd.to_numeric, errors='raise').astype(int)    
-    graph=ig.Graph.DataFrame(edges=bonds_df,directed=False)
-    paths=graph.get_all_simple_paths(v=source,mode='all')
-   
-    with_direction=[path for path in paths if (direction in path)]
-    # print('with_direction:', with_direction)
-    longest_path=np.unique(flatten_list(with_direction))
-    # if len(with_direction) > 1:
-    #     longest_path=max(with_direction, key=len)
-    
-    return longest_path
+    graph = ig.Graph.DataFrame(edges=bonds_df, directed=False)
+    # Get all simple paths from source
+    paths = graph.get_all_simple_paths(v=source, mode='all')
+    # Only keep paths that start with [source, direction]
+    paths_with_start = [path for path in paths if len(path) >= 2 and path[0] == source and path[1] == direction]
+    # Flatten and unique
+    longest_path = np.unique(flatten_list(paths_with_start))
+
+    if mode == 'all':
+        return longest_path
+    elif mode == 'shortest':
+        # If you want the shortest such path:
+        if paths_with_start:
+            shortest_path = min(paths_with_start, key=len)
+            return shortest_path
+        else:
+            return []
 
 def find_longest_simple_path(bonds_df):
     """
@@ -590,14 +599,17 @@ def get_specific_bonded_atoms_df(bonds_df, longest_path, coordinates_df):
 
     # 1) Filter bonds based on longest_path
     if longest_path is not None:
+   
         mask = bonds_df.isin(longest_path)
-        edited_bonds_df = bonds_df[mask.any(axis=1)].dropna().reset_index(drop=True)
+  
+        edited_bonds_df = bonds_df[mask.all(axis=1)].dropna().reset_index(drop=True)
+       
     else:
         edited_bonds_df = bonds_df.copy()
 
     if edited_bonds_df.empty:
         return pd.DataFrame(columns=XYZConstants.BONDED_COLUMNS.value)
-        return pd.DataFrame(columns=XYZConstants.BONDED_COLUMNS.value)
+
 
     # 2) Build bonds_array (zero-based indices)
     bonds_array = (edited_bonds_df.values - 1).astype(int)
@@ -686,13 +698,10 @@ def get_b1s_list(extended_df, scans=90//5,plot_result=False):
 
 def calc_sterimol(bonded_atoms_df,extended_df,visualize_bool=False):
     edited_coordinates_df=filter_atoms_for_sterimol(bonded_atoms_df,extended_df)
-
     b1s,b1_b5_angle,plane=get_b1s_list(edited_coordinates_df)
-   
     valid_indices = np.where(b1s >= 0)[0]
     best_idx = valid_indices[np.argmin(b1s[valid_indices])]
     best_b1_plane = plane[best_idx]
-
     max_x = np.max(best_b1_plane[:, 0])
     min_x = np.min(best_b1_plane[:, 0])
     max_y = np.max(best_b1_plane[:, 1])
@@ -715,46 +724,54 @@ def calc_sterimol(bonded_atoms_df,extended_df,visualize_bool=False):
     
     sterimol_df = pd.DataFrame([B1, b5_value, L ,loc_B5,angle], index=XYZConstants.STERIMOL_INDEX.value)
     if visualize_bool:
-        plot_b1_visualization(best_b1_plane, edited_coordinates_df)
+        plot_b1_visualization(best_b1_plane, edited_coordinates_df=edited_coordinates_df)
         plt.show()    
         print('B1 B5 Plane')
-        plot_L_B5_plane(edited_coordinates_df, sterimol_df.T)
-        plt.show()  
-        print('L B5 Plane')
+        # plot_L_B5_plane(edited_coordinates_df, sterimol_df.T)
+        # plt.show()  
+        # print('L B5 Plane')
         
     
     return sterimol_df.T 
 
 
-def get_sterimol_df(coordinates_df, bonds_df, base_atoms,connected_from_direction, radii='bondi', sub_structure=True, drop_atoms=None,visualize_bool=False):
-
+def get_sterimol_df(coordinates_df, bonds_df, base_atoms, connected_from_direction, 
+                    radii='CPK', sub_structure=True, drop_atoms=None, visualize_bool=False, mode='all'):
+    # Drop atoms and update indices
     if drop_atoms is not None:
-        drop_atoms=adjust_indices(drop_atoms)
-        for atom in drop_atoms:
-            bonds_df = bonds_df[~((bonds_df[0] == atom) | (bonds_df[1] == atom))]
-            ## drop the rows from coordinates_df
-            coordinates_df = coordinates_df.drop(atom)
+  
+        drop_atoms_adjusted = adjust_indices(drop_atoms)
+        coordinates_df = coordinates_df.drop(drop_atoms_adjusted)
+        coordinates_df = coordinates_df.reset_index(drop=True)
+        
+        # Create a mapping from old to new indices
+        old_to_new = {old_idx: new_idx for new_idx, old_idx in enumerate(sorted(coordinates_df.index))}
+        # Map bonds_df to new indices, drop any bonds involving dropped atoms
+        mask = ~bonds_df[0].isin(drop_atoms) & ~bonds_df[1].isin(drop_atoms)
+  
+        bonds_df = bonds_df[mask].copy()
+        bonds_df[0] = bonds_df[0].map(old_to_new)
+        bonds_df[1] = bonds_df[1].map(old_to_new)
+        bonds_df = bonds_df.dropna().reset_index(drop=True)  # Drop any rows with NaN values after mapping
+        # Update base_atoms as well
+        base_atoms = [old_to_new[a] for a in base_atoms if a in old_to_new]
+        if connected_from_direction is not None:
+            connected_from_direction = [old_to_new[a] for a in connected_from_direction if a in old_to_new]
+  
 
     bonds_direction = direction_atoms_for_sterimol(bonds_df, base_atoms)
-    
     new_coordinates_df = preform_coordination_transformation(coordinates_df, bonds_direction)
-
 
     if sub_structure:
         if connected_from_direction is None:
-            connected_from_direction = get_molecule_connections(bonds_df, base_atoms[0], base_atoms[1])
-        else:
-            connected_from_direction = connected_from_direction
+            connected_from_direction = get_molecule_connections(bonds_df, base_atoms[0], base_atoms[1], mode=mode)
     else:
         connected_from_direction = None
-    
-    
     bonded_atoms_df = get_specific_bonded_atoms_df(bonds_df, connected_from_direction, new_coordinates_df)
-    
     extended_df = get_extended_df_for_sterimol(new_coordinates_df, bonds_df, radii)
 
-    sterimol_df = calc_sterimol(bonded_atoms_df, extended_df,visualize_bool)
-    sterimol_df= sterimol_df.rename(index={0: str(base_atoms[0]) + '-' + str(base_atoms[1])})
+    sterimol_df = calc_sterimol(bonded_atoms_df, extended_df, visualize_bool)
+    sterimol_df = sterimol_df.rename(index={0: str(base_atoms[0]) + '-' + str(base_atoms[1])})
     sterimol_df = sterimol_df.round(4)
-    
+
     return sterimol_df

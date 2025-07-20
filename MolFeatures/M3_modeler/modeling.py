@@ -1403,20 +1403,41 @@ class LinearRegressionModel:
 
 
 
-    def fit_and_evaluate_combinations(self, top_n=50, n_jobs=-1, initial_r2_threshold=0.7, bool_parallel=False):
+
+
+    def fit_and_evaluate_combinations(
+        self,
+        top_n=50,
+        n_jobs=-1,
+        initial_r2_threshold=0.7,
+        bool_parallel=False,
+        required_features=None,
+    ):
+        """
+        Fit and evaluate feature combinations, with support for requiring certain features in each combo.
+
+        :param top_n: Number of top results to keep (not used in this snippet but often in later sorting)
+        :param n_jobs: Number of parallel jobs (-1 = all available, overridden if not bool_parallel)
+        :param initial_r2_threshold: R2 threshold for model selection
+        :param bool_parallel: Whether to use parallel execution
+        :param required_features: List or set of features that must be present in every combination
+        :return: List of results dicts
+        """
         app = self.app
         self.get_feature_combinations()
 
-        # decide on parallel vs. single-thread
+        # Set of required features (empty if not specified)
+        required_features = set(required_features) if required_features else set()
+
+        # Single-thread if requested or only 1 core available
         if multiprocessing.cpu_count() == 1 or not bool_parallel:
             n_jobs = 1
         print(f"Using {n_jobs} jobs for evaluation. Found {multiprocessing.cpu_count()} cores.")
 
-        # load any existing results so we can skip them
+        # Load any existing results (to avoid repeat work)
         try:
             existing_results = load_results_from_db(self.db_path)
-            done_combos=existing_results['combination'].tolist()
-            done_combos = set(done_combos)
+            done_combos = set(existing_results['combination'].tolist())
         except Exception:
             existing_results = []
             done_combos = set()
@@ -1426,17 +1447,18 @@ class LinearRegressionModel:
 
         def evaluate_with_threshold(threshold):
             """
-            Evaluate only the combos not yet in the database, then return the full up-to-date results list.
+            Evaluate only the combos not yet in the database AND containing all required_features.
             """
-            # start from whatever is already in the DB
+            # Start from whatever is already in the DB
             results = existing_results.copy()
 
-            # filter out combos we've already done
+            # Filter: not done yet, and contains all required features
             combos_to_run = [
                 combo for combo in self.features_combinations
                 if str(combo) not in done_combos
+                and required_features.issubset(set(combo))
             ]
-            ## print the differences between the done_combos and the combos_to_run
+
             print(f"Combos to run: {len(combos_to_run)}, done_combos: {len(done_combos)}")
             if not combos_to_run:
                 print(f"No new combinations to evaluate at threshold {threshold}.")
@@ -1445,20 +1467,29 @@ class LinearRegressionModel:
             print(f"Evaluating {len(combos_to_run)} new combos with R2 >= {threshold}...")
 
             if n_jobs == 1:
-                results = []
+                new_results = []
                 for combo in tqdm(combos_to_run, desc=f"Threshold {threshold} (single-core)"):
-                    res = fit_and_evaluate_single_combination_regression(self, combo, threshold)
-                    results.append(res)
+                    try:
+                        res = fit_and_evaluate_single_combination_regression(self, combo, threshold)
+                        new_results.append(res)
+                    except Exception as e:
+                        print(f"Error evaluating combo {combo}: {e}")
+                        
+                # Combine with any existing results
+                new_results_df = pd.DataFrame(new_results)
+                results = pd.concat([results, new_results_df], ignore_index=True)
             else:
-                # parallel: each call writes its result into the DB
+                # In parallel, each call writes its result into the DB
                 Parallel(n_jobs=n_jobs)(
                     delayed(fit_and_evaluate_single_combination_regression)(self, combo, threshold)
                     for combo in tqdm(combos_to_run, desc=f"Threshold {threshold} (parallel)")
                 )
-                # reload everything (so results includes the new ones)
+                # Reload everything to ensure results includes the new ones
                 results = load_results_from_db(self.db_path)
 
             return results
+
+
 
         def get_highest_r2(results):
             r2_vals = [x['scores'].get('r2') for x in results if x['scores'].get('r2') is not None]
@@ -1466,20 +1497,17 @@ class LinearRegressionModel:
 
         # 1) initial pass
         sorted_results = evaluate_with_threshold(initial_r2_threshold)
-        sorted_results.sort(key=lambda x: x['scores'].get('Q2', float('-inf')), reverse=True)
+        sorted_results = sorted_results.sort_values(by='Q2', ascending=False)
 
-        # 2) if all Q2 are -inf, lower threshold and retry
         if is_all_inf(sorted_results):
             print("All Q2 values are -inf, lowering R2 threshold and retrying...")
-            highest_r2 = get_highest_r2(sorted_results)
+            highest_r2 = get_highest_r2(sorted_results)  # Make sure this works with DataFrame!
             new_threshold = (highest_r2 - 0.15) if highest_r2 is not None else (initial_r2_threshold - 0.15)
             print(f"New threshold: {new_threshold:.3f}")
             sorted_results = evaluate_with_threshold(new_threshold)
-            sorted_results.sort(key=lambda x: x['scores'].get('Q2', float('-inf')), reverse=True)
+            sorted_results = sorted_results.sort_values(by='Q2', ascending=False)
 
-        # take your top-n
-        sorted_results = sorted_results[:top_n]
-
+        sorted_results = sorted_results.head(top_n)
         # print the regression table
         if sorted_results:
             print_models_regression_table(sorted_results, app)

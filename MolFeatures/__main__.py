@@ -314,10 +314,6 @@ class MoleculeApp:
         )
         restart_button.pack(pady=10)
 
-        # self.renumber_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Renumber xyz Directory", command=self.renumber_directory)
-        # self.renumber_button.grid(row=4, column=1, padx=20, pady=10)      
-
-    
     def _show_error(self, exc, val, tb):
         """Display a traceback in a pop-up, then let the app continue."""
         err = "".join(traceback.format_exception(exc, val, tb))
@@ -543,8 +539,6 @@ class MoleculeApp:
         Entry(new_window, textvariable=self.threshold_var, validate='key', validatecommand=vcmd).grid(row=7, column=1)
 
 
-        
-    
         # Additional Options and Run Button
         def run_model():
             # Here you can collect all inputs and run the model based on selected options
@@ -567,11 +561,6 @@ class MoleculeApp:
                
                 linear_regression = LinearRegressionModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
                 regression_results = linear_regression.fit_and_evaluate_combinations(top_n=top_n, initial_r2_threshold=threshold)
-
-          
-
-            # Close the configuration window after running the model
-            
 
         run_button = Button(new_window, text="Run Model", command=run_model)
         run_button.grid(row=8, column=1, padx=10, pady=20)
@@ -656,69 +645,44 @@ class MoleculeApp:
         if self.molecules is not None:
             self.molecules.visualize_smallest_molecule_morfeus(Indices)
 
-
+        
     def build_question_interface(self, parent, questions, loaded_entries=None):
         """
-        A helper to build the question interface on the given parent window.
-        
-        :param parent: The parent window/frame where we place the GUI.
-        :param questions: A list of question strings.
-        :param loaded_entries: (Optional) dict of question->answer if we are reloading from file.
-        :return: A dictionary of question->Entry widgets for further processing.
+        Build the question interface in the parent window/frame.
+        :param parent: Tkinter parent widget
+        :param questions: List of question strings
+        :param loaded_entries: Dict of question->answer (optional, for reloading)
+        :return: Dict of question->Entry widgets
         """
-        # If no loaded answers were provided, make it an empty dict
         loaded_entries = loaded_entries or {}
+        entry_widgets = {}
+
+        # 1. Canvas + Scrollbar layout
         canvas = Canvas(parent, borderwidth=0, highlightthickness=0, width=800, height=600)
         scrollbar = Scrollbar(parent, orient='vertical', command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
-        # This Frame holds all question widgets inside the Canvas
+
         container_frame = Frame(canvas)
         canvas.create_window((0, 0), window=container_frame, anchor="nw")
-        # 2. Whenever the size of the inner frame changes, update scrollregion
+
         def _on_configure(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
-
         container_frame.bind("<Configure>", _on_configure)
 
         canvas.focus_set()
+        self._bind_mouse_wheel(canvas)
 
-        # bind wheel events on the master (whole app)
-        self.master.bind_all(
-            "<MouseWheel>",
-            lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-        )
-        self.master.bind_all(
-            "<Button-4>",  # Linux scroll up
-            lambda e: canvas.yview_scroll(-1, "units")
-        )
-        self.master.bind_all(
-            "<Button-5>",  # Linux scroll down
-            lambda e: canvas.yview_scroll(1, "units")
-        )
-        # -- 2. Top buttons: Visualize, Choose Parameters, etc. --
-        Button(
-            container_frame,
-            text="Visualize Basic Structure",
-            command=self.visualize_smallest_molecule
-        ).pack(padx=10, pady=5)
-
-        Button(
-            container_frame,
-            text="Choose Parameters",
-            command=self.open_parameter_window
-        ).pack(pady=5)
-
+        # 2. Top control buttons
+        Button(container_frame, text="Visualize Basic Structure", command=self.visualize_smallest_molecule).pack(padx=10, pady=5)
+        Button(container_frame, text="Choose Parameters", command=self.open_parameter_window).pack(pady=5)
         self.chosen_parameters = Label(container_frame, text=f"Chosen Parameters: {self.parameters}")
         self.chosen_parameters.pack(pady=5)
 
-        # -- 3. Build the question/entry pairs --
-        entry_widgets = {}
+        # 3. Question widgets
         for i, question in enumerate(questions):
-
-            if (re.search(r'threshold', question, re.IGNORECASE)
-                or re.search(r'geometric center', question, re.IGNORECASE)):
+            if any(re.search(r, question, re.IGNORECASE) for r in ["threshold", "geometric center"]):
                 continue
 
             frame_q = Frame(container_frame)
@@ -728,115 +692,269 @@ class MoleculeApp:
             entry = Entry(frame_q, width=30)
             entry.pack(side="left", padx=5)
 
-            if question.startswith("Dipole atoms"):
-                new_center_atoms_label = Label(frame_q, text="Center_Atoms:")
-                new_center_atoms_label.pack(side="left", padx=5)
-                new_center_atoms_entry = Entry(frame_q, width=10)
-                new_center_atoms_entry.pack(side="left", padx=5)
-                entry_widgets["Center_Atoms"] = new_center_atoms_entry
+            # Map question types to handler functions
+            self._handle_special_question_types(
+                question, frame_q, entry_widgets, loaded_entries, entry
+            )
 
-                if "Center_Atoms" in loaded_entries:
-                    new_center_atoms_entry.delete(0, 'end')
-                    new_center_atoms_entry.insert(0, loaded_entries["Center_Atoms"])
-
-            # If we have a pre-loaded answer for this question, insert it
-            if question.startswith("NPA manipulation"):
-                # Sub-Atoms label and entry
-                sub_atoms_label = Label(frame_q, text="Sub-Atoms:")
-                sub_atoms_label.pack(side="left", padx=5)
-                sub_atoms_entry = Entry(frame_q, width=10)
-                sub_atoms_entry.pack(side="left", padx=5)
-                entry_widgets["Sub-Atoms"] = sub_atoms_entry
-
-                # Load from loaded_entries if present
-                if "Sub_Atoms" in loaded_entries:
-                    sub_atoms_entry.delete(0, 'end')
-                    sub_atoms_entry.insert(0, loaded_entries["Sub_Atoms"])
-                if question in loaded_entries:
-                    entry.delete(0, 'end')
-                    entry.insert(0, loaded_entries[question])
-
-            # --- Ring Vibration special handling ---
-            if question.startswith("Ring Vibration atoms"):
-                Button(
-                    frame_q,
-                    text="Show",
-                    command=lambda: self.open_image(r"pictures\rings.png")
-                ).pack(side="left", padx=5)
-
-            # --- Stretch Vibration special handling ---
-            if question.startswith("Stretching Vibration atoms"):
-                threshold_label = Label(frame_q, text="Threshold:")
-                threshold_label.pack(side="left", padx=5)
-                stretch_threshold_entry = Entry(frame_q, width=10)
-                stretch_threshold_entry.pack(side="left", padx=5)
-                entry_widgets["Stretch Threshold"] = stretch_threshold_entry
-
-                # Load threshold if present, else default
-                if "Stretch Threshold" in loaded_entries:
-                    stretch_threshold_entry.delete(0, 'end')
-                    stretch_threshold_entry.insert(0, loaded_entries["Stretch Threshold"])
-                else:
-                    stretch_threshold_entry.insert(0, 1600)
-
-            # --- Bending Vibration special handling ---
-            if question.startswith("Bending Vibration atoms"):
-                threshold_label = Label(frame_q, text="Threshold:")
-                threshold_label.pack(side="left", padx=5)
-                bend_threshold_entry = Entry(frame_q, width=10)
-                bend_threshold_entry.pack(side="left", padx=5)
-                entry_widgets["Bend Threshold"] = bend_threshold_entry
-
-                # Load threshold if present, else default
-                if "Bend Threshold" in loaded_entries:
-                    bend_threshold_entry.delete(0, 'end')
-                    bend_threshold_entry.insert(0, loaded_entries["Bend Threshold"])
-                else:
-                    bend_threshold_entry.insert(0, 1600)
-
-            if question.startswith("Sterimol atoms"):
-                Button(
-                    frame_q,
-                    text="Show",
-                    command=self.morfeus_visualize
-                ).pack(side="left", padx=5)
-
-            # --- Default: load entry if present ---
-            if question in loaded_entries and not question.startswith("NPA_manipulation"):
+            # Default loading of entry value
+            if question in loaded_entries and not question.startswith("NPA manipulation"):
                 entry.delete(0, 'end')
                 entry.insert(0, loaded_entries[question])
 
             entry_widgets[question] = entry
 
-        # -- 4. Bottom Buttons: Submit, Save, Load, etc. --
+        # 4. Bottom control buttons
         bottom_frame = Frame(container_frame)
         bottom_frame.pack(pady=10)
-
-        Button(
-            bottom_frame,
-            text="Submit",
-            command=lambda: self.submit_answers(entry_widgets, self.parameters)
-        ).pack(side='left', padx=5)
-
-        Button(
-            bottom_frame,
-            text="Save input",
-            command=lambda: self.save_input_json(entry_widgets) # , command=lambda: self.save_input_json(entry_widgets, save_as=True)
-        ).pack(side='left', padx=5)
-
-        Button(
-            bottom_frame,
-            text="Save output",
-            command=lambda: self.submit_answers(entry_widgets, self.parameters, save_as=True)
-        ).pack(side='left', padx=5)
-
-        Button(
-            container_frame,
-            text="Load input",
-            command=lambda: self.on_load_answers(questions)
-        ).pack(pady=5)
+        Button(bottom_frame, text="Submit", command=lambda: self.submit_answers(entry_widgets, self.parameters)).pack(side='left', padx=5)
+        Button(bottom_frame, text="Save input", command=lambda: self.save_input_json(entry_widgets)).pack(side='left', padx=5)
+        Button(bottom_frame, text="Save output", command=lambda: self.submit_answers(entry_widgets, self.parameters, save_as=True)).pack(side='left', padx=5)
+        Button(container_frame, text="Load input", command=lambda: self.on_load_answers(questions)).pack(pady=5)
 
         return entry_widgets
+
+    # Utility: Bind mouse wheel scrolling
+    def _bind_mouse_wheel(self, canvas):
+        self.master.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+        self.master.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))  # Linux scroll up
+        self.master.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))   # Linux scroll down
+
+    # Utility: Special question handlers
+    def _handle_special_question_types(self, question, frame_q, entry_widgets, loaded_entries, entry):
+        """Detect question type by prefix and add extra widgets as needed."""
+        if question.startswith("Dipole atoms"):
+            self._add_center_atoms_entry(frame_q, entry_widgets, loaded_entries)
+        elif question.startswith("NPA manipulation"):
+            self._add_sub_atoms_entry(frame_q, entry_widgets, loaded_entries)
+            self._load_entry(entry, loaded_entries, question)
+        elif question.startswith("Ring Vibration atoms"):
+            Button(frame_q, text="Show", command=lambda: self.open_image(r"pictures\rings.png")).pack(side="left", padx=5)
+        elif question.startswith("Stretching Vibration atoms"):
+            self._add_threshold_entry("Stretch Threshold", frame_q, entry_widgets, loaded_entries, default=1600)
+        elif question.startswith("Bending Vibration atoms"):
+            self._add_threshold_entry("Bend Threshold", frame_q, entry_widgets, loaded_entries, default=1600)
+        elif question.startswith("Sterimol atoms"):
+            Button(frame_q, text="Show", command=self.morfeus_visualize).pack(side="left", padx=5)
+            # add a button to drop 
+    
+    def _drop_atoms_sterimol(self, frame, entry_widgets, loaded_entries):
+        Label(frame, text="Drop Atoms:").pack(side="left", padx=5)
+        e = Entry(frame, width=10)
+        e.pack(side="left", padx=5)
+        entry_widgets["Drop_Atoms"] = e
+        self._load_entry(e, loaded_entries, "Drop_Atoms")
+
+    def _add_center_atoms_entry(self, frame, entry_widgets, loaded_entries):
+        Label(frame, text="Center_Atoms:").pack(side="left", padx=5)
+        e = Entry(frame, width=10)
+        e.pack(side="left", padx=5)
+        entry_widgets["Center_Atoms"] = e
+        self._load_entry(e, loaded_entries, "Center_Atoms")
+
+    def _add_sub_atoms_entry(self, frame, entry_widgets, loaded_entries):
+        Label(frame, text="Sub-Atoms:").pack(side="left", padx=5)
+        e = Entry(frame, width=10)
+        e.pack(side="left", padx=5)
+        entry_widgets["Sub-Atoms"] = e
+        self._load_entry(e, loaded_entries, "Sub_Atoms")
+
+    def _add_threshold_entry(self, key, frame, entry_widgets, loaded_entries, default):
+        Label(frame, text="Threshold:").pack(side="left", padx=5)
+        e = Entry(frame, width=10)
+        e.pack(side="left", padx=5)
+        entry_widgets[key] = e
+        if key in loaded_entries:
+            e.delete(0, 'end')
+            e.insert(0, loaded_entries[key])
+        else:
+            e.insert(0, default)
+
+    def _load_entry(self, entry, loaded_entries, key):
+        if key in loaded_entries:
+            entry.delete(0, 'end')
+            entry.insert(0, loaded_entries[key])
+
+    # def build_question_interface(self, parent, questions, loaded_entries=None):
+    #     """
+    #     A helper to build the question interface on the given parent window.
+        
+    #     :param parent: The parent window/frame where we place the GUI.
+    #     :param questions: A list of question strings.
+    #     :param loaded_entries: (Optional) dict of question->answer if we are reloading from file.
+    #     :return: A dictionary of question->Entry widgets for further processing.
+    #     """
+    #     # If no loaded answers were provided, make it an empty dict
+    #     loaded_entries = loaded_entries or {}
+    #     canvas = Canvas(parent, borderwidth=0, highlightthickness=0, width=800, height=600)
+    #     scrollbar = Scrollbar(parent, orient='vertical', command=canvas.yview)
+    #     canvas.configure(yscrollcommand=scrollbar.set)
+    #     canvas.pack(side='left', fill='both', expand=True)
+    #     scrollbar.pack(side='right', fill='y')
+    #     # This Frame holds all question widgets inside the Canvas
+    #     container_frame = Frame(canvas)
+    #     canvas.create_window((0, 0), window=container_frame, anchor="nw")
+    #     # 2. Whenever the size of the inner frame changes, update scrollregion
+    #     def _on_configure(event):
+    #         canvas.configure(scrollregion=canvas.bbox("all"))
+
+    #     container_frame.bind("<Configure>", _on_configure)
+
+    #     canvas.focus_set()
+
+    #     # bind wheel events on the master (whole app)
+    #     self.master.bind_all(
+    #         "<MouseWheel>",
+    #         lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+    #     )
+    #     self.master.bind_all(
+    #         "<Button-4>",  # Linux scroll up
+    #         lambda e: canvas.yview_scroll(-1, "units")
+    #     )
+    #     self.master.bind_all(
+    #         "<Button-5>",  # Linux scroll down
+    #         lambda e: canvas.yview_scroll(1, "units")
+    #     )
+    #     # -- 2. Top buttons: Visualize, Choose Parameters, etc. --
+    #     Button(
+    #         container_frame,
+    #         text="Visualize Basic Structure",
+    #         command=self.visualize_smallest_molecule
+    #     ).pack(padx=10, pady=5)
+
+    #     Button(
+    #         container_frame,
+    #         text="Choose Parameters",
+    #         command=self.open_parameter_window
+    #     ).pack(pady=5)
+
+    #     self.chosen_parameters = Label(container_frame, text=f"Chosen Parameters: {self.parameters}")
+    #     self.chosen_parameters.pack(pady=5)
+
+    #     # -- 3. Build the question/entry pairs --
+    #     entry_widgets = {}
+    #     for i, question in enumerate(questions):
+
+    #         if (re.search(r'threshold', question, re.IGNORECASE)
+    #             or re.search(r'geometric center', question, re.IGNORECASE)):
+    #             continue
+
+    #         frame_q = Frame(container_frame)
+    #         frame_q.pack(pady=5, fill='x')
+    #         label = Label(frame_q, text=question, wraplength=400)
+    #         label.pack(side="left", padx=5)
+    #         entry = Entry(frame_q, width=30)
+    #         entry.pack(side="left", padx=5)
+
+    #         if question.startswith("Dipole atoms"):
+    #             new_center_atoms_label = Label(frame_q, text="Center_Atoms:")
+    #             new_center_atoms_label.pack(side="left", padx=5)
+    #             new_center_atoms_entry = Entry(frame_q, width=10)
+    #             new_center_atoms_entry.pack(side="left", padx=5)
+    #             entry_widgets["Center_Atoms"] = new_center_atoms_entry
+
+    #             if "Center_Atoms" in loaded_entries:
+    #                 new_center_atoms_entry.delete(0, 'end')
+    #                 new_center_atoms_entry.insert(0, loaded_entries["Center_Atoms"])
+
+    #         # If we have a pre-loaded answer for this question, insert it
+    #         if question.startswith("NPA manipulation"):
+    #             # Sub-Atoms label and entry
+    #             sub_atoms_label = Label(frame_q, text="Sub-Atoms:")
+    #             sub_atoms_label.pack(side="left", padx=5)
+    #             sub_atoms_entry = Entry(frame_q, width=10)
+    #             sub_atoms_entry.pack(side="left", padx=5)
+    #             entry_widgets["Sub-Atoms"] = sub_atoms_entry
+
+    #             # Load from loaded_entries if present
+    #             if "Sub_Atoms" in loaded_entries:
+    #                 sub_atoms_entry.delete(0, 'end')
+    #                 sub_atoms_entry.insert(0, loaded_entries["Sub_Atoms"])
+    #             if question in loaded_entries:
+    #                 entry.delete(0, 'end')
+    #                 entry.insert(0, loaded_entries[question])
+
+    #         # --- Ring Vibration special handling ---
+    #         if question.startswith("Ring Vibration atoms"):
+    #             Button(
+    #                 frame_q,
+    #                 text="Show",
+    #                 command=lambda: self.open_image(r"pictures\rings.png")
+    #             ).pack(side="left", padx=5)
+
+    #         # --- Stretch Vibration special handling ---
+    #         if question.startswith("Stretching Vibration atoms"):
+    #             threshold_label = Label(frame_q, text="Threshold:")
+    #             threshold_label.pack(side="left", padx=5)
+    #             stretch_threshold_entry = Entry(frame_q, width=10)
+    #             stretch_threshold_entry.pack(side="left", padx=5)
+    #             entry_widgets["Stretch Threshold"] = stretch_threshold_entry
+
+    #             # Load threshold if present, else default
+    #             if "Stretch Threshold" in loaded_entries:
+    #                 stretch_threshold_entry.delete(0, 'end')
+    #                 stretch_threshold_entry.insert(0, loaded_entries["Stretch Threshold"])
+    #             else:
+    #                 stretch_threshold_entry.insert(0, 1600)
+
+    #         # --- Bending Vibration special handling ---
+    #         if question.startswith("Bending Vibration atoms"):
+    #             threshold_label = Label(frame_q, text="Threshold:")
+    #             threshold_label.pack(side="left", padx=5)
+    #             bend_threshold_entry = Entry(frame_q, width=10)
+    #             bend_threshold_entry.pack(side="left", padx=5)
+    #             entry_widgets["Bend Threshold"] = bend_threshold_entry
+
+    #             # Load threshold if present, else default
+    #             if "Bend Threshold" in loaded_entries:
+    #                 bend_threshold_entry.delete(0, 'end')
+    #                 bend_threshold_entry.insert(0, loaded_entries["Bend Threshold"])
+    #             else:
+    #                 bend_threshold_entry.insert(0, 1600)
+
+    #         if question.startswith("Sterimol atoms"):
+    #             Button(
+    #                 frame_q,
+    #                 text="Show",
+    #                 command=self.morfeus_visualize
+    #             ).pack(side="left", padx=5)
+
+    #         # --- Default: load entry if present ---
+    #         if question in loaded_entries and not question.startswith("NPA_manipulation"):
+    #             entry.delete(0, 'end')
+    #             entry.insert(0, loaded_entries[question])
+
+    #         entry_widgets[question] = entry
+
+    #     # -- 4. Bottom Buttons: Submit, Save, Load, etc. --
+    #     bottom_frame = Frame(container_frame)
+    #     bottom_frame.pack(pady=10)
+
+    #     Button(
+    #         bottom_frame,
+    #         text="Submit",
+    #         command=lambda: self.submit_answers(entry_widgets, self.parameters)
+    #     ).pack(side='left', padx=5)
+
+    #     Button(
+    #         bottom_frame,
+    #         text="Save input",
+    #         command=lambda: self.save_input_json(entry_widgets) # , command=lambda: self.save_input_json(entry_widgets, save_as=True)
+    #     ).pack(side='left', padx=5)
+
+    #     Button(
+    #         bottom_frame,
+    #         text="Save output",
+    #         command=lambda: self.submit_answers(entry_widgets, self.parameters, save_as=True)
+    #     ).pack(side='left', padx=5)
+
+    #     Button(
+    #         container_frame,
+    #         text="Load input",
+    #         command=lambda: self.on_load_answers(questions)
+    #     ).pack(pady=5)
+
+    #     return entry_widgets
 
         
 

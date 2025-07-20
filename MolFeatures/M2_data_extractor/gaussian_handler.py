@@ -46,7 +46,12 @@ def feather_file_handler(feather_file: str) -> List[Any]:
         xyz[['x', 'y', 'z']] = xyz[['x', 'y', 'z']].astype(float)
     xyz = xyz.dropna()
     # Extract energy value as single-row DataFrame
-    ev = pd.DataFrame({'energy': [float(data.iloc[1, 1])]})
+    try:
+        ev = pd.DataFrame({'energy': [float(data.iloc[1, 1])]})
+    except Exception as e:
+        print(f"Error extracting energy value: {e}")
+        ev = pd.DataFrame({'energy': [None]})
+
     # Extract charge DataFrames
     nbo_charge_df = data.iloc[:, 10:11].dropna().rename(columns={10: 'charge'}).astype(float).reset_index(drop=True)
     hirshfeld_charge_df = data.iloc[:, 11:12].dropna().rename(columns={11: 'charge'}).astype(float).reset_index(drop=True)

@@ -208,7 +208,7 @@ def get_data_for_ring_vibration(info_df: pd.DataFrame, vibration_array_list: Lis
 
 def get_filter_ring_vibration_df(data_df: pd.DataFrame, prods_threshhold: float = 0.1,
                                  frequency_min_threshhold: float = 1600,
-                                 frequency_max_threshhold: float = 1780) -> pd.DataFrame:
+                                 frequency_max_threshhold: float = 1700) -> pd.DataFrame:
     # Filter based on product value
     filter_prods = (abs(data_df[XYZConstants.RING_VIBRATION_INDEX.value[0]]) > prods_threshhold) & \
                    (data_df[XYZConstants.RING_VIBRATION_INDEX.value[0]] != 0)

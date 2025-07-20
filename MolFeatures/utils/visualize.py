@@ -76,7 +76,7 @@ def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params
         C='black', F='green', H='white', N='blue', O='red', P='orange',
         S='yellow', Cl='green', Br='brown', I='purple',
         Ni='blue', Fe='red', Cu='orange', Zn='yellow', Ag='grey',
-        Au='gold', Si='grey', B='pink', Pd='green'
+        Au='gold', Si='grey', B='pink', Pd='green',Co='pink',
     )
 
     # coordinates and atoms
@@ -85,6 +85,7 @@ def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params
     ids = xyz_df.index.tolist()
 
     # radii
+    print(f"🔥 atoms: {atoms!r}")
     try:
         radii = [atomic_radii[a] for a in atoms]
     except TypeError:
@@ -458,8 +459,7 @@ import pandas as pd
 
 def show_single_molecule(molecule_name,xyz_df=None,dipole_df=None, origin=None,sterimol_params=None,color='black'):
     if xyz_df is None:
-        xyz_df=get_df_from_file(choose_filename()[0])
-   
+        xyz_df=hf.get_df_from_file(hf.choose_filename()[0])
     # Create a subplot with 3D scatter plot
     data_main, annotations_id_main, updatemenus = plot_interactions(xyz_df,color,dipole_df=dipole_df, origin=origin,sterimol_params=sterimol_params)
 
@@ -526,7 +526,7 @@ atom_colors = {
 }
 
 
-def plot_b1_visualization(rotated_plane, extended_df, n_points=100, title="Rotated Plane Visualization"):
+def plot_b1_visualization(rotated_plane, edited_coordinates_df, n_points=100, title="Rotated Plane Visualization"):
     """
     Visualize the rotated plane by plotting:
       - Complete circles (each generated from a substituent),
@@ -580,16 +580,25 @@ def plot_b1_visualization(rotated_plane, extended_df, n_points=100, title="Rotat
     angle_diff_deg = np.degrees(angle_diff)
     
     plt.figure(figsize=(8, 8))
-    
+
+    centers = [
+    (atom_idx, row['atom'], row['y'], row['z'], row['radius'])
+    for atom_idx, row in edited_coordinates_df.iterrows()
+]
     # Plot complete circles.
     n_total = rotated_plane.shape[0]
     n_circles = n_total // n_points
     for i in range(n_circles):
-        circle_points = rotated_plane[i * n_points:(i + 1) * n_points, :]
-        # Close the circle by appending the first point to the end
-        circle_points = np.vstack([circle_points, circle_points[0]])
-        plt.plot(circle_points[:, 0], circle_points[:, 1], color='cadetblue', linewidth=1.5)
-    
+        pts = rotated_plane[i * n_points:(i + 1) * n_points, :]
+        closed = np.vstack([pts, pts[0]])  # close circle
+        atom_idx, atom_type, y0, z0, radius = centers[i]
+        color = atom_colors.get(atom_type, 'black')
+        plt.plot(closed[:, 0], closed[:, 1], color=color, lw=2)
+        offset = 0  # no offset unless you want
+        mean_y, mean_z = pts.mean(axis=0)
+        plt.text(mean_y + offset, mean_z + offset, str(atom_idx),
+                 ha='center', va='center', fontsize=9, color='black')
+        
     # Plot dashed extreme lines
     plt.axvline(x=max_x, color='darkred', linestyle='dashed')
     plt.axvline(x=min_x, color='darkred', linestyle='dashed')
@@ -606,7 +615,7 @@ def plot_b1_visualization(rotated_plane, extended_df, n_points=100, title="Rotat
     
     # Draw the B5 arrow in red
     plt.arrow(0, 0, b5_point[0], b5_point[1], head_width=0.1, length_includes_head=True, color="#CD3333")
-    
+
     # Annotate B1 and B5 values
     plt.text(b1_coords[0] * 0.5, b1_coords[1] * 0.5, f"B1\n{min_val:.2f}", 
              fontsize=12, ha='center', va='bottom', fontweight='bold')
@@ -623,7 +632,7 @@ def plot_b1_visualization(rotated_plane, extended_df, n_points=100, title="Rotat
     mid_angle = (min(angle_b1, angle_b5) + max(angle_b1, angle_b5)) / 2
     plt.text(0.8 * np.cos(mid_angle), 0.8 * np.sin(mid_angle), f"{angle_diff_deg:.1f}°",
              fontsize=12, ha='center', va='center', fontweight='bold')
-    
+   
     plt.title(title)
     plt.xlabel("X")
     plt.ylabel("Y")
@@ -735,6 +744,7 @@ def plot_L_B5_plane(edited_coordinates_df, sterimol_df, n_points=100, title="L�
             fontweight='bold',
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=color, lw=1)
         )
+   
 
     # Angle annotation at bottom center
     if angle is not None:

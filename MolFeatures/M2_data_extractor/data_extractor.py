@@ -37,7 +37,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 class Molecule:
-    def __init__(self, molecule_feather_filename, parameter_list=None, new_xyz_df=None):
+    def __init__(self, molecule_feather_filename, parameter_list=None, new_xyz_df=None , threshold: float = 1.82):
         """
         Initialize a Molecule object with structural and computational data.
         
@@ -46,6 +46,7 @@ class Molecule:
             parameter_list (list, optional): Precomputed parameters list. Defaults to None.
             new_xyz_df (DataFrame, optional): Alternative coordinates DataFrame. Defaults to None.
         """
+        self.threshold = threshold  # Distance threshold for connectivity
         # Initialize core properties first
         self._initialize_core_properties(molecule_feather_filename, new_xyz_df)
         
@@ -84,7 +85,7 @@ class Molecule:
         self.coordinates_array = np.array(self.xyz_df[['x', 'y', 'z']].astype(float))
         
         # Connectivity and atom typing
-        self.bonds_df = extract_connectivity(self.xyz_df)
+        self.bonds_df = extract_connectivity(self.xyz_df, threshold_distance=self.threshold)
         self.atype_list = nob_atype(self.xyz_df, self.bonds_df)
 
     def _initialize_computational_data(self):
@@ -248,13 +249,14 @@ class Molecule:
             visualize.show_single_molecule(molecule_name=self.molecule_name, xyz_df=self.xyz_df, dipole_df=self.gauss_dipole_df,origin=[0,0,0])
 
 
-    def process_sterimol_atom_group(self, atoms, radii, sub_structure=True, drop_atoms=None,visualize_bool=None) -> pd.DataFrame:
+    def process_sterimol_atom_group(self, atoms, radii, sub_structure=True, drop_atoms=None,visualize_bool=None, mode='all') -> pd.DataFrame:
 
-        connected = get_molecule_connections(self.bonds_df, atoms[0], atoms[1])
-        
-        return get_sterimol_df(self.xyz_df, self.bonds_df, atoms, connected, radii, sub_structure=sub_structure, drop_atoms=drop_atoms, visualize_bool=visualize_bool)
+        # connected = get_molecule_connections(self.bonds_df, atoms[0], atoms[1], mode=mode)
+        connected = None
 
-    def get_sterimol(self, base_atoms: Union[None, Tuple[int, int]] = None, radii: str = 'CPK',sub_structure=True, drop_atoms=None,visualize_bool=None) -> pd.DataFrame:
+        return get_sterimol_df(self.xyz_df, self.bonds_df, atoms, connected, radii, sub_structure=sub_structure, drop_atoms=drop_atoms, visualize_bool=visualize_bool, mode=mode)
+
+    def get_sterimol(self, base_atoms: Union[None, Tuple[int, int]] = None, radii: str = 'CPK', sub_structure=True, drop_atoms=None, visualize_bool=None, mode='all') -> pd.DataFrame:
         """
         Returns a DataFrame with the Sterimol parameters calculated based on the specified base atoms and radii.
 
@@ -274,12 +276,12 @@ class Molecule:
         
         if isinstance(base_atoms[0], list):
             # If base_atoms is a list of lists, process each group individually and concatenate the results
-            sterimol_list = [self.process_sterimol_atom_group(atoms, radii, sub_structure=sub_structure, drop_atoms=drop_atoms,visualize_bool=visualize_bool) for atoms in base_atoms]
+            sterimol_list = [self.process_sterimol_atom_group(atoms, radii, sub_structure=sub_structure, drop_atoms=drop_atoms,visualize_bool=visualize_bool, mode=mode) for atoms in base_atoms]
             sterimol_df = pd.concat(sterimol_list, axis=0)
 
         else:
             # If base_atoms is a single group, just process that group
-            sterimol_df = self.process_sterimol_atom_group(base_atoms, radii,sub_structure=sub_structure, drop_atoms=drop_atoms,visualize_bool=visualize_bool)
+            sterimol_df = self.process_sterimol_atom_group(base_atoms, radii,sub_structure=sub_structure, drop_atoms=drop_atoms,visualize_bool=visualize_bool, mode=mode)
         return sterimol_df
 
 
@@ -547,7 +549,7 @@ class Molecule:
                 try:
                     xyz_df = self.get_coordination_transformation_df(atoms)
                     origin = xyz_df[['x', 'y', 'z']].iloc[atoms[0]].values
-                    print(xyz_df.head(),atoms)
+                  
                 except Exception as e:
                     xyz_df=self.xyz_df
                     print(f'Error in get_dipole_gaussian_df_single: {e}')
@@ -763,10 +765,10 @@ class Molecule:
     def get_bend_vibration_single(self, atom_pair: List[int], threshold: float = 1300)-> pd.DataFrame:
         # Create the adjacency dictionary for the pair of atoms
         adjacency_dict = create_adjacency_dict_for_pair(self.bonds_df, atom_pair)
+  
         center_atom_exists = find_center_atom(atom_pair[0], atom_pair[1], adjacency_dict)
         if not center_atom_exists:
-            print(f'Bend Vibration - Atoms do not share a center in molecule {self.molecule_name} - for atoms {atom_pair} check atom numbering in molecule')
-            return None
+            raise ValueError(f'Bend Vibration - Atoms do not share a center in molecule {self.molecule_name} - for atoms {atom_pair} check atom numbering in molecule')
         else:
             # Create the extended DataFrame for the vibration modes
             extended_df = extended_df_for_vib(self.vibration_dict, self.info_df, atom_pair, threshold)
@@ -817,7 +819,7 @@ class Molecule:
 
 class Molecules():
     
-    def __init__(self,molecules_dir_name, renumber=False):
+    def __init__(self,molecules_dir_name, renumber=False, threshold=1.82):
         self.molecules_path=os.path.abspath(molecules_dir_name)
         os.chdir(self.molecules_path) 
         self.molecules=[]
@@ -826,7 +828,7 @@ class Molecules():
         for feather_file in os.listdir(): 
             if feather_file.endswith('.feather'):
                 try:
-                    self.molecules.append(Molecule(feather_file))
+                    self.molecules.append(Molecule(feather_file, threshold=threshold))
                     self.success_molecules.append(feather_file)
                 except Exception as e:
                     self.failed_molecules.append(feather_file)
@@ -852,7 +854,7 @@ class Molecules():
         self.molecules = [self.molecules[i] for i in indices]
         self.molecules_names = [self.molecules_names[i] for i in indices]
 
-    def get_sterimol_dict(self,atom_indices, radii='CPK',sub_structure=True, drop_atoms=None,visualize_bool=None):
+    def get_sterimol_dict(self,atom_indices, radii='CPK',sub_structure=True, drop_atoms=None,visualize_bool=None,mode='all'):
         """
         Returns a dictionary with the Sterimol parameters calculated based on the specified base atoms.
 
@@ -879,7 +881,8 @@ class Molecules():
         
         for molecule in self.molecules:
             # try:
-                sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii, sub_structure=sub_structure, drop_atoms=drop_atoms, visualize_bool=visualize_bool)
+            #     print(f'Processing Sterimol for {molecule.molecule_name}')
+                sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii, sub_structure=sub_structure, drop_atoms=drop_atoms, visualize_bool=visualize_bool, mode=mode)
             # except Exception as e:
             #     print(f'Error: {molecule.molecule_name} sterimol could not be processed: {e}')
             #     #log_exception("get_sterimol_dict")
@@ -1246,7 +1249,7 @@ class Molecules():
         # Use parameters explicitly
         radii = parameters.get('Radii', parameters.get('Radii'))
         iso = parameters.get('Isotropic', parameters.get('Isotropic'))
- 
+
 
         for k, v in answers.items():
             if v != '':
@@ -1299,18 +1302,18 @@ class Molecules():
                 #log_exception("get_molecules_comp_set_app – bend vibration")
 
         if answers['npa']:
-            # try:
-                print(answers['npa'], answers.get('sub_atoms', []))
+            try:
+               
                 res_df = pd.concat([
                     res_df,
                     dict_to_horizontal_df(
                         self.get_npa_dict(answers['npa'], sub_atoms=answers.get('sub_atoms', []))
                     )
                 ], axis=1)
-            # except Exception:
-            #     print(f"Error processing NPA for {self.molecules[0].molecule_name}")
-            #     pass
-                #log_exception("get_molecules_comp_set_app – NPA")
+            except Exception:
+                print(f"Error processing NPA for {self.molecules[0].molecule_name}")
+                pass
+                log_exception("get_molecules_comp_set_app – NPA")
 
         if answers['dipole']:
             try:
@@ -1328,18 +1331,7 @@ class Molecules():
         if answers['charges']:
             try:
                 try:
-                    charge_dict = self.get_charge_df_dict(answers['charges'])
-                    
-                    # Debug information to check charge types and columns
-                    if charge_dict:
-                        sample_molecule = next(iter(charge_dict.values()))
-                        if isinstance(sample_molecule, dict):
-                            print(f"Available charge types: {list(sample_molecule.keys())}")
-                            for charge_type, df in sample_molecule.items():
-                                print(f"Columns in {charge_type} charge: {df.columns.tolist()}")
-                        else:
-                            print(f"Charge dataframe columns: {sample_molecule.columns.tolist()}")
-                    
+                    charge_dict = self.get_charge_df_dict(answers['charges'])                 
                     res_df = pd.concat([
                         res_df,
                         charge_dict_to_horizontal_df(charge_dict)
@@ -1370,7 +1362,7 @@ class Molecules():
                 res_df = pd.concat([
                     res_df,
                     dict_to_horizontal_df(
-                        self.get_sterimol_dict(answers['sterimol'], radii=radii)
+                        self.get_sterimol_dict(answers['sterimol'], radii=radii, drop_atoms=answers.get('drop_atoms', []))
                     )
                 ], axis=1)
             # except Exception as  e:
@@ -1408,12 +1400,14 @@ class Molecules():
             for molecule in self.molecules:
                 # grab the one‐row DataFrame of polarizabilities
                 info = molecule.polarizability_df.copy().iloc[[0]]
+               
                 # name the index by molecule name
                 info.index = [molecule.molecule_name]
                 # add the energy as a new column
                 info['energy'] = molecule.energy_value.values
+                
                 rows.append(info)
-
+          
             # now concatenate all rows vertically
             polarizability_df_concat = pd.concat(rows, axis=0)
             # remove nan values
@@ -1422,7 +1416,7 @@ class Molecules():
             polarizability_df_concat = (
                 polarizability_df_concat
                 .reset_index()
-                .rename(columns={'index': 'molecule'})
+                .set_index('index')
             )
             res_df = pd.concat([res_df,polarizability_df_concat],axis=1)
 

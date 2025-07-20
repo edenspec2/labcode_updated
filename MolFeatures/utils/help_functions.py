@@ -280,6 +280,8 @@ def adjust_indices(element):
         return [adjust_indices(sub_element) for sub_element in element]
     elif isinstance(element, (int, np.integer)):
         return int(element) - 1
+    elif isinstance(element, float) and element.is_integer():
+        return int(element) - 1
     else:
         raise ValueError(f"Unsupported element type: {type(element)} — value: {element}")
 
@@ -942,7 +944,7 @@ def remove_atom_bonds(bonded_atoms_df,atom_remove='H'):
 
 
 
-def extract_connectivity(xyz_df, threshhold_distance=1.82, metal_atom='Pd'):
+def extract_connectivity(xyz_df, threshold_distance=1.82, metal_atom='Pd'):
     coordinates = np.array(xyz_df[['x', 'y', 'z']].values)
     atoms_symbol = np.array(xyz_df['atom'].values)
     distances = pdist(coordinates)
@@ -970,7 +972,7 @@ def extract_connectivity(xyz_df, threshhold_distance=1.82, metal_atom='Pd'):
             remove_flag = True
 
         # If not a Pd bond, apply strict threshold
-        if (atom1 != metal_atom and atom2 != metal_atom) and (float(dist) >= threshhold_distance or float(dist) == 0):
+        if (atom1 != metal_atom and atom2 != metal_atom) and (float(dist) >= threshold_distance or float(dist) == 0):
             remove_flag = True
 
         # Allow Pd bonds up to 2.6 Å
