@@ -1,14 +1,6 @@
 import numpy as np
 import os
-import sys
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-try:
-    from ..utils import help_functions
-except:
-    from utils import help_functions
 
-import igraph as ig
-import pandas as pd
 def count_0(x):
     """Count the number of leading zeros in a pandas Series before the first non-zero entry."""
     return (x.cumsum() == 0).sum()
@@ -295,7 +287,9 @@ def direction_atoms_for_sterimol(bonds_df,base_atoms)->list: #help function for 
                 break
     return base_atoms_copy
 
-
+from ..utils import help_functions
+import igraph as ig
+import pandas as pd
 
 def get_molecule_connections(bonds_df,source,direction):
     graph=ig.Graph.DataFrame(edges=bonds_df,directed=True)

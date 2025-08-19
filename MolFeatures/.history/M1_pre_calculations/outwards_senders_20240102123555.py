@@ -1,15 +1,9 @@
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 #lib imports
-try:
-
-    from ..utils.constants import LinuxCommands
-    from ..utils.file_handlers import *
-
-except ImportError:
-    from utils.constants import LinuxCommands
-    from utils.file_handlers import *
+from ..utils.constants import LinuxCommands
+from ..utils.file_handlers import *
 
 from typing import List, Optional
 

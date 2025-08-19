@@ -1793,7 +1793,7 @@ def main():
         "plotly",
         "customtkinter",
         "chardet",
-        "torch",    
+        "torch",
         "matplotlib",
         "rmsd",
         "networkx",

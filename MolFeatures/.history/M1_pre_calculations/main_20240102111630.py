@@ -1,14 +1,8 @@
 import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-try:
-    from ..utils.constants import *
-    from ..utils.file_handlers import *
-    from ..M1_pre_calculations.outwards_senders import *
-except ImportError:
-    from utils.constants import *
-    from utils.file_handlers import *
-    from M1_pre_calculations.outwards_senders import *
+
+from ..utils.constants import *
+from ..utils.file_handlers import *
+from ..M1_pre_calculations.outwards_senders import *
 
 from typing import List, Tuple
 

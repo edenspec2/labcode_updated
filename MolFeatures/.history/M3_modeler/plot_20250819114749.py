@@ -17,7 +17,6 @@ from adjustText import adjust_text
 from tkinter import ttk
 import sys 
 import os 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from .modeling import fit_and_evaluate_single_combination_regression
 except ImportError as e:

@@ -10,6 +10,7 @@ packages = [
     "python-igraph",
     "XlsxWriter",
     "dgl",
+    "ipywidgets",
     "pyarrow",
     "plotly",
     "customtkinter",
@@ -32,13 +33,15 @@ packages = [
     "multiprocess",
     'random',
     'shap',
+    'pymc'
 ]
 
 # (Optional) Map any package name to its import name if they differ
 # For example, "PIL" -> "PIL" or "python-igraph" -> "igraph"
 import_name_map = {
     "PIL": "PIL",
-    "python-igraph": "igraph"
+    "python-igraph": "igraph",
+    "morfeus-ml": "morfeus"
     # Add more if needed
 }
 
