@@ -6,6 +6,7 @@ try:
     pkg_dir = os.path.dirname(os.path.abspath(__file__))
     # 2) Compute your project root (the parent of MolFeatures/)
     project_root = os.path.dirname(pkg_dir)
+    project_root = os.path.join(project_root, 'MolFeatures')
     print(f'Starting at {project_root}')
     # 3) If it’s not already on sys.path, insert it at the front
     if project_root not in sys.path:
@@ -44,7 +45,7 @@ try:
         from .M2_data_extractor.cube_sterimol import cube_many
         from .M2_data_extractor.sterimol_standalone import Molecules_xyz
     except ImportError:
-        print('Relative Imports Failed ^--------------^'   )
+        print('Relative Imports Failed ^--------------^')
         import utils.help_functions as help_functions
         import utils.file_handlers as file_handlers
         from M2_data_extractor.data_extractor import Molecules
@@ -714,6 +715,19 @@ class MoleculeApp:
 
         return entry_widgets
 
+    def _visualize_dipole(self):
+            ## open a window to enter indices
+        def get_indices():
+            indices=askstring("Input", "Enter the indices for the dipole atoms transformation.")
+            indices = convert_to_list_or_nested_list(indices)
+            return indices
+        Indices = get_indices()
+        
+        if self.molecules is not None:
+            # print(self.molecules,len(self.molecules.molecules))
+            self.molecules.molecules[0].get_dipole_gaussian_df(Indices,visualize_bool=True)
+
+
     # Utility: Bind mouse wheel scrolling
     def _bind_mouse_wheel(self, canvas):
         self.master.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
@@ -725,6 +739,7 @@ class MoleculeApp:
         """Detect question type by prefix and add extra widgets as needed."""
         if question.startswith("Dipole atoms"):
             self._add_center_atoms_entry(frame_q, entry_widgets, loaded_entries)
+            Button(frame_q, text="Show", command=self._visualize_dipole).pack(side="left", padx=5)
         elif question.startswith("NPA manipulation"):
             self._add_sub_atoms_entry(frame_q, entry_widgets, loaded_entries)
             self._load_entry(entry, loaded_entries, question)
@@ -1073,7 +1088,7 @@ class MoleculeApp:
         iso= self.parameters['Isotropic'] if 'Isotropic' in self.parameters else False
         
         # Example: calling a method from self.molecules (stub for demonstration)
-        comp_set = self.molecules.get_molecules_comp_set_app(answers, parameters=self.parameters)
+        comp_set = self.molecules.get_molecules_features_set(answers, parameters=self.parameters)
         self.show_result(f"Extracted Features: {comp_set}")
 
         # For demonstration, just print
@@ -1167,10 +1182,17 @@ class MoleculeApp:
         options_window.title("Conversion Options")
         options_window.grab_set()  # Make the window moda
         gaussian_options = {
-            'functionals': ['HF','b97d3', 'B3LYP', 'PBE', 'M062x', 'CAM-B3LYP', 'MP2', 'CCSD'],
-            'basis_sets': ['def2tzvp','STO-3G', '3-21G', '6-31G', '6-31G(d) int=sg1', '6-31G(d,p)','6-31G(2df,p)','6-31+G(d,p)', '6-311G(d,p)', '6-311+G(d,p)', '6-311++G(d,p)', '6-311++G(2d,p)', '6-311++G(3df,2p)'],
-            'tasks': ['sp', 'opt']
+            'functionals': [
+                'HF','b97d3', 'B3LYP', 'PBE', 'M062x', 'CAM-B3LYP', 'MP2', 'CCSD'
+            ],
+            'basis_sets': [
+                'def2tzvp', 'STO-3G', '3-21G', '6-31G', '6-31G(d) int=sg1', '6-31G(d,p)', '6-31G(2df,p)',
+                '6-31+G(d,p)', '6-311G(d,p)', '6-311+G(d,p)', '6-311++G(d,p)', '6-311++G(2d,p)', '6-311++G(3df,2p)'
+            ],
+            'tasks': [
+                'sp', 'opt'] # , 'freq', 'nmr', 'ts', 'irc', 'opt+freq', 'opt+freq+nmr'
         }
+
 
         # Create OptionMenus for functional, basis_set, and task
         self.functional_var = StringVar(value='B3LYP')
@@ -1206,31 +1228,52 @@ class MoleculeApp:
         customtkinter.CTkButton(options_window, text="Create New Directory", command=self.create_new_directory).pack()
 
     def convert_xyz_to_com(self):
-        folder_selected = filedialog.askdirectory()
-        if folder_selected:
-            os.chdir(folder_selected)
-            # Loop over each .xyz file in the selected directory
-            for filename in os.listdir(folder_selected):
-                if filename.endswith('.xyz'):
-                    # Your xyz_to_gaussian_file function goes here
-                    file_handlers.write_gaussian_file(filename,
-                                         self.functional_var.get(),
-                                         self.basisset_var.get(),
-                                         self.charge_var.get(),
-                                         self.title_var.get(),
-                                         self.task_var.get(),
-                                         self.freeze_var.get())
+        folder_selected = filedialog.askdirectory(title="Select folder with XYZ files")
+        if not folder_selected:
+            return
 
-                    # self.show_result(f"Converting {filename} with {self.functional_var.get()} / {self.basisset_var.get()} ...")
+        output_folder = filedialog.askdirectory(title="Select output folder for .com files")
+        if not output_folder:
+            return
 
-                    try: 
-                        com_filename = filename.replace('.xyz', '.com')
-                        shutil.move(com_filename, self.new_directory_path)
-                        self.show_result(f"Moving {com_filename} to {self.new_directory_path} ...")
-                    except AttributeError:
-                        self.show_result(f"Failed to move {com_filename} to {self.new_directory_path} ...")
-                    
-            # move all com files to a new directory called com.
+        os.chdir(folder_selected)
+        xyz_files = [f for f in os.listdir(folder_selected) if f.endswith('.xyz')]
+        if not xyz_files:
+            self.show_result("No .xyz files found in the selected directory.")
+            return
+
+        n_success, n_fail = 0, 0
+
+        for filename in xyz_files:
+            try:
+                # Fetch user-selected options from UI variables
+                functional = self.functional_var.get()
+                basis = self.basisset_var.get()
+                charge = self.charge_var.get()
+                title = self.title_var.get()
+                task = self.task_var.get()
+                freeze = self.freeze_var.get() if hasattr(self, "freeze_var") else None
+         
+
+                # Your actual file writing function (adapt as needed)
+                file_handlers.write_gaussian_file(
+                    filename, functional, basis, charge, title, task, freeze
+                )
+
+                com_filename = filename.replace('.xyz', '.com')
+                output_path = os.path.join(output_folder, com_filename)
+
+                shutil.move(com_filename, output_path)
+                self.show_result(f"Converted and moved: {com_filename}")
+                n_success += 1
+            except Exception as e:
+                self.show_result(f"Failed for {filename}: {e}")
+                n_fail += 1
+
+        self.show_result(f"Done! {n_success} files converted, {n_fail} failed.")
+        messagebox.showinfo("Conversion complete", f"{n_success} files converted successfully.\n{n_fail} files failed.")
+
+
             
 
 
@@ -1434,7 +1477,7 @@ class MoleculeApp:
         elif method == "get_bending_dict":
             self.get_bending(params)
         elif method == "get_molecules_comp_set":
-            self.get_molecules_comp_set_app()
+            self.get_molecules_features_set()
 
     def use_command_line(self, params):
         try:
@@ -1628,7 +1671,7 @@ def load_molecules(molecules_dir_name, renumber=False):
     return Molecules(molecules_dir_name, renumber=renumber)
 
 def interactive_cli(molecules):
-    exclude_methods = ['get_molecules_comp_set_app', 'visualize_smallest_molecule_morfeus','visualize_smallest_molecule', 'filter_molecules', 'renumber_molecules']
+    exclude_methods = ['get_molecules_features_set', 'visualize_smallest_molecule_morfeus','visualize_smallest_molecule', 'filter_molecules', 'renumber_molecules']
     methods = [method for method in dir(molecules) if callable(getattr(molecules, method)) and not method.startswith("__") and method not in exclude_methods]
     
     while True:
@@ -1760,7 +1803,9 @@ def main():
         "seaborn",
         'PIL',
         'morfeus-ml',
-        'scipy'
+        'scipy',
+        'ipywidgets',
+        'shap',
     ]
 
         def install(package):

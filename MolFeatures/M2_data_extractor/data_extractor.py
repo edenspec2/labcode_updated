@@ -35,6 +35,35 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 
+def show_highly_correlated_pairs(df, corr_thresh=0.95):
+    """
+    Display all feature pairs with |correlation| above corr_thresh,
+    and highlight those with perfect correlation (|corr|=1).
+    """
+    corr = df.corr()
+    pairs = []
+    features = corr.columns
+    for i in range(len(features)):
+        for j in range(i+1, len(features)):
+            cval = corr.iloc[i, j]
+            if abs(cval) > corr_thresh:
+                is_perfect = abs(cval) == 1.0
+                pairs.append((features[i], features[j], cval, is_perfect))
+    # Sort: perfect correlations first, then by absolute correlation
+    pairs_sorted = sorted(pairs, key=lambda x: (not x[3], -abs(x[2])))
+    if pairs_sorted:
+        import pandas as pd
+        table = pd.DataFrame(pairs_sorted, columns=["Feature 1", "Feature 2", "Correlation", "Perfect"])
+        print("\nPerfectly correlated feature pairs (|corr|=1):")
+        print(table[table["Perfect"]])
+        print("\nOther highly correlated pairs:")
+        print(table[~table["Perfect"]])
+        return table
+    else:
+        print(f"No pairs with |correlation| > {corr_thresh}")
+        return None
+
+
 
 class Molecule:
     def __init__(self, molecule_feather_filename, parameter_list=None, new_xyz_df=None , threshold: float = 1.82):
@@ -81,26 +110,47 @@ class Molecule:
     def _initialize_structural_properties(self):
         """Set up structural components"""
         # XYZ coordinates
-        self.xyz_df = self.parameter_list[0]['standard_orientation_df']
-        self.coordinates_array = np.array(self.xyz_df[['x', 'y', 'z']].astype(float))
-        
-        # Connectivity and atom typing
-        self.bonds_df = extract_connectivity(self.xyz_df, threshold_distance=self.threshold)
-        self.atype_list = nob_atype(self.xyz_df, self.bonds_df)
+        try:
+            self.xyz_df = self.parameter_list[0]['standard_orientation_df']
+            self.coordinates_array = np.array(self.xyz_df[['x', 'y', 'z']].astype(float))
+            
+            # Connectivity and atom typing
+            self.bonds_df = extract_connectivity(self.xyz_df, threshold_distance=self.threshold)
+            self.atype_list = nob_atype(self.xyz_df, self.bonds_df)
+        except Exception as e:
+            print(f"Warning: Error initializing structural properties for {getattr(self, 'molecule_name', 'Unknown')}: {e}")
+            # Set default values for missing properties
+            self.xyz_df = pd.DataFrame(columns=['atom', 'x', 'y', 'z'])
+            self.coordinates_array = np.array([])
+            self.bonds_df = pd.DataFrame(columns=['atom1', 'atom2'])
+            self.atype_list = []
 
     def _initialize_computational_data(self):
         """Initialize computed properties from calculations"""
-        # Electronic properties
-        self.gauss_dipole_df = self.parameter_list[0]['dipole_df']
-        self.polarizability_df = self.parameter_list[0]['pol_df']
+        try:
+            self.gauss_dipole_df = self.parameter_list[0].get('dipole_df', pd.DataFrame())
+            self.polarizability_df = self.parameter_list[0].get('pol_df', pd.DataFrame())
+            
+            # General information
+            self.info_df = self.parameter_list[0].get('info_df', pd.DataFrame())
+            
+            # Charge and vibrational data
+            self.charge_dict = self.parameter_list[2] if len(self.parameter_list) > 2 else {}
+            self.vibration_dict = self.parameter_list[1] if len(self.parameter_list) > 1 else {}
+            self.vibration_mode_dict = build_vibration_mode_dict(self.vibration_dict, self.info_df)
+
+            # Energy values
+            self.energy_value = self.parameter_list[0].get('energy_df', pd.DataFrame()) if len(self.parameter_list) > 2 else pd.DataFrame()
         
-        # Charge and vibrational data
-        self.charge_dict = self.parameter_list[2]
-        self.vibration_dict = self.parameter_list[1]
-        
-        # General information
-        self.info_df = self.parameter_list[0]['info_df']
-        self.energy_value = self.parameter_list[3]
+        except Exception as e:
+            print(f"Warning: Error initializing computational data for {getattr(self, 'molecule_name', 'Unknown')}: {e}")
+            # Set default values for missing properties
+            if not hasattr(self, 'gauss_dipole_df'): self.gauss_dipole_df = pd.DataFrame()
+            if not hasattr(self, 'polarizability_df'): self.polarizability_df = pd.DataFrame()
+            if not hasattr(self, 'charge_dict'): self.charge_dict = {}
+            if not hasattr(self, 'vibration_dict'): self.vibration_dict = {}
+            if not hasattr(self, 'info_df'): self.info_df = pd.DataFrame()
+            if not hasattr(self, 'energy_value'): self.energy_value = pd.DataFrame()
 
     def renumber_atoms(self, renumbering_dict):
         """
@@ -541,7 +591,7 @@ class Molecule:
         try:
             dipole_df = dipole_df.rename(index={0: f'dipole_{atoms[0]}-{atoms[1]}-{atoms[2]}'})
         except Exception as e:
-            dipole_df = dipole_df.rename(index={0: f'dipole_symmetry_base'})
+            dipole_df = dipole_df.rename(index={0: f'dipole_gaussian_base'})
         if visualize_bool:
             if atoms or atoms ==[]:   
                 atoms = adjust_indices(atoms)
@@ -634,13 +684,15 @@ class Molecule:
         if check_pair_in_bonds(atom_pair, self.bonds_df) == True:
             try:
                 extended_vib_df = calc_vibration_dot_product_from_pairs(
-                    self.coordinates_array, self.vibration_dict, atom_pair, self.info_df,threshold=threshold
+                    self.coordinates_array, self.vibration_dict, atom_pair, self.info_df,threshold=threshold,vibration_mode_dict=self.vibration_mode_dict
                 )
             except TypeError:
                 print(f'Strech Vibration Error: no vibration array for the molecule {self.molecule_name} for {atom_pair} - check atom numbering in molecule')
                 return None
-            vibration_df, idx = calc_max_frequency_gen_vibration(extended_vib_df)
-            return vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
+            # print(extended_vib_df)
+            # vibration_df, idx = calc_max_frequency_gen_vibration(extended_vib_df)
+            # return vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
+            return extended_vib_df
         else:
             print(f'Strech Vibration Error: the following bonds do not exist-check atom numbering in molecule: \n {self.molecule_name} for {atom_pair} \n')
             
@@ -650,6 +702,11 @@ class Molecule:
             
             return df
     
+    ### check if all frequencies are the same for different vibrations and remove, check what atoms are moving the most
+    ## return what atoms are moving the most 
+    ### split all the vibrations to symmetric and asymmetric
+    ## if you found symmetric look for the asymmetric
+
     def get_stretch_vibration(self, atom_pairs: List[int],threshold=3000)-> pd.DataFrame:
         """
         Parameters
@@ -669,20 +726,19 @@ class Molecule:
          Frequency  1689.59450]
 
         """
-        
-      
         if isinstance(atom_pairs[0], list):
             # If atom_pairs is a list of lists, process each pair individually and concatenate the results
             vibration_list = [self.get_stretch_vibration_single(pair,threshold) for pair in atom_pairs]
             # Filter out None results
             vibration_list = [vib for vib in vibration_list if vib is not None]
             vibration_df = pd.concat(vibration_list, axis=0)
-            return vibration_df
+            
         else:
             # If atom_pairs is a single pair, just process that pair
             vibration_df=self.get_stretch_vibration_single(atom_pairs,threshold)
-            
-            return vibration_df
+        
+        # go over df to check if there are equal frequencies and remove them, saving the
+        return vibration_df
         
     def get_ring_vibrations(self, ring_atom_indices: List[List[int]]) -> pd.DataFrame:
         """
@@ -880,13 +936,13 @@ class Molecules():
         sterimol_dict={}
         
         for molecule in self.molecules:
-            # try:
-            #     print(f'Processing Sterimol for {molecule.molecule_name}')
+            try:
+                print(f'Processing Sterimol for {molecule.molecule_name}')
                 sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii, sub_structure=sub_structure, drop_atoms=drop_atoms, visualize_bool=visualize_bool, mode=mode)
-            # except Exception as e:
-            #     print(f'Error: {molecule.molecule_name} sterimol could not be processed: {e}')
-            #     #log_exception("get_sterimol_dict")
-            #     pass
+            except Exception as e:
+                print(f'Error: {molecule.molecule_name} sterimol could not be processed: {e}')
+                log_exception("get_sterimol_dict")
+                pass
         return sterimol_dict
     
     def get_npa_dict(self,atom_indices,sub_atoms=None):
@@ -919,7 +975,7 @@ class Molecules():
                 npa_dict[molecule.molecule_name]=molecule.get_npa_df(atom_indices,sub_atoms)
             except Exception as e:
                 print(f'Error: {molecule.molecule_name} npa could not be processed: {e}')
-                #log_exception("get_npa_dict")
+                log_exception("get_npa_dict")
                 pass
             
         return npa_dict
@@ -986,7 +1042,7 @@ class Molecules():
                 dipole_dict[molecule.molecule_name]=molecule.get_dipole_gaussian_df(atom_indices,origin=origin,visualize_bool=visualize_bool)
             except Exception as e:
                 print(f'Error: {molecule.molecule_name} Dipole could not be processed: {e}')
-                #log_exception("get_dipole_dict")
+                log_exception("get_dipole_dict")
         return dipole_dict
     
     def get_bond_angle_dict(self,atom_indices):
@@ -1016,7 +1072,7 @@ class Molecules():
                 bond_angle_dict[molecule.molecule_name]=molecule.get_bond_angle(atom_indices)
             except Exception as e:
                 print(f'Error: {molecule.molecule_name} Angle could not be processed: {e}')
-                #log_exception("get_bond_angle_dict")
+                log_exception("get_bond_angle_dict")
                 pass
         return bond_angle_dict
     
@@ -1083,7 +1139,7 @@ class Molecules():
                 stretch_vibration_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs,threshold)
             except Exception as e:
                 print(f'Error: could not calculate strech vibration for {molecule.molecule_name}: {e} ')
-                #log_exception("get_stretch_vibration_dict")
+                log_exception("get_stretch_vibration_dict")
                 pass
 
         return stretch_vibration_dict
@@ -1115,7 +1171,7 @@ class Molecules():
                 nbo_dict[molecule.molecule_name]=molecule.get_charge_df(atom_indices,type='all')
             except Exception as e:
                 print(f'Error: could not calculate nbo value for {molecule.molecule_name}: {e} ')
-                #log_exception("get_charge_df_dict")
+                log_exception("get_charge_df_dict")
                 pass
         return nbo_dict
     
@@ -1146,7 +1202,7 @@ class Molecules():
                 charge_diff_dict[molecule.molecule_name]=molecule.get_charge_diff_df(atom_indices,type)
             except Exception as e:
                 print(f'Error: could not calculate nbo difference for {molecule.molecule_name}: {e} ')
-                #log_exception("get_charge_diff_df_dict")
+                log_exception("get_charge_diff_df_dict")
                 pass
         return charge_diff_dict
     
@@ -1227,200 +1283,99 @@ class Molecules():
         mol=self.molecules[idx]
         mol.get_sterimol(indices,visualize_bool=True)
         
-    def get_molecules_comp_set_app(self, entry_widgets, parameters=None, answers_list=None, save_as=False):
+    def get_molecules_features_set(self, entry_widgets, parameters=None, answers_list=None, save_as=False):
         """
         Gathers user input from entry_widgets, applies parameters,
         extracts features, and optionally saves results to a file.
         """
+        import pandas as pd
+
+        # 1. Prepare answers from GUI (robust to both widget.get() and prefilled strings)
         answers = {}
-        
-        if parameters is None :
-            parameters = {'Radii':'CPK',
-                          'Isotropic':True}
+        if parameters is None:
+            parameters = {'Radii': 'CPK', 'Isotropic': True}
         for param_name, entry in entry_widgets.items():
-          
             key = param_name.split()[0].lower().replace('-', '_')  # Normalize key
             try:
                 answers[key] = entry.get()
             except AttributeError:
                 answers[key] = entry
+
+        # 2. Optional: update answers_list (currently unused)
         if answers_list is not None:
-            answers_list = answers_list
-        # Use parameters explicitly
-        radii = parameters.get('Radii', parameters.get('Radii'))
-        iso = parameters.get('Isotropic', parameters.get('Isotropic'))
+            answers_list = answers_list  # (unused, consider removing or clarify usage)
 
+        # 3. Safe parameter extraction with default fallback
+        radii = parameters.get('Radii', 'CPK')
+        iso = parameters.get('Isotropic', True)
 
+        # 4. Convert all input values to standardized list-like structure
         for k, v in answers.items():
             if v != '':
                 if isinstance(v, str):
-                    # only convert true strings
                     answers[k] = convert_to_list_or_nested_list(v)
                 elif isinstance(v, int):
-                    # wrap bare ints into a singleton list
                     answers[k] = [v]
                 else:
-                    # already a list or nested list: leave it as is
                     answers[k] = v
             else:
                 answers[k] = []
 
         res_df = pd.DataFrame()
-   
-        if answers['ring']:
-            try:
-                res_df = dict_to_horizontal_df(self.get_ring_vibration_dict(answers['ring']))
-            except Exception:
-                print(f"Error processing ring vibrations for {self.molecules[0].molecule_name}")
-                pass
-                #log_exception("get_molecules_comp_set_app – ring vibration")
 
-        if answers['stretching']:
-            try:
-                res_df = pd.concat([
-                    res_df,
-                    dict_to_horizontal_df(
-                        self.get_stretch_vibration_dict(answers['stretching'], answers['stretch'][0])
-                    )
-                ], axis=1)
-            except Exception:
-                print(f"Error processing stretch vibrations for {self.molecules[0].molecule_name}")
-                pass   
-                #log_exception("get_molecules_comp_set_app – stretch vibration")
+        # 5. Processing: Use .get() to avoid KeyError
+        def safe_concat(res_df, new_df):
+            """Helper to concatenate new_df horizontally, even if res_df is empty."""
+            if res_df.empty:
+                return new_df
+            else:
+                return pd.concat([res_df, new_df], axis=1)
 
-        if answers['bending']:
-            try:
-                res_df = pd.concat([
-                    res_df,
-                    dict_to_horizontal_df(
-                        self.get_bend_vibration_dict(answers['bending'], answers['bend'][0])
-                    )
-                ], axis=1)
-            except Exception:
-                print(f"Error processing bend vibrations for {self.molecules[0].molecule_name}")
-                pass
-                #log_exception("get_molecules_comp_set_app – bend vibration")
+        # List of feature extraction steps as (key, handler function, *extra_args)
+        feature_steps = [
+            ('ring', lambda a: dict_to_horizontal_df(self.get_ring_vibration_dict(a))),
+            ('stretching', lambda a: dict_to_horizontal_df(self.get_stretch_vibration_dict(a, answers.get('stretch', [None])[0]))),
+            ('bending', lambda a: dict_to_horizontal_df(self.get_bend_vibration_dict(a, answers.get('bend', [None])[0]))),
+            ('npa', lambda a: dict_to_horizontal_df(self.get_npa_dict(a, sub_atoms=answers.get('sub_atoms', [])))),
+            ('dipole', lambda a: dict_to_horizontal_df(self.get_dipole_dict(a, origin=answers.get('center_atoms', [])))),
+            ('charges', lambda a: charge_dict_to_horizontal_df(self.get_charge_df_dict(a))),
+            ('charge_diff', lambda a: charge_dict_to_horizontal_df(self.get_charge_diff_df_dict(a))),
+            ('sterimol', lambda a: dict_to_horizontal_df(self.get_sterimol_dict(a, radii=radii, drop_atoms=answers.get('drop_atoms', [])))),
+            ('bond_angle', lambda a: dict_to_horizontal_df(self.get_bond_angle_dict(a))),
+            ('bond_length', lambda a: dict_to_horizontal_df(self.get_bond_length_dict(a))),
+        ]
 
-        if answers['npa']:
-            try:
-               
-                res_df = pd.concat([
-                    res_df,
-                    dict_to_horizontal_df(
-                        self.get_npa_dict(answers['npa'], sub_atoms=answers.get('sub_atoms', []))
-                    )
-                ], axis=1)
-            except Exception:
-                print(f"Error processing NPA for {self.molecules[0].molecule_name}")
-                pass
-                log_exception("get_molecules_comp_set_app – NPA")
-
-        if answers['dipole']:
-            try:
-                res_df = pd.concat([
-                    res_df,
-                    dict_to_horizontal_df(
-                        self.get_dipole_dict(answers['dipole'], origin=answers.get('center_atoms', []))
-                    )
-                ], axis=1)
-            except Exception as e:
-                print(f"Error processing dipole for {self.molecules[0].molecule_name} : {e}")
-                pass
-                #log_exception("get_molecules_comp_set_app – dipole")
-
-        if answers['charges']:
-            try:
+        # 6. Apply each step if the relevant input is present (and not empty)
+        for key, handler in feature_steps:
+            if answers.get(key):
                 try:
-                    charge_dict = self.get_charge_df_dict(answers['charges'])                 
-                    res_df = pd.concat([
-                        res_df,
-                        charge_dict_to_horizontal_df(charge_dict)
-                    ], axis=1)
+                    new_df = handler(answers[key])
+                    res_df = safe_concat(res_df, new_df)
                 except Exception as e:
-                    print(f"Error processing charges: {str(e)}")
-                    pass
-                    #log_exception("get_molecules_comp_set_app – charge")
-            except Exception:
-                print(f"Error processing charges for {self.molecules[0].molecule_name}")
-                pass
-                #log_exception("get_molecules_comp_set_app – charge")
-        if answers['charge_diff']:
-            try:
-                res_df = pd.concat([
-                    res_df,
-                    charge_dict_to_horizontal_df(
-                        self.get_charge_diff_df_dict(answers['charge_diff'])
-                    )
-                ], axis=1)
-            except Exception:
-                print(f"Error processing charge differences for {self.molecules[0].molecule_name}")
-                pass
-                #log_exception("get_molecules_comp_set_app – charge difference")
+                    print(f"Error processing {key} for {getattr(self.molecules[0], 'molecule_name', 'unknown')}: {e}")
+                    # Optionally call log_exception(f"get_molecules_comp_set_app – {key}")
+                    log_exception(f"get_molecules_comp_set_app – {key}")
+                    continue
 
-        if answers['sterimol']:
-            # try:
-                res_df = pd.concat([
-                    res_df,
-                    dict_to_horizontal_df(
-                        self.get_sterimol_dict(answers['sterimol'], radii=radii, drop_atoms=answers.get('drop_atoms', []))
-                    )
-                ], axis=1)
-            # except Exception as  e:
-            #     print(f"Error processing Sterimol for {self.molecules[0].molecule_name}: {e}")
-            #     pass
-                #log_exception("get_molecules_comp_set_app – sterimol")
-        if answers['bond_angle']:
-            try:
-                res_df = pd.concat([
-                    res_df,
-                    dict_to_horizontal_df(
-                        self.get_bond_angle_dict(answers['bond_angle'])
-                    )
-                ], axis=1)
-            except Exception:
-                print(f"Error processing bond angles for {self.molecules[0].molecule_name}")
-                pass
-                #log_exception("get_molecules_comp_set_app – bond angle")
-
-        if answers['bond_length']:
-            try:
-                res_df = pd.concat([
-                    res_df,
-                    dict_to_horizontal_df(
-                        self.get_bond_length_dict(answers['bond_length'])
-                    )
-                ], axis=1)
-            except Exception:
-                print(f"Error processing bond lengths for {self.molecules[0].molecule_name}")
-                pass
-                #log_exception("get_molecules_comp_set_app – bond length")
-
+        # 7. Add polarizability (isotropic) block
         if iso:
             rows = []
             for molecule in self.molecules:
-                # grab the one‐row DataFrame of polarizabilities
                 info = molecule.polarizability_df.copy().iloc[[0]]
-               
-                # name the index by molecule name
                 info.index = [molecule.molecule_name]
-                # add the energy as a new column
                 info['energy'] = molecule.energy_value.values
-                
                 rows.append(info)
-          
-            # now concatenate all rows vertically
             polarizability_df_concat = pd.concat(rows, axis=0)
-            # remove nan values
             polarizability_df_concat = polarizability_df_concat.dropna(axis=1, how='all')
-            # reset index if you prefer a plain RangeIndex (and keep molecule name as a column)
-            polarizability_df_concat = (
-                polarizability_df_concat
-                .reset_index()
-                .set_index('index')
-            )
-            res_df = pd.concat([res_df,polarizability_df_concat],axis=1)
+            polarizability_df_concat = polarizability_df_concat.reset_index().set_index('index')
+            res_df = safe_concat(res_df, polarizability_df_concat)
+
+        # 8. Interactive analysis
+        interactive_corr_heatmap_with_highlights(res_df)
+        show_highly_correlated_pairs(res_df, corr_thresh=0.95)
 
         return res_df
+
 
 
             

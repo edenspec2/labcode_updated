@@ -37,7 +37,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setup(
     name='MolFeatures',
-    version='0.10001',
+    version='0.10005',
     packages=find_packages(),
     description='Your package description',
     long_description=long_description,
@@ -48,7 +48,7 @@ setup(
     install_requires=[],
     package_data={
         # If 'feather_example' is a Python package with __init__.py
-        'MolFeatures': ['cube_example/*','feather_example/*','Workshop_Example_Data/*','pictures/*', 'description.txt', 'README.md', 'requirements.txt','setup.py','usage_doc.ipynb'],
+        'MolFeatures': ['cube_example/*','feather_example/*','Workshop_Example_Data/*','pictures/*', 'description.txt', 'README.md', 'requirements.txt','setup.py','Practical_Notebook.ipynb'],
     },
     include_package_data=True,
 )

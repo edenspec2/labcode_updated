@@ -10,6 +10,95 @@ try:
 except ImportError:
     from utils.help_functions import * 
 
+def find_atoms_with_similar_amplitude(
+    vibration_mode_dict: dict,
+    coordinates_array: np.ndarray,
+    atom_pair: list,
+    similarity_tol: float = 0.1,   # 10% similarity by default
+    amplitude_type: str = "projection"  # or "norm"
+):
+    """
+    For each vibration mode (by frequency), find atoms with similar amplitude of motion to the given atom pair.
+
+    Parameters
+    ----------
+    vibration_mode_dict: dict
+        {frequency: np.ndarray of shape (n_atoms, 3)}
+    coordinates_array: np.ndarray
+        shape (n_atoms, 3), the geometry of the molecule
+    atom_pair: list of int
+        Indices of two atoms
+    similarity_tol: float
+        Relative tolerance for "similar" amplitude (e.g., 0.1 for ±10%)
+    amplitude_type: str
+        'projection' to use the bond direction, or 'norm' for total displacement
+
+    Returns
+    -------
+    List of dicts with keys:
+        'frequency', 'pair_amplitude', 'similar_atoms', 'similar_amps'
+    """
+    results = []
+    bond_vec = coordinates_array[atom_pair[0]] - coordinates_array[atom_pair[1]]
+    bond_vec_norm = bond_vec / np.linalg.norm(bond_vec)
+
+    for freq, displacements in vibration_mode_dict.items():
+        if amplitude_type == "projection":
+            # For the atom pair, sum of absolute projections
+            pair_amp = (
+                abs(np.dot(displacements[atom_pair[0]], bond_vec_norm)) +
+                abs(np.dot(displacements[atom_pair[1]], bond_vec_norm))
+            )
+            # All atom amplitudes (projection)
+            atom_amps = [abs(np.dot(vec, bond_vec_norm)) for vec in displacements]
+        elif amplitude_type == "norm":
+            pair_amp = (
+                np.linalg.norm(displacements[atom_pair[0]]) +
+                np.linalg.norm(displacements[atom_pair[1]])
+            )
+            atom_amps = [np.linalg.norm(vec) for vec in displacements]
+        else:
+            raise ValueError("amplitude_type must be 'projection' or 'norm'")
+
+        # Find atoms not in atom_pair with similar amplitude
+        similar_atoms = [
+            i for i, amp in enumerate(atom_amps)
+            if i not in atom_pair and np.isclose(amp, pair_amp, rtol=similarity_tol)
+        ]
+        similar_amps = [atom_amps[i] for i in similar_atoms]
+
+        results.append({
+            "frequency": freq,
+            "pair_amplitude": pair_amp,
+            "similar_atoms": similar_atoms,
+            "similar_amps": similar_amps
+        })
+    return results
+
+def build_vibration_mode_dict(vibration_dict, info_df):
+    """
+    Returns:
+        vibration_mode_dict: {frequency: np.array shape (n_atoms, 3)}
+    """
+    n_atoms = len(vibration_dict)
+
+    # Use the minimum number of modes across all atoms (in case of mismatch)
+    n_modes_per_atom = [np.array(v).shape[0] for v in vibration_dict.values()]
+    min_modes = min(n_modes_per_atom)
+
+    frequencies = info_df['Frequency'].values
+
+    vibration_mode_dict = {}
+    for i, freq in enumerate(frequencies[:min_modes]):
+        mode_displacements = np.vstack([
+            np.array(vibration_dict[f'vibration_atom_{atom_idx+1}'])[i]
+            for atom_idx in range(n_atoms)
+        ])  # shape (n_atoms, 3)
+        
+        vibration_mode_dict[freq] = mode_displacements
+    
+    return vibration_mode_dict
+
 def calc_max_frequency_magnitude(vibration_array: npt.ArrayLike, info_df: pd.DataFrame,
                                  threshhold: int = 1500) -> pd.DataFrame:  ##add option to return ordered_info_df-like dot.prod.info
     """
@@ -96,7 +185,7 @@ def calc_vibration_dot_product(extended_vib_df, coordinates_vector):
     # vibration_dot_product=abs(np.dot(extended_vib_df[[0,1,2]], coordinates_vector)) + abs(np.dot(extended_vib_df[[3,4,5]], coordinates_vector))
     return vibration_dot_product_list
 
-def extended_df_for_vib(vibration_dict: dict, info_df:pd.DataFrame,atom_pair,threshhold: int = 3000):
+def extended_df_for_stretch(vibration_dict: dict, info_df:pd.DataFrame,atom_pair,threshhold: int = 3000):
     vibration_array_pairs,_= vibrations_dict_to_list(vibration_dict, atom_pair)
     array=pd.DataFrame(np.hstack([vibration_array_pairs[0][0],vibration_array_pairs[0][1]]))
     df=pd.concat([array,info_df['Frequency']],axis=1)
@@ -104,36 +193,168 @@ def extended_df_for_vib(vibration_dict: dict, info_df:pd.DataFrame,atom_pair,thr
     return filter_df
 
 
-def calc_vibration_dot_product_from_pairs(coordinates_array: npt.ArrayLike,
-                                          vibration_dict: dict,
-                                          atom_pair: list, info_df: pd.DataFrame, operation:str='dot',threshold=3000) -> List[float]:
-    """
-    Calculates the dot product between a vibration mode vector and the bond vector between two atoms.
+# def calc_vibration_dot_product_from_pairs(coordinates_array: npt.ArrayLike,
+#                                           vibration_dict: dict,
+#                                           atom_pair: list, info_df: pd.DataFrame, operation:str='dot',threshold=3000 , vibration_mode_dict = None) -> List[float]:
+#     """
+#     Calculates the dot product between a vibration mode vector and the bond vector between two atoms.
 
-    Parameters
-    ----------
-    coordinates_array: np.array
-        An array of x, y, z coordinates for each atom in the molecule.
-    vibration_dict: dict
-        A dictionary where the keys are atom indices and the values are numpy arrays representing the
-        x, y, z components of the vibration mode vectors for that atom.
-    atom_pairs: list
-        A list of pairs of atom indices representing the bond vectors to calculate the dot product with.
+#     Parameters
+#     ----------
+#     coordinates_array: np.array
+#         An array of x, y, z coordinates for each atom in the molecule.
+#     vibration_dict: dict
+#         A dictionary where the keys are atom indices and the values are numpy arrays representing the
+#         x, y, z components of the vibration mode vectors for that atom.
+#     atom_pairs: list
+#         A list of pairs of atom indices representing the bond vectors to calculate the dot product with.
 
-    Returns
-    -------
-    vibration_dot_product: list
-        A list of dot products between each vibration mode vector and the bond vector between the two atoms
-        in each pair in `atom_pairs`.
+#     Returns
+#     -------
+#     vibration_dot_product: list
+#         A list of dot products between each vibration mode vector and the bond vector between the two atoms
+#         in each pair in `atom_pairs`.
+#     """
+    
+#     atoms = adjust_indices(atom_pair)
+#     extended_df=extended_df_for_stretch(vibration_dict,info_df,atom_pair,threshold)
+#     print(f'extended_df shape: {extended_df}')
+#     coordinates_vector=coordinates_array[atoms[0]]-coordinates_array[atoms[1]]
+#     vibration_dot_product = calc_vibration_dot_product(extended_df, coordinates_vector)
+#     extended_df['Amplitude']=vibration_dot_product
+#     ## add the frequency to the extended_df
+#     extended_df['Frequency'] = info_df['Frequency']
+#     # take the frequency of the highest amplitude, got to vibration_mode_dict and find the atoms with similar amplitude, using the new bond vector
+   
+#     extended_df.reset_index(drop=True,inplace=True)
+
+def check_directional_symmetry(vec1, vec2, threshold=0.0):
+    """Helper to classify alignment as symmetric/asymmetric."""
+    v1 = np.array(vec1)
+    v2 = np.array(vec2)
+    v1n = v1 / np.linalg.norm(v1) if np.linalg.norm(v1) > 0 else v1
+    v2n = v2 / np.linalg.norm(v2) if np.linalg.norm(v2) > 0 else v2
+    sim = np.dot(v1n, v2n)
+
+    if sim > threshold:
+        return "asymmetric", sim
+    elif sim < threshold:
+        return "symmetric", sim
+    else:
+        return "unclear", sim
+
+
+
+def calc_vibration_dot_product_from_pairs(
+    coordinates_array: np.ndarray,
+    vibration_dict: dict,
+    atom_pair: list,
+    info_df: pd.DataFrame,
+    operation: str = 'dot',
+    threshold: float = 3000,
+    vibration_mode_dict: dict = None,
+    similarity_tol: float = 0.1
+) -> pd.DataFrame:
     """
+    Calculates the dot product between vibration mode vectors and the bond vector between two atoms.
+    For the two highest-amplitude modes, checks vector alignment and tags as symmetric/asymmetric.
+    Adds original coordinates of top moving atoms for each mode for comparison/plotting.
+    """
+
     atoms = adjust_indices(atom_pair)
-    extended_df=extended_df_for_vib(vibration_dict,info_df,atom_pair,threshold)
-    coordinates_vector=coordinates_array[atoms[0]]-coordinates_array[atoms[1]]
+    extended_df = extended_df_for_stretch(vibration_dict, info_df, atom_pair, threshold)
+    coordinates_vector = coordinates_array[atoms[0]] - coordinates_array[atoms[1]]
     vibration_dot_product = calc_vibration_dot_product(extended_df, coordinates_vector)
-    extended_df['Amplitude']=vibration_dot_product
-    extended_df.reset_index(drop=True,inplace=True)
-    return extended_df
+    extended_df['Amplitude'] = vibration_dot_product
 
+    # Add frequency column (ensure alignment)
+    if 'Frequency' not in extended_df.columns:
+        extended_df['Frequency'] = info_df.loc[extended_df.index, 'Frequency'].values
+
+    extended_df.reset_index(drop=True, inplace=True)
+
+    tag_results = []
+
+    # Now: for the two highest amplitude modes, do symmetry tagging
+    if vibration_mode_dict is not None and not extended_df.empty:
+        # Get indices for top 2 amplitudes
+        top_idxs = extended_df['Amplitude'].abs().nlargest(2).index.tolist()
+        # tag_results = []
+        
+        tag_list = []
+        for idx in top_idxs:
+            freq = extended_df.loc[idx, 'Frequency']
+            amp = extended_df.loc[idx, 'Amplitude']
+            freq_key = freq
+            if freq_key in vibration_mode_dict:
+                mode_vectors = vibration_mode_dict[freq_key]  # shape: (n_atoms, 3)
+            else:
+                mode_vectors = list(vibration_mode_dict.values())[idx]
+            # Get amplitudes of each atom for this mode
+          
+            amplitudes = np.linalg.norm(mode_vectors, axis=1)
+            # Sort by closeness to 'amp'
+            sorted_idx = np.argsort(np.abs(amplitudes - amp))
+
+            first_atom = sorted_idx[0]
+            second_atom = sorted_idx[1] if len(sorted_idx) > 1 else first_atom
+            
+            min_ratio = 0.5
+            if amplitudes[second_atom] < min_ratio * amplitudes[first_atom]:
+                tag = "insufficient_second_movement"
+                sim = np.nan
+                print(f"Second atom (index {second_atom}) movement ({amplitudes[second_atom]:.3f}) is less than half of first atom ({amplitudes[first_atom]:.3f} , {first_atom}) for mode {idx} (skipping symmetry tag).")
+                vibration_df, idx = calc_max_frequency_gen_vibration(extended_df)
+                vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
+                return vibration_df
+                
+            else:
+             
+
+                if first_atom > second_atom:
+                    first_atom, second_atom = second_atom, first_atom
+                vec1 = mode_vectors[first_atom]
+                vec2 = mode_vectors[second_atom]
+                
+                tag, sim = check_directional_symmetry(vec1, vec2)
+                Amplitude= amp
+                tag+=f'_Stretch_{atom_pair[0]}_{atom_pair[1]}'
+                tag_results.append({
+                    'Frequency': freq,
+                    'Amplitude': Amplitude,
+                })
+                tag_list.append(tag)
+                
+        tag_df = pd.DataFrame(tag_results,index=tag_list) 
+        # check tag list, if its the same tag for both , check symmetry of vec from third_atom and forth_atom
+        if len(tag_list) == 2 and tag_list[0] == tag_list[1]:
+            tag_results_backup = []
+            tag_list_backup = []
+            for idx in top_idxs:
+                freq = extended_df.loc[idx, 'Frequency']
+                amp = extended_df.loc[idx, 'Amplitude']
+                freq_key = freq
+                if freq_key in vibration_mode_dict:
+                    mode_vectors = vibration_mode_dict[freq_key]  # shape: (n_atoms, 3)
+                amplitudes= np.linalg.norm(mode_vectors, axis=1)
+                sorted_idx = np.argsort(np.abs(amplitudes))[::-1]
+                third_atom = sorted_idx[2] if len(sorted_idx) > 2 else first_atom
+                fourth_atom = sorted_idx[3] if len(sorted_idx) > 3 else second_atom
+                vec3 = mode_vectors[third_atom]
+                vec4 = mode_vectors[fourth_atom]
+                
+                tag, sim = check_directional_symmetry(vec3, vec4)
+                tag += f'_Stretch_{atom_pair[0]}_{atom_pair[1]}'
+                tag_results_backup.append({
+                    'Frequency': freq,
+                    'Amplitude': Amplitude,
+                })
+                tag_list_backup.append(tag)
+            
+            tag_df = pd.DataFrame(tag_results_backup,index=tag_list_backup)
+
+        print(tag_df, "\nWe strongly recommend to visualize the vibration modes to confirm the symmetry/asymmetry.")
+        return tag_df
 
 def calc_max_frequency_gen_vibration(extended_df):  ## fix so 0 is IR and 1 is frequency
     """
@@ -389,13 +610,8 @@ def get_benzene_ring_indices(bonds_df, ring_atoms):
     benzene_rings = [cycle for cycle in cycles if len(cycle) == 6 and atom1_idx in cycle]
 
     if not benzene_rings:
-        print("No benzene ring found.")
-        print(f"Debug: Found {len(benzene_rings)} benzene rings")
-        print(bonds_df)
-        # Debug information about each ring
-        for i, ring in enumerate(benzene_rings):
-            print(f"Debug: Ring {i+1}: {sorted(ring)}")
-            
+
+
         # Check if atom2_idx was provided and is expected to be in a ring
         if atom2_idx is not None:
             rings_with_atom2 = [i for i, ring in enumerate(benzene_rings) if atom2_idx in ring]

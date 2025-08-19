@@ -190,11 +190,11 @@ def calc_coordinates_transformation(coordinates_array: ArrayLike, base_atoms_ind
     transformed_coordinates : np.array
         The transformed coordinates.
     """
-    indices = adjust_indices(base_atoms_indices)
+    # indices = adjust_indices(base_atoms_indices)
     # Calculate new basis using helper function calc_new_base_atoms (assumed to return origin, y, and coplane)
-    new_basis = calc_basis_vector(*calc_new_base_atoms(coordinates_array, indices))
+    new_basis = calc_basis_vector(*calc_new_base_atoms(coordinates_array, base_atoms_indices))
     if origin is None:
-        new_origin = coordinates_array[indices[0]]
+        new_origin = coordinates_array[base_atoms_indices[0]]
     else:
         new_origin = origin
    
@@ -489,7 +489,7 @@ def preform_coordination_transformation(xyz_df, indices=None, origin=None):
     if indices is None:
         transformed = calc_coordinates_transformation(coordinates, [1,2,3], origin=geometric_origin)
     else:
-        
+   
         transformed = calc_coordinates_transformation(coordinates, indices, origin=geometric_origin)
     
     xyz_copy[['x', 'y', 'z']] = transformed
@@ -715,8 +715,6 @@ def calc_sterimol(bonded_atoms_df,extended_df,visualize_bool=False):
     b5_index = np.argmax(norms_sq)
     b5_point = best_b1_plane[b5_index]
     b5_value = np.linalg.norm(b5_point)
-    # loc_B1=max(b1s_loc[np.where(b1s[b1s>=0]==min(b1s[b1s>=0]))])
-    # get the idx of the row with the  biggest b5 value from edited
     max_row=edited_coordinates_df['B5'].idxmax()
     max_row=int(max_row)
     L=max(edited_coordinates_df['L'].values)
@@ -758,8 +756,7 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms, connected_from_directi
         if connected_from_direction is not None:
             connected_from_direction = [old_to_new[a] for a in connected_from_direction if a in old_to_new]
   
-
-    bonds_direction = direction_atoms_for_sterimol(bonds_df, base_atoms)
+    bonds_direction = adjust_indices(direction_atoms_for_sterimol(bonds_df, base_atoms))
     new_coordinates_df = preform_coordination_transformation(coordinates_df, bonds_direction)
 
     if sub_structure:

@@ -1435,9 +1435,9 @@ def analyze_shap_values(model, X, feature_names=None, target_name="output", n_to
     # Create explainer
     try:
         explainer = shap.Explainer(model)
-        print("Using TreeExplainer for SHAP analysis")
+   
     except Exception as e:
-        print(f"TreeExplainer failed: {e}. Falling back to KernelExplainer.")
+
         explainer = shap.KernelExplainer(model.predict, shap.sample(X, min(50, X.shape[0])))
     
     # Calculate SHAP values
@@ -1447,7 +1447,7 @@ def analyze_shap_values(model, X, feature_names=None, target_name="output", n_to
     if isinstance(shap_values, list):
         # For multi-class models, use mean across classes or first class
         if len(shap_values) > 1:
-            print(f"Multi-class model detected with {len(shap_values)} classes")
+          
             mean_shap = np.abs(np.array(shap_values)).mean(axis=0)
             results['shap_values'] = shap_values
             results['mean_shap'] = mean_shap
@@ -1512,6 +1512,7 @@ def analyze_shap_values(model, X, feature_names=None, target_name="output", n_to
             plt.tight_layout()
             plt.savefig('shap_interactions.png', dpi=300, bbox_inches='tight')
             results['fig_interaction'] = plt.gcf()
+            
     except Exception as e:
         print(f"Interaction analysis not supported by this explainer: {e}")
     

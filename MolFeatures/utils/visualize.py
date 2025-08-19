@@ -85,7 +85,7 @@ def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params
     ids = xyz_df.index.tolist()
 
     # radii
-    print(f"🔥 atoms: {atoms!r}")
+
     try:
         radii = [atomic_radii[a] for a in atoms]
     except TypeError:
@@ -217,7 +217,7 @@ def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params
             x0, y0, z0 = tail
 
             # Define each dipole component and total vector with label and color
-            scale=5
+            scale=2
             print(f"🔥 dipole vector: {vec!r} (scaled by {scale})")
             comps = [
                 ((vec[0]*scale, 0, 0), 'red', 'Dipole X'),
@@ -467,8 +467,25 @@ def show_single_molecule(molecule_name,xyz_df=None,dipole_df=None, origin=None,s
     axis_params = dict(showgrid=False, showbackground=False, showticklabels=False, zeroline=False,
                        titlefont=dict(color='white'))
     # Set layout
-    layout = dict(title=dict(text=molecule_name, x=0.5, y=0.9, xanchor='center', yanchor='top'),scene=dict(xaxis=axis_params, yaxis=axis_params, zaxis=axis_params, annotations=annotations_id_main),
-                  margin=dict(r=0, l=0, b=0, t=0), showlegend=False, updatemenus=updatemenus)
+    scene = dict(
+        xaxis=dict(**axis_params, title='X'),
+        yaxis=dict(**axis_params, title='Y'),
+        zaxis=dict(**axis_params, title='Z'),
+        annotations=annotations_id_main
+    )
+
+    # Set layout
+    layout = dict(
+        title=dict(
+            text=molecule_name,
+            x=0.5, y=0.9,
+            xanchor='center', yanchor='top'
+        ),
+        scene=scene,
+        margin=dict(r=0, l=0, b=0, t=0),
+        showlegend=False,
+        updatemenus=updatemenus
+    )
     fig = go.Figure(data=data_main, layout=layout)
     html=fig.show()
     run_app(fig)

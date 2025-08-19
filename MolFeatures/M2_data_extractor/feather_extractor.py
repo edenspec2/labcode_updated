@@ -33,7 +33,7 @@ class Names(Enum):
     
     DIPOLE_COLUMNS=['dip_x','dip_y','dip_z','total_dipole']
     STANDARD_ORIENTATION_COLUMNS=['atom','x','y','z']
-    DF_LIST=['standard_orientation_df', 'dipole_df', 'pol_df', 'atype_df','charge_df', 'bonds_df', 'info_df','energy_value']
+    DF_LIST=['standard_orientation_df', 'dipole_df', 'pol_df','energy_value' ,'atype_df','charge_df', 'bonds_df', 'info_df']
 
 
 class GeneralConstants(Enum):    
@@ -133,7 +133,7 @@ def process_gaussian_charge_text(log_text: str) -> pd.DataFrame:
     arr = np.array(floats, dtype=float)
     charge_values = arr[1::6]
 
-    return pd.DataFrame({"charge": charge_values})
+    return pd.DataFrame({"nbo_charge": charge_values})
 
 
 def process_gaussian_dipole_text(log_text: str) -> pd.DataFrame:
@@ -231,6 +231,7 @@ def process_gaussian_standard_orientation_text(log_text: str) -> pd.DataFrame:
     df = pd.DataFrame(coords, columns=Names.STANDARD_ORIENTATION_COLUMNS.value)
 
     # 5) Convert atomic numbers to symbols
+    
     df['atom'] = df['atom'].astype(int).astype(str)  # Ensure 'atom' is string type for mapping
     mapping = GeneralConstants.ATOMIC_NUMBERS.value  # e.g. {1:'H', 6:'C', 7:'N', 8:'O', ...}
     df['atom'] = df['atom'].map(mapping)
@@ -283,14 +284,14 @@ def process_hirshfeld_charges(log_file_lines):
                                              re_expression=ReExpressions.FLOAT.value))
    
     charge_array = np.array(selected_lines).reshape(-1,6)
-    # print(lines)
+    
   
     hirsh_charge_array=charge_array[:,0]
     cm5_charge_array=charge_array[:,5]
 
     
 
-    return pd.DataFrame(hirsh_charge_array, columns=['hirsh_charge']),pd.DataFrame(cm5_charge_array, columns=['cm5_charge'])
+    return pd.DataFrame(hirsh_charge_array, columns=['hirshfeld_charge']),pd.DataFrame(cm5_charge_array, columns=['cm5_charge'])
 
 
 
@@ -380,65 +381,72 @@ def process_gaussian_info(frequency_string):
     return info_df
 
 def vib_array_list_to_df(array_list):
-    array_list_df=[]
+    array_list_df = []
+    col_names = []
 
-    for array in array_list:
-        new_array=np.delete(array,[0,1],axis=1).reshape(-1,3)
-        new_df=pd.DataFrame(new_array)
-        ## reverse the order of the columns
-        # new_df=new_df.iloc[:, ::-1]  ## correct but not like shahar's
+    for i, array in enumerate(array_list, 1):
+        new_array = np.delete(array, [0, 1], axis=1).reshape(-1, 3)
+        new_df = pd.DataFrame(new_array)
+        # Assign mode-specific x, y, z columns
+        new_df.columns = [f'mode_{i}_x', f'mode_{i}_y', f'mode_{i}_z']
         array_list_df.append(new_df)
-    
-    vibs_df=pd.concat(array_list_df,axis=1)
-    vibs_df=vibs_df.astype(float)
+
+    # Concatenate horizontally (each mode's x/y/z in its own block)
+    vibs_df = pd.concat(array_list_df, axis=1)
+    vibs_df = vibs_df.astype(float)
     return vibs_df
 
 
+
 def process_gaussian_frequency_string(final_blocks):
-    vibs_list=[]
-    short_list=[]
-    lenght=[]
-    for i,data in enumerate(final_blocks):
-            match=re.findall(ReExpressions.FLOATS_ONLY.value,data)
-            # if i == len(final_blocks) - 1:
-            #     del match[0:4]
-            # else:
-            del match[0:12] 
-            match=np.array(match)
-           ## need to find a way to deal with last match which is not a multiple of 11, planar vibrations
-            # match=remove_floats_until_first_int(match)
-            match=np.array(match)
-            if i==1:
-                match=remove_floats_until_first_int(match)
-            match=np.array(match)
-            lenght.append(len(match))
+    """
+    Processes Gaussian frequency output blocks into a DataFrame of vibrational data.
+    """
+    vibs_list = []
+    lengths = []
+    for i, data in enumerate(final_blocks):
+        # Extract all floats
+        match = re.findall(ReExpressions.FLOATS_ONLY.value, data)
+        # Remove the first 12 floats (headers or irrelevant values)
+        match = match[12:]
+        match = np.array(match)
+        
+        # Special cleaning for the second block if needed
+        if i == 1:
+            match = remove_floats_until_first_int(match)
+        
+        lengths.append(len(match))
+        
+        # Try to reshape, handle various "planar" or extra data issues
+        reshaped = None
+        for n_remove in (0, 1, 3):  # Try removing 0, 1, or 3 elements at the end
             try:
-                # print(match.reshape(-1,11))
-                vibs_list.append(match.reshape(-1,11))  
-            except ValueError:   
-                    try:
-                        match_try=np.delete(match,[-1],0)
-                        # print(match_try)
-                        vibs_list.append(np.array(match_try).reshape(-1,11))
-                    except Exception as e:
-                        try: 
-                            
-                            match_r=np.delete(match,[-1,-2,-3],0)
-                            # print(match_r)
-                            vibs_list.append(np.array(match_r).reshape(-1,11))
-                        except Exception as e:
-                            raise ValueError(f"Error processing vibrations: {e}")
-                                
-    vibs=np.vstack(vibs_list)
+                if n_remove > 0:
+                    match_try = np.delete(match, [-k for k in range(1, n_remove + 1)])
+                else:
+                    match_try = match
+                
+                reshaped = np.array(match_try).reshape(-1, 11)
+               
+                vibs_list.append(reshaped)
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(f"Could not reshape vibrational data for block {i}: shape {match.shape}")
     
+    # Stack all vibrational data
+    vibs = np.vstack(vibs_list)
     np.set_printoptions(threshold=np.inf)
-    final_atom=vibs[-1][0]
-    ordered_vibs=[]
-    for i in range(1,int(final_atom)+1):
-        ordered_vibs.append(vibs[vibs[:,0]==str(i)])
+    
+    # Organize by atom index (assumes first column is atom index)
+    try:
+        final_atom = int(float(vibs[-1][0]))
+    except Exception as e:
+        raise ValueError(f"Could not determine final atom index: {e}")
 
-    vibs_df=vib_array_list_to_df(ordered_vibs) if ordered_vibs else None
-
+    ordered_vibs = [vibs[vibs[:,0] == str(i)] for i in range(1, final_atom+1)]
+    vibs_df = vib_array_list_to_df(ordered_vibs) if ordered_vibs else None
     return vibs_df
 
 
@@ -530,23 +538,22 @@ def gauss_file_handler(gauss_filename, export=False):
         # charge_df={'nbo_charge':charge_df,'hirsh_charge':hirsh_charge_df,'cm5_charge':cm5_charge_df} ### need to edit this -- working
 
     except Exception as e:
-        hirsh_charge_df = pd.DataFrame({'NaN_Column': [np.nan] * standard_orientation_df.shape[0]})
-        cm5_charge_df = pd.DataFrame({'NaN_Column': [np.nan] * standard_orientation_df.shape[0]})
+        hirsh_charge_df = pd.DataFrame({'hirshfeld_charge': [np.nan] * standard_orientation_df.shape[0]})
+        cm5_charge_df = pd.DataFrame({'cm5_charge': [np.nan] * standard_orientation_df.shape[0]})
         print(f"{gauss_filename}: NBO charge only")
         string_report+=f"{gauss_filename}: NBO charge only\n"
 
     try:
         ev=extract_homo_lumo_gap(gauss_filename=gauss_filename)
-
-        if not standard_orientation_df.empty and ev :
-            standard_orientation_df.loc[1, 'x'] = ev
+        ev_df=pd.DataFrame({'energy': [ev]})
 
     except:
         ev_df=pd.DataFrame()
         print(f'{gauss_filename}: eV Gap was not found')
     
     try:
-        concatenated_df = pd.concat([standard_orientation_df, dipole_df, pol_df, charge_df, hirsh_charge_df,cm5_charge_df, info_df, vibs_df], axis=1)
+        concatenated_df = pd.concat([standard_orientation_df, dipole_df, pol_df, ev_df ,charge_df, hirsh_charge_df,cm5_charge_df, info_df, vibs_df], axis=1)
+  
     except Exception as e:
         concatenated_df = pd.DataFrame()  # or some default DataFrame
         print(f"{gauss_filename}: Error concatenating data: {e}")
@@ -564,8 +571,8 @@ def save_to_feather(df, filename):
 
     df['atom'] = df['atom'].astype(str)
     feather_filename = filename + '.feather'
-    df.columns = range(df.shape[1]) # [str(i) for i in range(df.shape[1])]
-    df.columns = df.columns.map(str)
+    # df.columns = range(df.shape[1]) # [str(i) for i in range(df.shape[1])]
+    # df.columns = df.columns.map(str)
     df.to_feather(feather_filename)
 
     print(f"Data saved to {feather_filename}")
@@ -665,7 +672,7 @@ def logs_to_dict(dir_path):
 
 def df_list_to_dict(df_list):
     my_dict={}
-    for name,df in zip(['standard_orientation_df', 'dipole_df', 'pol_df', 'info_df'],df_list):
+    for name,df in zip(['standard_orientation_df', 'dipole_df', 'pol_df','energy', 'info_df'],df_list):
         my_dict[name]=df
     return my_dict
 
@@ -725,11 +732,3 @@ def df_file_handler(data):
 
     return dict_list
 
-if __name__ == "__main__":
-
-    path=r'C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Blackwell_logs'
-    dict_list,erros=logs_to_dict(path)
-    print(dict_list[1],dict_list[0]['info_df'])
-    ## file dict is comprised of [df_dict,vib_dict,charge_dict]
-    ## you need the vib_dict and df_dict['info_df'] to get the vibrational frequencies
-    

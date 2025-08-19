@@ -182,13 +182,32 @@ class LinuxCommands(Enum):
 
 
 def log_exception(location="<unknown>"):
-    # Walk to the innermost traceback frame
-    tb = sys.exc_info()[2]
+    exc_type, exc_value, tb = sys.exc_info()
+    # Go to innermost traceback frame
     while tb.tb_next:
         tb = tb.tb_next
+    frame = tb.tb_frame
+    filename = frame.f_code.co_filename
+    func_name = frame.f_code.co_name
     lineno = tb.tb_lineno
-    print(f"Error in {location} at line {lineno}:")
-    traceback.print_exc()
+    code_line = ""
+    try:
+        with open(filename) as f:
+            lines = f.readlines()
+            code_line = lines[lineno - 1].strip()
+    except Exception:
+        code_line = "<Could not retrieve code line>"
+
+    print("\n" + "="*60)
+    print(f"🔥 Exception in {location}")
+    print(f"  File      : {filename}")
+    print(f"  Function  : {func_name}")
+    print(f"  Line      : {lineno}")
+    print(f"  Code      : {code_line}")
+    print(f"  Type      : {exc_type.__name__}")
+    print(f"  Message   : {exc_value}")
+    print("-"*60)
+
 
     
 def compare_cosine_distance_matrices(matrix1, matrix2):
@@ -1034,3 +1053,132 @@ def extract_connectivity(xyz_df, threshold_distance=1.82, metal_atom='Pd'):
     return pd.DataFrame(final[[0, 1]] + 1)  # Return 1-based indices
 
 
+import plotly.graph_objs as go
+from ipywidgets import interact, FloatSlider
+def interactive_corr_heatmap_with_highlights(df, initial_threshold=0.9, highlight_thresh=0.95, cell_size=40, min_size=400, max_size=1200):
+    """
+    Interactive Plotly heatmap of the correlation matrix with a slider for the minimum absolute correlation.
+    Features that are in a highly correlated pair (|corr| > highlight_thresh) are marked with an asterisk (*).
+    """
+    corr = df.corr()
+    order = corr.abs().sum().sort_values(ascending=False).index
+    corr_sorted = corr.loc[order, order]
+    n = len(order)
+    size = min(max(n * cell_size, min_size), max_size)
+
+    # Find features to highlight
+    highly_corr_features = set()
+    for i, feat_i in enumerate(order):
+        for j, feat_j in enumerate(order):
+            if i != j and abs(corr_sorted.iloc[i, j]) > highlight_thresh:
+                highly_corr_features.add(feat_i)
+                highly_corr_features.add(feat_j)
+    # Add asterisk to highly correlated features
+    labels = [
+        f"{name}{'' if name in highly_corr_features else ''}"
+        for name in order
+    ]
+
+    def plot(threshold):
+        # Mask correlations below threshold and zeros
+        corr_display = corr_sorted.where(corr_sorted.abs() >= threshold)
+        corr_display = corr_display.where(corr_display != 0)
+
+        fig = go.Figure(
+            data=go.Heatmap(
+                z=corr_display.values,
+                x=labels,
+                y=labels,
+                colorscale='RdBu',
+                zmid=0,
+                colorbar=dict(title='Correlation'),
+                hovertemplate='Feature 1: %{y}<br>Feature 2: %{x}<br>Correlation: %{z:.3f}<extra></extra>'
+            )
+        )
+        fig.update_layout(
+            title=f'Correlation Heatmap (|corr| ≥ {threshold})',
+            xaxis_nticks=n,
+            yaxis_nticks=n,
+            autosize=False,
+            width=size,
+            height=size,
+        )
+        fig.show()
+
+    interact(plot, threshold=FloatSlider(min=0, max=1, step=0.01, value=initial_threshold, description='Threshold'))
+
+import matplotlib.pyplot as plt
+from scipy.stats import ks_2samp
+
+def pick_samples_to_remove_for_distribution(y, n_remove, metric='ks', bins=20, plot=True):
+    """
+    Picks indices of n_remove samples to remove from y such that the distribution
+    of the remaining y is as close as possible to the original.
+    Plots before/after histograms, marks removed bins, and uses count (not density).
+    
+    Args:
+        y (array-like): Target values.
+        n_remove (int): Number of samples to remove.
+        metric (str): Metric to use ('ks', 'mean', or 'std').
+        bins (int): Number of bins in the histogram plot.
+        plot (bool): If True, show the before/after plot.
+    Returns:
+        indices_to_remove: List of indices in y to remove.
+    """
+    y = np.array(y)
+    indices_to_remove = []
+    all_indices = set(range(len(y)))
+    y_orig = y.copy()
+
+    for _ in range(n_remove):
+        best_score = None
+        best_idx = None
+        candidates = list(all_indices - set(indices_to_remove))
+        for idx in candidates:
+            y_test = np.delete(y, indices_to_remove + [idx])
+            if metric == 'ks':
+                score = ks_2samp(y_orig, y_test).statistic
+            elif metric == 'mean':
+                score = abs(np.mean(y_orig) - np.mean(y_test))
+            elif metric == 'std':
+                score = abs(np.std(y_orig) - np.std(y_test))
+            else:
+                raise ValueError("Metric must be 'ks', 'mean', or 'std'.")
+            if best_score is None or score < best_score:
+                best_score = score
+                best_idx = idx
+        indices_to_remove.append(best_idx)
+    
+    y_remaining = np.delete(y, indices_to_remove)
+    
+    if plot:
+        # Compute histograms
+        counts, bin_edges = np.histogram(y, bins=bins)
+        counts_remain, _ = np.histogram(y_remaining, bins=bin_edges)
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+
+        plt.figure(figsize=(8,4))
+        width = bin_edges[1] - bin_edges[0]
+        plt.bar(bin_centers, counts, width=width, alpha=0.5, color='blue', label='Original', edgecolor='k')
+        plt.bar(bin_centers, counts_remain, width=width, alpha=0.5, color='red', label='After Removal', edgecolor='k')
+
+        # Mark which bins lost a sample
+        removed_y = y[indices_to_remove]
+        removed_bins = np.digitize(removed_y, bin_edges) - 1  # -1 to get left bin
+        # Count how many removed per bin
+        unique_bins, removed_per_bin = np.unique(removed_bins, return_counts=True)
+        for b, count, val in zip(unique_bins, removed_per_bin, removed_y):
+            # Mark center of the bin
+            plt.annotate(f'{count} removed', 
+                         xy=(bin_centers[b], counts[b]), 
+                         xytext=(bin_centers[b], counts[b]+0.5), 
+                         ha='center', color='black', fontsize=10,
+                         arrowprops=dict(facecolor='black', arrowstyle='->', lw=1.5, shrinkA=0.5))
+        plt.xlabel('y value')
+        plt.ylabel('Count')
+        plt.title(f'Distribution Before (blue) and After (red) Removal of {n_remove} Samples')
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+    
+    return indices_to_remove

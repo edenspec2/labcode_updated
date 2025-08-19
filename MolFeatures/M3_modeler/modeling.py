@@ -461,10 +461,11 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
     # Check if R-squared is above the threshold
     t3=time.time()
     if evaluation_results['r2'] > r2_threshold:
-        q2, mae,rmsd = model.calculate_q2_and_mae(X, y, n_splits=None)
+        q2, mae,rmsd = model.calculate_q2_and_mae(X, y, n_splits=1)
         evaluation_results['Q2'] = q2
         evaluation_results['MAE'] = mae
         evaluation_results['RMSD'] = rmsd
+        print(f'R2:{evaluation_results["r2"]:.3f} Q2: {q2:.3f}, MAE: {mae:.3f}, RMSD: {rmsd:.3f} for combination: {combination}')
 
     q2_time=time.time()-t3
     # arrange the results based on highest q2
@@ -954,7 +955,6 @@ class LinearRegressionModel:
         target_vector_unordered = pd.read_csv(csv_filepath)[self.output_name]
         
         self.target_vector = target_vector_unordered.loc[self.molecule_names]
-
     def leave_out_samples(self, leave_out=None, keep_only=False):
         """
         Remove or retain specific rows from features_df/target_vector based on indices or molecule names.
@@ -1051,132 +1051,103 @@ class LinearRegressionModel:
     from sklearn.metrics import mean_absolute_error, mean_squared_error, make_scorer
     import numpy as np
 
-    def calculate_q2_and_mae(self, X, y,
-                        n_splits=None,
-                        test_size=0.1,
-                        random_state=42,
-                        n_iterations=100, exclude_leftout: bool = True):
+    # analyze_shap_values(model, X, feature_names=None, target_name="output", n_top_features=10):
+
+    def plot_shap_values(self, X, feature_names=None, target_name="output", n_top_features=10):
         """
-        Calculate Q², MAE, and RMSD using scikit-learn's cross-validation or single train/test split,
-        and print each prediction vs. actual and the percentage error.
+        Plot SHAP values for the model's predictions.
+        
+        Args:
+            X (np.ndarray): Feature matrix.
+            feature_names (list, optional): Names of the features.
+            target_name (str, optional): Name of the target variable.
+            n_top_features (int, optional): Number of top features to display.
+        """
+        model= self.model
+        
+        analyze_shap_values(model, X, feature_names=feature_names, target_name=target_name, n_top_features=n_top_features)
+        
+    def calculate_q2_and_mae(self, X, y,
+                         n_splits=None,
+                         test_size=0.1,
+                         random_state=42,
+                         n_iterations=500,
+                         exclude_leftout: bool = True):
+        """
+        Calculate Q² (cross-validated R²), MAE, and RMSD using scikit-learn's cross-validation or single train/test split.
+        Q² is only meaningful when n_splits=1 (LOO CV).
 
         Args:
-            X (np.ndarray): Feature matrix of shape (n_samples, n_features).
-            y (np.ndarray): Target vector of shape (n_samples,).
-            n_splits (int, optional): Number of splits (folds) for cross-validation.
-                                    If None, defaults to self.n_splits.
-                                    If 1, performs Leave-One-Out CV.
+            X (np.ndarray): Feature matrix.
+            y (np.ndarray): Target vector.
+            n_splits (int, optional): Number of CV splits. If 1, does Leave-One-Out CV.
         Returns:
             tuple: (q2, mae, rmsd)
         """
+        import numpy as np
         from sklearn.preprocessing import StandardScaler
         from sklearn.model_selection import LeaveOneOut
-        from sklearn.metrics import mean_absolute_error, mean_squared_error
-        import numpy as np
+        from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-        scaler= StandardScaler()
-        # 0) Normalize if needed
+        scaler = StandardScaler()
+        # Normalize if variance suggests it's needed
         if np.var(X) > 1: 
             X = scaler.fit_transform(X)
-            print(f"Data normalized. Variance: {np.var(X)}")
+            print(f"Data normalized. Variance: {np.var(X):.2f}")
+
         if n_splits is None or n_splits == 0:
             print(f'Using single train/test split with test size {test_size} and random state {random_state}')
             self.model.fit(X, y)
             y_pred = self.model.predict(X)
-            q2   = r_squared(y, y_pred, formula="corr")
+            r2   = r2_score(y, y_pred)
             mae  = mean_absolute_error(y, y_pred)
             rmsd = np.sqrt(mean_squared_error(y, y_pred))
-            for i, (actual, pred) in enumerate(zip(y, y_pred)):
-                pct_err = (pred - actual) / actual * 100 if actual != 0 else float('nan')
-                print(f"Index {i}: Actual = {actual:.3f}, Predicted = {pred:.3f}, % Error = {pct_err:.2f}%")
-            return q2, mae, rmsd
-        
+            return r2, mae, rmsd
+
         if n_splits < 1:
             raise ValueError("n_splits must be at least 1.")
-        
-
-        
-
 
         # --- LOO case ---
         if n_splits == 1:
-            loo = LeaveOneOut()
+            cv = LeaveOneOut()
             print("Using Leave-One-Out cross-validation (LOO)...")
-            if exclude_leftout and hasattr(self, 'molecule_names_predict'):
-                # build a mask of indices to KEEP in X,y
-                keep_mask = [
-                    name not in self.molecule_names_predict
-                    for name in self.molecule_names
-                ]
-                X = X[keep_mask]
-                y = y[keep_mask]
-                
-            y_pred = np.empty_like(y, dtype=float)
-            for idx, (train_idx, test_idx) in enumerate(loo.split(X), 1):
-                X_train, X_test = X[train_idx], X[test_idx]
-                # X_train, X_test = scaler.transform(X_train), scaler.transform(X_test)
-                y_train, y_test = y[train_idx], y[test_idx]
-
-                # Fit & predict
-                self.model.fit(X_train, y_train)
-                y_pred[test_idx] = self.model.predict(X_test)
-
-                # Print each with percentage error
-                i = test_idx[0]
-                actual    = y_test[0]
-                predicted = y_pred[i]
-                pct_err   = (predicted - actual) / actual * 100 if actual != 0 else float('nan')
-         
-
-            # Metrics
-            q2   = r_squared(y, y_pred, formula="corr")
-            mae  = mean_absolute_error(y, y_pred)
-            rmsd = np.sqrt(mean_squared_error(y, y_pred))
-            return q2, mae, rmsd
-
-        # --- Repeated K-Fold case ---
         else:
-            print(f"Using Repeated K-Fold cross-validation with {n_splits} splits and {n_iterations} iterations...")
-            from sklearn.model_selection import RepeatedKFold
-            q2_list   = []
-            mae_list  = []
-            rmsd_list = []
-            n_samples = len(y)
+            cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+            print(f"Using {n_splits}-Fold cross-validation...")
 
-            for iteration in range(1, n_iterations + 1):
-                random_seed = random_state + iteration
-                fold_assignments = assign_folds_no_empty(n_samples, n_splits, random_seed)
-                predictions = np.full(n_samples, np.nan)
 
-                for fold in range(1, n_splits + 1):
-                    test_idx  = [i for i, f in enumerate(fold_assignments) if f == fold]
-                    train_idx = [i for i, f in enumerate(fold_assignments) if f != fold]
+        if exclude_leftout and hasattr(self, 'molecule_names_predict'):
+            # build a mask of indices to KEEP in X, y
+            keep_mask = [
+                name not in self.molecule_names_predict
+                for name in self.molecule_names
+            ]
+            X = X[keep_mask]
+            y = y[keep_mask]
 
-                    X_train, X_test = X[train_idx], X[test_idx]
-                    # X_train, X_test = scaler.transform(X_train), scaler.transform(X_test)
-                    y_train, y_test = y[train_idx], y[test_idx]
+        y_pred = np.empty_like(y, dtype=float)
+        for idx, (train_idx, test_idx) in enumerate(cv.split(X), 1):
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
 
-                    self.model.fit(X_train, y_train)
-                    y_fold_pred = self.model.predict(X_test)
-                    predictions[test_idx] = y_fold_pred
+            self.model.fit(X_train, y_train)
+            y_pred[test_idx] = self.model.predict(X_test)
 
-                    # Print each within this fold with percentage error
-                    for i, pred in zip(test_idx, y_fold_pred):
-                        actual  = y[i]
-                        pct_err = (pred - actual) / actual * 100 if actual != 0 else float('nan')
-                    
+            # Optional: Print each with percentage error
+            # i = test_idx[0]
+            # actual = y_test[0]
+            # predicted = y_pred[i]
+            # pct_err = (predicted - actual) / actual * 100 if actual != 0 else float('nan')
+            # print(f"Sample {i}: actual={actual:.3f}, pred={predicted:.3f}, %err={pct_err:.1f}")
 
-                # Compute metrics on valid samples
-                valid = ~np.isnan(predictions)
-                mae  = mean_absolute_error(y[valid], predictions[valid])
-                q2   = r_squared(y[valid], predictions[valid])
-                rmsd = np.sqrt(mean_squared_error(y[valid], predictions[valid]))
+        # Q2 is the cross-validated R2 (LOO)
+        q2   = r2_score(y, y_pred)
+        mae  = mean_absolute_error(y, y_pred)
+        rmsd = np.sqrt(mean_squared_error(y, y_pred))
+        return q2, mae, rmsd
 
-                q2_list.append(q2)
-                mae_list.append(mae)
-                rmsd_list.append(rmsd)
 
-            return np.mean(q2_list), np.mean(mae_list), np.mean(rmsd_list)
+
 
     def fit(self, X, y, alpha=1e-5):
         """
@@ -1473,7 +1444,7 @@ class LinearRegressionModel:
                         res = fit_and_evaluate_single_combination_regression(self, combo, threshold)
                         new_results.append(res)
                     except Exception as e:
-                        print(f"Error evaluating combo {combo}: {e}")
+                        pass
                         
                 # Combine with any existing results
                 new_results_df = pd.DataFrame(new_results)
@@ -1497,7 +1468,8 @@ class LinearRegressionModel:
 
         # 1) initial pass
         sorted_results = evaluate_with_threshold(initial_r2_threshold)
-        sorted_results = sorted_results.sort_values(by='Q2', ascending=False)
+        print(sorted_results.head())
+        sorted_results = sorted_results.sort_values(by='q2', ascending=False)
 
         if is_all_inf(sorted_results):
             print("All Q2 values are -inf, lowering R2 threshold and retrying...")
@@ -1505,7 +1477,7 @@ class LinearRegressionModel:
             new_threshold = (highest_r2 - 0.15) if highest_r2 is not None else (initial_r2_threshold - 0.15)
             print(f"New threshold: {new_threshold:.3f}")
             sorted_results = evaluate_with_threshold(new_threshold)
-            sorted_results = sorted_results.sort_values(by='Q2', ascending=False)
+            sorted_results = sorted_results.sort_values(by='q2', ascending=False)
 
         sorted_results = sorted_results.head(top_n)
         # print the regression table
@@ -2436,8 +2408,7 @@ class ClassificationModel:
         return log_likelihood
 
 
-import os
-# Usage
+import os# Usage
 
 
 
