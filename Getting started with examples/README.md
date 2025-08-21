@@ -51,6 +51,10 @@ There are two radii systems implemented in this version, the first being Pyykko'
 
 2) Option to include default values in the extracted features.
 
+##**After selecting the parameters, users can input atom indicies for the desired features.
+Save input will create a text file with the currently filled parameters and indicies, which can be used with Load input instead of manually filling the questions again.
+Clicking submit, the results are displayed in the GUI dashboard and a csv file containing the extracted features is created.**##
+
 **Once all parameters are entered users can click submit for instant results which will be presented on the GUI dashboard.**
 **It is recommended to use Save input/output, once clicked users will be asked to save a text file with the parameters chosen for quick results replication,
 in addition a csv file will be saved with the features extracted**
