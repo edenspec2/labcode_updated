@@ -1,31 +1,29 @@
 **The following section focuses on the GUI use, for more advanced usage refere to the Practical Notebooks for feature extraction and modeling**
 
-## Log files convertion example
+## Opening the GUI app
 
-For user convenience, we demonstrate usage with a small number of molecules, such that downloading the log files directly to a local machine will stay within memory-usage reason. As stated on the home page, it is generally not the case. 
+
 
 ## Run logs to feather converter
 
 
 
-**A directory named 'feather_files' will be created inside the logs directory with the feather files inside it.**
-**Now that we extracted the files we can run the GUI for easy feature extraction.**
 
 
-
-
-```{r mol, eval=FALSE}
+```
 # Run the following command in the MolFeatures directory. 
 python -m __main__.py gui
 ```
 
 <center><img src="figures/gui_dashboard.jpg" class="center"></center>
 
-**Users are then presented with the option menu.**
-**By clicking Browse to feather files directory users can choose a directory with feather files to load them**
+**Use File Handler to convert log files to feathers, or use the example feather files.**
+
+**Now we can go over to feature extraction.**
+**By clicking Browse feather directory users can choose a which molecules to load**
 **once loaded a list with file names will appear to let you know which files were successful**
 
-```{r mol, eval=FALSE}
+```
 Molecules initialized : ['basic', 'm_Br', 'm_Cl', 'm_F', 'm_I', 'm_nitro', 'o_Br', 'o_Cl', 'o_F', 'o_I', 'o_nitro', 'penta_F', 'p_amine', 'p_azide', 'p_boc', 'p_Br', 'p_Cl', 'p_F', 'p_I', 'p_Me', 'p_nitro', 'p_OEt', 'p_OH', 'p_OMe', 'p_Ph', 'p_tfm']
 
 Failed to load Molecules: []
@@ -51,7 +49,7 @@ Visualize Basic Structure - Visalizes the smallest structure in the set.
 Choose Parameters - lets you choose 1) radii type that will be used for sterimol.
 There are two radii systems implemented in this version, the first being Pyykko's covalent radii and the second being CPK (VDW radii). The default is set to covalent radii as it holds a definitive value for all elements of the periodic table, while CPK is only defined for a small subset of them.
 
-2) Dipole calculation type - either directly from gaussian input or explicitly from the NBO values.
+2) Option to include default values in the extracted features.
 
 **Once all parameters are entered users can click submit for instant results which will be presented on the GUI dashboard.**
 **It is recommended to use Save input/output, once clicked users will be asked to save a text file with the parameters chosen for quick results replication,
@@ -66,28 +64,6 @@ By choosing Load input users can load the file, the indices will appear in the c
 
 
 
-# Command Line Usage
-
-**This next section will demonstrate the use of MolFeatures's stand-alone functionalities.**
-
-Note that there are some additional features that were not included in the GUI and are only available with interactive use. 
-
-```
-# to see package options
-python -m MolFeatures
-```
-<center><img src="figures/cmd_use.jpg" class="center"></center>
-
-```
-# to start interactive mode
-python -m MolFeatures interactive
-```
-
-<center><img src="figures/cmd_interactive.jpg" class="center"></center>
-
-Use help method_name to see clear instruction for each method.
-Once picked the appropriate parameters will be asked from the user.
-***
 
 ## Sterimol from xyz files 
 
@@ -96,7 +72,7 @@ Sterimol parameters can be extracted from xyz files without the need for logs or
 ```
 # To calculate sterimol features:
 
-python -m sterimol
+python __main__.[y sterimol
 ```
 ***
 <center><img src="figures/sterimol_cmd.jpg" class="center"></center>
