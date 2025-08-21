@@ -1115,113 +1115,70 @@ def pick_samples_to_remove_for_distribution(y, n_remove, metric='ks', bins=20, p
     Picks indices of n_remove samples to remove from y such that the distribution
     of the remaining y is as close as possible to the original.
     Plots before/after histograms, marks removed bins, and uses count (not density).
-
+    
     Args:
         y (array-like): Target values.
         n_remove (int): Number of samples to remove.
         metric (str): Metric to use ('ks', 'mean', or 'std').
-        bins (int or array): Number of bins or explicit bin edges for the histogram plot.
+        bins (int): Number of bins in the histogram plot.
         plot (bool): If True, show the before/after plot.
-
     Returns:
-        List[int]: indices_to_remove in y.
+        indices_to_remove: List of indices in y to remove.
     """
-    y = np.asarray(y).ravel()
-    if n_remove < 0:
-        raise ValueError("n_remove must be >= 0")
-    if n_remove > len(y) - 1:
-        raise ValueError("n_remove cannot be >= len(y)")
-
+    y = np.array(y)
     indices_to_remove = []
     all_indices = set(range(len(y)))
     y_orig = y.copy()
 
-    # --- Greedy selection: at each step remove the point that minimizes the chosen metric ---
     for _ in range(n_remove):
         best_score = None
         best_idx = None
-        remaining = list(all_indices - set(indices_to_remove))
-        # short-circuit: nothing left to test
-        if not remaining:
-            break
-
-        for idx in remaining:
+        candidates = list(all_indices - set(indices_to_remove))
+        for idx in candidates:
             y_test = np.delete(y, indices_to_remove + [idx])
             if metric == 'ks':
                 score = ks_2samp(y_orig, y_test).statistic
             elif metric == 'mean':
                 score = abs(np.mean(y_orig) - np.mean(y_test))
             elif metric == 'std':
-                score = abs(np.std(y_orig, ddof=0) - np.std(y_test, ddof=0))
+                score = abs(np.std(y_orig) - np.std(y_test))
             else:
-                raise ValueError("metric must be one of {'ks','mean','std'}")
-
+                raise ValueError("Metric must be 'ks', 'mean', or 'std'.")
             if best_score is None or score < best_score:
                 best_score = score
                 best_idx = idx
-
         indices_to_remove.append(best_idx)
-
+    
     y_remaining = np.delete(y, indices_to_remove)
-
+    
     if plot:
-        # --- Histograms using shared bin edges (so bars line up exactly) ---
+        # Compute histograms
         counts, bin_edges = np.histogram(y, bins=bins)
         counts_remain, _ = np.histogram(y_remaining, bins=bin_edges)
         bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-        widths = np.diff(bin_edges)
 
-        plt.figure(figsize=(8, 4))
-        plt.bar(bin_centers, counts,        width=widths, alpha=0.5, color='tab:blue', edgecolor='k', label='Original')
-        plt.bar(bin_centers, counts_remain, width=widths, alpha=0.5, color='tab:red',  edgecolor='k', label='After removal')
+        plt.figure(figsize=(8,4))
+        width = bin_edges[1] - bin_edges[0]
+        plt.bar(bin_centers, counts, width=width, alpha=0.5, color='blue', label='Original', edgecolor='k')
+        plt.bar(bin_centers, counts_remain, width=width, alpha=0.5, color='red', label='After Removal', edgecolor='k')
 
-        # --- Mark bins from which samples were removed (robust to edge cases) ---
+        # Mark which bins lost a sample
         removed_y = y[indices_to_remove]
-        # right=True ensures max values fall into the last bin
-        removed_bins = np.digitize(removed_y, bin_edges, right=True) - 1
-        # clip to valid range [0, n_bins-1]
-        removed_bins = np.clip(removed_bins, 0, len(bin_centers) - 1)
-
+        removed_bins = np.digitize(removed_y, bin_edges) - 1  # -1 to get left bin
+        # Count how many removed per bin
         unique_bins, removed_per_bin = np.unique(removed_bins, return_counts=True)
-        # vertical offset for annotations (5% of max height, at least 1)
-        y_offset = max(1, int(0.05 * (counts.max() if counts.size else 1)))
-
-        for b, count in zip(unique_bins, removed_per_bin):
-            x_ = float(bin_centers[b])
-            y_ = int(counts[b]) if counts.size else 0
-            plt.annotate(
-                f'{count} removed',
-                xy=(x_, y_),
-                xytext=(x_, y_ + y_offset),
-                ha='center', fontsize=10, color='black',
-                arrowprops=dict(facecolor='black', arrowstyle='->', lw=1.2, shrinkA=0.5)
-            )
-
+        for b, count, val in zip(unique_bins, removed_per_bin, removed_y):
+            # Mark center of the bin
+            plt.annotate(f'{count} removed', 
+                         xy=(bin_centers[b], counts[b]), 
+                         xytext=(bin_centers[b], counts[b]+0.5), 
+                         ha='center', color='black', fontsize=10,
+                         arrowprops=dict(facecolor='black', arrowstyle='->', lw=1.5, shrinkA=0.5))
         plt.xlabel('y value')
         plt.ylabel('Count')
-        plt.title(f'Distribution Before (blue) and After (red) removal of {len(indices_to_remove)} sample(s)')
+        plt.title(f'Distribution Before (blue) and After (red) Removal of {n_remove} Samples')
         plt.legend()
         plt.tight_layout()
         plt.show()
-
+    
     return indices_to_remove
-
-
-
-def add_output_column_csv(csv_filepath, output_column_name, output_values):
-    """
-    Adds an output column to a CSV file and saves it.
-
-    Parameters:
-    - csv_filepath (str): Path to the CSV file.
-    - output_column_name (str): Name of the new output column.
-    - output_values (list): List of values to add to the new column.
-    """
-    # Read the existing CSV file
-    df = pd.read_csv(csv_filepath, index_col=0)
-    
-    # Add the new output column
-    df[output_column_name] = output_values
-    
-    # Save the updated DataFrame back to the CSV file
-    df.to_csv(csv_filepath)

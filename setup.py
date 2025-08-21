@@ -48,7 +48,7 @@ setup(
     install_requires=[],
     package_data={
         # If 'feather_example' is a Python package with __init__.py
-        'MolFeatures': ['cube_example/*','feather_example/*','Workshop_Example_Data/*','pictures/*', 'description.txt', 'README.md', 'requirements.txt','setup.py','Practical_Notebook.ipynb'],
+        'MolFeatures': ['cube_example/*', 'logs_example/*','feather_example/*','Workshop_Example_Data/*','pictures/*', 'description.txt', 'README.md', 'requirements.txt','setup.py','Practical_Notebook_Modeling.ipynb','Practical_Notebook_Features.ipynb'],
     },
     include_package_data=True,
 )

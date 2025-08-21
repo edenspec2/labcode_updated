@@ -497,43 +497,51 @@ def preform_coordination_transformation(xyz_df, indices=None, origin=None):
 
 
 
-def direction_atoms_for_sterimol(bonds_df,base_atoms)->list: #help function for sterinol
+def direction_atoms_for_sterimol(bonds_df, base_atoms) -> list:  # help function for sterimol
     """
-    a function that return the base atom indices for coordination transformation according to the bonded atoms.
-    you can insert two atom indicess-[1,2] output [1,2,8] or the second bonded atom
-    if the first one repeats-[1,2,1] output [1,2,3]
+    A function that returns the base atom indices for coordination transformation according to the bonded atoms.
+    You can insert two atom indices - [1,2] output [1,2,8] or the second bonded atom
+    if the first one repeats - [1,2,1] output [1,2,3]
     """
     
     base_atoms_copy=base_atoms[0:2]
-    origin,direction=base_atoms[0],base_atoms[1]
+    origin, direction=base_atoms[0],base_atoms[1]
     bonds_df = bonds_df[~((bonds_df[0] == origin) & (bonds_df[1] == direction)) & 
                               ~((bonds_df[0] == direction) & (bonds_df[1] == origin))]
     
-    try :
-        base_atoms[2]==origin
-        if(any(bonds_df[0]==direction)):
-            # take the second atom in the bond where the first equeal to the direction, second option
-            base_atoms_copy[2]=int(bonds_df[(bonds_df[0]==direction)][1].iloc[1])
-        else:
-            # take the first atom in the bond where the first equeal to the direction, second option
-            base_atoms_copy[2]=int(bonds_df[(bonds_df[1]==direction)][0].iloc[1])
+    try:
+        # Case: user explicitly repeated origin as 3rd atom
+        if base_atoms[2] == origin:
+            if any(bonds_df[0] == direction):
+                choice = bonds_df[bonds_df[0] == direction].iloc[1, 1]
+                base_atoms_copy.append(int(choice))
+                
+            else:
+                choice = bonds_df[bonds_df[1] == direction].iloc[1, 0]
+                base_atoms_copy.append(int(choice))
+                
             return base_atoms_copy
-    except: 
+    except Exception as e:
+        pass
 
-        for _, row in bonds_df.iterrows():
+    # Otherwise, try to extend by looking for bonds involving direction
+    for _, row in bonds_df.iterrows():
+        if row[1] == direction:
+            base_atoms_copy.append(int(row[0]))
 
-            if row[1] == direction:
-                base_atoms_copy.append(row[0])
-                return base_atoms_copy
-          
-        for _, row in bonds_df.iterrows():
-            
-            if row[0] == direction:
-                base_atoms_copy.append(row[1])
-                return base_atoms_copy
-                # return base_atoms_copy
-        
-        
+            return base_atoms_copy
+
+    for _, row in bonds_df.iterrows():
+        if row[0] == direction:
+            base_atoms_copy.append(int(row[1]))
+
+            return base_atoms_copy
+    return None
+
+
+
+
+
     
 
 def get_molecule_connections(bonds_df, source, direction, mode='all'):
@@ -755,8 +763,11 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms, connected_from_directi
         base_atoms = [old_to_new[a] for a in base_atoms if a in old_to_new]
         if connected_from_direction is not None:
             connected_from_direction = [old_to_new[a] for a in connected_from_direction if a in old_to_new]
-  
+    
     bonds_direction = adjust_indices(direction_atoms_for_sterimol(bonds_df, base_atoms))
+    # verify bonds direction is 3 atoms
+    if len(bonds_direction) != 3:
+        raise ValueError("Bonds direction must contain exactly 3 atoms, check molecule connectivity.")
     new_coordinates_df = preform_coordination_transformation(coordinates_df, bonds_direction)
 
     if sub_structure:
@@ -764,6 +775,7 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms, connected_from_directi
             connected_from_direction = get_molecule_connections(bonds_df, base_atoms[0], base_atoms[1], mode=mode)
     else:
         connected_from_direction = None
+  
     bonded_atoms_df = get_specific_bonded_atoms_df(bonds_df, connected_from_direction, new_coordinates_df)
     extended_df = get_extended_df_for_sterimol(new_coordinates_df, bonds_df, radii)
 

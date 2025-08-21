@@ -2,12 +2,11 @@ pandas
 rdkit
 python-igraph
 XlsxWriter
-dgl
+ipywidgets
 pyarrow
 plotly
 customtkinter
 chardet
-torch
 matplotlib
 rmsd
 networkx
@@ -17,10 +16,11 @@ pyvistaqt
 morfeus-ml
 scikit-learn
 seaborn
-Pillow  # PIL is installed as Pillow
+PIL
 scipy
 tqdm
 statsmodels
 adjustText
 multiprocess
 shap
+pymc

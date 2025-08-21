@@ -301,6 +301,7 @@ def calc_vibration_dot_product_from_pairs(
             
             min_ratio = 0.5
             if amplitudes[second_atom] < min_ratio * amplitudes[first_atom]:
+
                 tag = "insufficient_second_movement"
                 sim = np.nan
                 print(f"Second atom (index {second_atom}) movement ({amplitudes[second_atom]:.3f}) is less than half of first atom ({amplitudes[first_atom]:.3f} , {first_atom}) for mode {idx} (skipping symmetry tag).")
@@ -317,6 +318,8 @@ def calc_vibration_dot_product_from_pairs(
                 vec2 = mode_vectors[second_atom]
                 
                 tag, sim = check_directional_symmetry(vec1, vec2)
+                # print atoms and amplitudes
+                print(f"Mode {idx}: Atoms {first_atom} and {second_atom} with amplitudes {amplitudes[first_atom]:.3f} and {amplitudes[second_atom]:.3f}, similarity: {sim:.3f}")
                 Amplitude= amp
                 tag+=f'_Stretch_{atom_pair[0]}_{atom_pair[1]}'
                 tag_results.append({
@@ -328,6 +331,7 @@ def calc_vibration_dot_product_from_pairs(
         tag_df = pd.DataFrame(tag_results,index=tag_list) 
         # check tag list, if its the same tag for both , check symmetry of vec from third_atom and forth_atom
         if len(tag_list) == 2 and tag_list[0] == tag_list[1]:
+            print(f"Both modes have the same tag: {tag_list[0]}. Checking symmetry with third and fourth atoms.")
             tag_results_backup = []
             tag_list_backup = []
             for idx in top_idxs:
@@ -427,9 +431,9 @@ def get_data_for_ring_vibration(info_df: pd.DataFrame, vibration_array_list: Lis
 
 
 
-def get_filter_ring_vibration_df(data_df: pd.DataFrame, prods_threshhold: float = 0.1,
+def get_filter_ring_vibration_df(data_df: pd.DataFrame, prods_threshhold: float = 0.01,
                                  frequency_min_threshhold: float = 1600,
-                                 frequency_max_threshhold: float = 1700) -> pd.DataFrame:
+                                 frequency_max_threshhold: float = 1750) -> pd.DataFrame:
     # Filter based on product value
     filter_prods = (abs(data_df[XYZConstants.RING_VIBRATION_INDEX.value[0]]) > prods_threshhold) & \
                    (data_df[XYZConstants.RING_VIBRATION_INDEX.value[0]] != 0)
@@ -437,6 +441,7 @@ def get_filter_ring_vibration_df(data_df: pd.DataFrame, prods_threshhold: float 
                        (data_df[XYZConstants.RING_VIBRATION_INDEX.value[1]] < frequency_max_threshhold)
     # Apply combined filter
     filtered_df = data_df[filter_prods & filter_frequency].reset_index()
+
     if filtered_df.empty:
         print('No data within the specified thresholds. Adjust your thresholds.')
     
@@ -464,37 +469,80 @@ def indices_to_coordinates_vector(coordinates_array,indices):
        
     return bond_vector
 
-def get_filtered_ring_df(info_df: pd.DataFrame, coordinates_array: np.ndarray, vibration_dict: dict,
-                         ring_atom_indices: list) -> pd.DataFrame:
+def get_filtered_ring_df(info_df: pd.DataFrame,
+                         coordinates_array: np.ndarray,
+                         vibration_dict: dict,
+                         ring_atom_indices: list,
+                         debug: bool = False) -> pd.DataFrame:
     """
-    A function that returns a filtered DataFrame of ring vibrations based on their product, frequency, and sin(angle) values.
+    A function that returns a filtered DataFrame of ring vibrations based on their product, frequency,
+    and sin(angle) values.
 
     Parameters
     ----------
     info_df : pd.DataFrame
-        A DataFrame that contains the frequencies and intensities of the vibrational modes.
+        DataFrame with vibrational frequencies/intensities.
 
     coordinates_array : np.ndarray
-        A numpy array that contains the x, y, z coordinates of each atom in the molecule.
+        (N_atoms, 3) array of x,y,z coordinates.
 
     vibration_dict : dict
-        A dictionary that contains the vibrational modes and their corresponding frequencies and intensities.
+        Vibrational modes → (freq, intensities, vectors).
 
     ring_atom_indices : list
-        A list of atom indices that define the atoms in the ring.
+        Atom indices defining atoms in the ring.
+
+    debug : bool
+        If True, prints debug info at each step.
 
     Returns
     -------
     filtered_df : pd.DataFrame
-        A DataFrame that contains the filtered ring vibrations based on their product, frequency, and sin(angle) values.
+        A DataFrame that contains the filtered ring vibrations.
     """
+
+    if debug:
+        print(f"\n[DEBUG] --- get_filtered_ring_df called ---")
+        print(f"[DEBUG] ring_atom_indices (raw): {ring_atom_indices}")
+
+    # adjust indices
     ring_indices = adjust_indices(ring_atom_indices)
+    if debug:
+        print(f"[DEBUG] ring_indices (after adjust): {ring_indices}")
+
+    # get coordinate vector
     coordinates_vector = indices_to_coordinates_vector(coordinates_array, ring_indices)[0]
+    if debug:
+        print(f"[DEBUG] coordinates_vector shape: {coordinates_vector.shape}")
+        print(f"[DEBUG] coordinates_vector (first few): {coordinates_vector[:5]}")
+
+    # vibration arrays
     vibration_atom_nums = flatten_list(ring_atom_indices)
     _, vibration_array_list = vibrations_dict_to_list(vibration_dict, vibration_atom_nums)
+    if debug:
+        print(f"[DEBUG] vibration_atom_nums: {vibration_atom_nums}")
+        print(f"[DEBUG] vibration_array_list length: {len(vibration_array_list)}")
+        if vibration_array_list:
+            print(f"[DEBUG] vibration_array_list[0] shape: {np.shape(vibration_array_list[0])}")
+
+    # build DataFrame
     data_df = get_data_for_ring_vibration(info_df, vibration_array_list, coordinates_vector)
+    if debug:
+        print(f"[DEBUG] data_df shape: {data_df.shape}")
+        print(f"[DEBUG] data_df columns: {list(data_df.columns)}")
+        print(f"[DEBUG] data_df head:\n{data_df}")
+
+    # filtering
     filtered_df = get_filter_ring_vibration_df(data_df)
+    if debug:
+        if filtered_df is None or filtered_df.empty:
+            print(f"[DEBUG] filtered_df is empty after filtering")
+        else:
+            print(f"[DEBUG] filtered_df shape: {filtered_df.shape}")
+            print(f"[DEBUG] filtered_df head:\n{filtered_df}")
+
     return filtered_df
+
 
 
 def calc_min_max_ring_vibration(filtered_df: pd.DataFrame) -> pd.DataFrame:

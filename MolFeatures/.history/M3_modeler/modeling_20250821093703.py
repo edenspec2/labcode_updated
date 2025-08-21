@@ -741,6 +741,102 @@ class LinearRegressionModel:
     def check_linear_regression_assumptions(self):
         return check_linear_regression_assumptions(self.features_df, self.target_vector)
 
+    def replace_rows(self, new_features_df):
+        """
+        Replace values in self.features_df for rows and columns present in new_features_df.
+        Uses self.molecule_names for index alignment. If molecule names contain an underscore,
+        only the part before the underscore is used for matching.
+        Includes debug prints and value comparisons.
+        """
+        print("=== Starting replace_rows ===")
+
+        # 1. Make a copy and preserve the original index
+        new_features_df = new_features_df.copy()
+        original_index = new_features_df.index.copy()
+
+        # 2. Drop rows at self.idx_labels (assumed to be integer row positions)
+        if hasattr(self, 'idx_labels'):
+            # Keep only positions that exist in the current DataFrame
+            valid_positions = [i for i in self.idx_labels if 0 <= i < len(new_features_df)]
+            drop_labels = new_features_df.index[valid_positions]
+
+            print(f"Dropping positions {valid_positions} → labels {list(drop_labels)}")
+            new_features_df = new_features_df.drop(index=drop_labels)
+            original_index = original_index.delete(valid_positions)
+
+        # 3. Reset index after dropping, but restore original_index later
+        new_features_df.reset_index(drop=True, inplace=True)
+        new_features_df.index = original_index  # Restores original index alignment
+        def base_name(name):
+            return str(name).split('_')[0]
+
+        mol_name_map = {base_name(name): idx for idx, name in enumerate(self.molecule_names)}
+        new_name_map = {base_name(name): name for name in new_features_df.index}
+
+        common_bases = set(mol_name_map.keys()) & set(new_name_map.keys())
+
+        if not common_bases:
+            raise KeyError(f"No matching base molecule names: {list(new_name_map.keys())}")
+
+        common_cols = self.features_df.columns.intersection(new_features_df.columns)
+
+        if common_cols.empty:
+            raise KeyError(f"No matching columns to update: {list(new_features_df.columns)}")
+        for base in common_bases:
+            row_idx = mol_name_map[base]
+            df_idx = new_name_map[base]
+            old_values = self.original_features_df.iloc[row_idx][common_cols].copy()
+            new_values = new_features_df.loc[df_idx, common_cols].copy()
+            diffs = old_values != new_values
+            self.features_df.iloc[row_idx, self.features_df.columns.get_indexer(common_cols)] = new_values.values
+        self.feature_names = self.features_df.columns.tolist()
+        # 🔁 Rescale the full DataFrame
+        self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+        print("=== Finished replace_rows and reapplied StandardScaler ===\n")
+
+
+
+
+    def switch_to_original_features_df(self):
+        """
+        Switch back to the original features DataFrame before any scaling or transformations.
+        This is useful if you want to revert to the raw data for further processing.
+        """
+        if hasattr(self, 'original_features_df'):
+            self.features_df = self.original_features_df.copy()
+            self.feature_names = self.features_df.columns.tolist()
+            print("Switched back to original features DataFrame.")
+        else:
+            raise AttributeError("No original features DataFrame found. Please ensure it was set during initialization.")
+
+
+    def add_or_replace_columns(self, new_features_df):
+        """
+        Add or replace columns by positional alignment—
+        only works if both DataFrames share the same row order.
+        Must be the same number of rows.
+        """
+        new_features_df = new_features_df.copy().reset_index(drop=True)
+        new_features_df = new_features_df.drop(index=self.idx_labels)
+
+        if len(new_features_df) != len(self.features_df):
+            raise ValueError(
+                f"Cannot align by position: "
+                f"self has {len(self.features_df)} rows, "
+                f"new has {len(new_features_df)} rows."
+            )
+
+        for col in new_features_df.columns:
+            self.features_df[col] = new_features_df[col].values
+
+        self.feature_names = self.features_df.columns.tolist()
+
+        # 🔁 Rescale the full DataFrame
+        self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+        print("=== Finished add_or_replace_columns and reapplied StandardScaler ===\n")
+
+
+
     
     def compute_multicollinearity(self, vif_threshold=5.0):
         """
@@ -1146,7 +1242,14 @@ class LinearRegressionModel:
             self.model.fit(X_train, y_train)
             y_pred[test_idx] = self.model.predict(X_test)
 
-   
+            # Optional: Print each with percentage error
+            # i = test_idx[0]
+            # actual = y_test[0]
+            # predicted = y_pred[i]
+            # pct_err = (predicted - actual) / actual * 100 if actual != 0 else float('nan')
+            # print(f"Sample {i}: actual={actual:.3f}, pred={predicted:.3f}, %err={pct_err:.1f}")
+
+        # Q2 is the cross-validated R2 (LOO)
         q2   = r2_score(y, y_pred)
         mae  = mean_absolute_error(y, y_pred)
         rmsd = np.sqrt(mean_squared_error(y, y_pred))
@@ -1574,6 +1677,100 @@ class ClassificationModel:
         else:    
             self.model = LogisticRegression(solver='lbfgs', random_state=42)
 
+
+    def replace_rows(self, new_features_df):
+        """
+        Replace values in self.features_df for rows and columns present in new_features_df.
+        Uses self.molecule_names for index alignment. If molecule names contain an underscore,
+        only the part before the underscore is used for matching.
+        Includes debug prints and value comparisons.
+        """
+        print("=== Starting replace_rows ===")
+
+        # 1. Make a copy and preserve the original index
+        new_features_df = new_features_df.copy()
+        original_index = new_features_df.index.copy()
+
+        # 2. Drop rows at self.idx_labels (assumed to be integer row positions)
+        if hasattr(self, 'idx_labels'):
+            # Keep only positions that exist in the current DataFrame
+            valid_positions = [i for i in self.idx_labels if 0 <= i < len(new_features_df)]
+            drop_labels = new_features_df.index[valid_positions]
+
+            print(f"Dropping positions {valid_positions} → labels {list(drop_labels)}")
+            new_features_df = new_features_df.drop(index=drop_labels)
+            original_index = original_index.delete(valid_positions)
+
+        # 3. Reset index after dropping, but restore original_index later
+        new_features_df.reset_index(drop=True, inplace=True)
+        new_features_df.index = original_index  # Restores original index alignment
+        def base_name(name):
+            return str(name).split('_')[0]
+
+        mol_name_map = {base_name(name): idx for idx, name in enumerate(self.molecule_names)}
+        new_name_map = {base_name(name): name for name in new_features_df.index}
+
+        common_bases = set(mol_name_map.keys()) & set(new_name_map.keys())
+
+        if not common_bases:
+            raise KeyError(f"No matching base molecule names: {list(new_name_map.keys())}")
+
+        common_cols = self.features_df.columns.intersection(new_features_df.columns)
+
+        if common_cols.empty:
+            raise KeyError(f"No matching columns to update: {list(new_features_df.columns)}")
+        for base in common_bases:
+            row_idx = mol_name_map[base]
+            df_idx = new_name_map[base]
+            old_values = self.original_features_df.iloc[row_idx][common_cols].copy()
+            new_values = new_features_df.loc[df_idx, common_cols].copy()
+            diffs = old_values != new_values
+            self.features_df.iloc[row_idx, self.features_df.columns.get_indexer(common_cols)] = new_values.values
+        self.feature_names = self.features_df.columns.tolist()
+        # 🔁 Rescale the full DataFrame
+        self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+        print("=== Finished replace_rows and reapplied StandardScaler ===\n")
+
+
+
+
+    def switch_to_original_features_df(self):
+        """
+        Switch back to the original features DataFrame before any scaling or transformations.
+        This is useful if you want to revert to the raw data for further processing.
+        """
+        if hasattr(self, 'original_features_df'):
+            self.features_df = self.original_features_df.copy()
+            self.feature_names = self.features_df.columns.tolist()
+            print("Switched back to original features DataFrame.")
+        else:
+            raise AttributeError("No original features DataFrame found. Please ensure it was set during initialization.")
+
+
+    def add_or_replace_columns(self, new_features_df):
+        """
+        Add or replace columns by positional alignment—
+        only works if both DataFrames share the same row order.
+        Must be the same number of rows.
+        """
+        new_features_df = new_features_df.copy().reset_index(drop=True)
+        new_features_df = new_features_df.drop(index=self.idx_labels)
+
+        if len(new_features_df) != len(self.features_df):
+            raise ValueError(
+                f"Cannot align by position: "
+                f"self has {len(self.features_df)} rows, "
+                f"new has {len(new_features_df)} rows."
+            )
+
+        for col in new_features_df.columns:
+            self.features_df[col] = new_features_df[col].values
+
+        self.feature_names = self.features_df.columns.tolist()
+
+        # 🔁 Rescale the full DataFrame
+        self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+        print("=== Finished add_or_replace_columns and reapplied StandardScaler ===\n")
 
 
 

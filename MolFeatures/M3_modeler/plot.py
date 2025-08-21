@@ -17,6 +17,7 @@ from adjustText import adjust_text
 from tkinter import ttk
 import sys 
 import os 
+from matplotlib.backends.backend_pdf import PdfPages
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from .modeling import fit_and_evaluate_single_combination_regression
@@ -293,8 +294,10 @@ def generate_q2_scatter_plot(
         ax.legend(reg_handles, reg_labels, loc='lower right', frameon=True)
     else:
         ax.legend().remove()  # Hide legend if only points
-
-    plt.tight_layout()
+    try:
+        plt.tight_layout()
+    except:
+        pass
     plt.savefig(f'model_plot_{formula}.png', dpi=dpi)
     # plt.show()
 
@@ -817,18 +820,217 @@ def print_models_vif_table(results, app=None):
         print('---\n')
         print(results.to_markdown(index=False, tablefmt="pipe"))
 
+def _capture_new_figs(run_fn):
+    """
+    Run a plotting function and return the list of NEW matplotlib Figure objects it created.
+    Works by diffing figure numbers before/after.
+    """
+    before = set(plt.get_fignums())
+    run_fn()
+    after = set(plt.get_fignums())
+    new_nums = sorted(after - before)
+    return [plt.figure(num) for num in new_nums]
 
-def print_models_regression_table(results, app=None):
+# ---- helpers ---------------------------------------------------------------
+from matplotlib.gridspec import GridSpec
 
-    formulas=[result['combination'] for result in results]
-    r_squared=[result['scores']['r2'] for result in results]
-    q_squared=[result['scores'].get('Q2', float('-inf')) for result in results]
-    mae=[result['scores'].get('MAE', float('-inf')) for result in results]
+def _nice_table(ax, df, title=None, fontsize=9):
+    ax.axis('off')
+    if title:
+        ax.set_title(title, pad=8, fontsize=11, fontweight='bold')
+    tbl = ax.table(cellText=df.values, colLabels=df.columns, loc='center', cellLoc='center')
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(fontsize)
+    # Adaptive column widths
+    ncols = len(df.columns)
+    for (row, col), cell in tbl.get_celld().items():
+        # header row
+        if row == 0:
+            cell.set_text_props(weight='bold')
+            cell.set_height(0.08)
+        else:
+            cell.set_height(0.06)
+        cell.set_edgecolor('#DDDDDD')
+        if col < ncols:
+            cell.set_linewidth(0.6)
+    # squeeze to panel
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+
+def _page_header(fig, subtitle):
+    fig.suptitle(subtitle, y=0.98, fontsize=13, fontweight='bold')
+    
+
+def _save_top5_pdf(results, model, pdf_path="top_models_report.pdf"):
+    """
+    Builds a multi-page PDF summarizing the top 5 models by R².
+    Pages per model:
+      1) Coefficients, VIF, CV metrics
+      2) Your `generate_q2_scatter_plot` figure(s)
+      3+) Your `analyze_shap_values` figure(s)
+    """
+    formulas = results['combination'].values
+    r2_vals  = results['r2'].values
+  
+    # pick top 5 indices by R2 (decendimg)
+    top5_idx = np.argsort(-r2_vals)[:5]
+
+    with PdfPages(pdf_path) as pdf:
+        for idx in top5_idx:
+            # ---------------- Parse & fit ----------------
+            s = formulas[idx]
+            features = _parse_tuple_string(s) if isinstance(s, str) else list(s)
+
+            X_df = model.features_df[features]
+            X = X_df.to_numpy()
+            y = model.target_vector.to_numpy()
+            model.fit(X, y)
+            pred, lwr_band, upr_band = model.predict(X, return_interval=True)
+
+            # Tables & metrics
+            coef_df = model.get_covariance_matrix(features)
+            coef_col = 'Estimate' if 'Estimate' in coef_df.columns else (
+                coef_df.select_dtypes(include='number').columns[0] if len(coef_df.select_dtypes(include='number').columns) else coef_df.columns[-1]
+            )
+            vif_df  = model._compute_vif(X_df)
+
+            Q2_3, MAE_3, RMSD_3     = model.calculate_q2_and_mae(X, y, n_splits=3)
+            Q2_5, MAE_5, RMSD_5     = model.calculate_q2_and_mae(X, y, n_splits=5)
+            Q2_loo, MAE_loo, RMSD_loo = model.calculate_q2_and_mae(X, y, n_splits=1)
+
+            folds_df = pd.DataFrame({
+                'Q2_3_Fold':   [Q2_3],
+                'MAE_3':       [MAE_3],
+                'RMSD_3':      [RMSD_3],
+                'Q2_5_Fold':   [Q2_5],
+                'MAE_5':       [MAE_5],
+                'RMSD_5':      [RMSD_5],
+                'Q2_LOOCV':    [Q2_loo],
+                'MAE_LOOCV':   [MAE_loo],
+                'RMSD_LOOCV':  [RMSD_loo],
+            })
+
+            # ---------------- PAGE 1: Summary dashboard ----------------
+            fig1 = plt.figure(figsize=(11.5, 8.2))
+            _page_header(fig1, f"Model #{idx}  |  Formula: {formulas[idx]}  |  R²={r2_vals[idx]:.3f}")
+
+            gs = GridSpec(2, 3, figure=fig1, height_ratios=[1.1, 1.0], width_ratios=[1.1, 1.0, 1.0])
+            # Coefficients (wide)
+            ax_coef = fig1.add_subplot(gs[0, :])
+            _nice_table(ax_coef, coef_df, title="Coefficients")
+
+            # VIF (left)
+            ax_vif = fig1.add_subplot(gs[1, 0])
+            _nice_table(ax_vif, vif_df, title="VIF")
+
+            # CV metrics (center)
+            ax_cv = fig1.add_subplot(gs[1, 1])
+            _nice_table(ax_cv, folds_df, title="Cross-validation (3-fold / 5-fold / LOOCV)")
+
+            # Meta box (right)
+            ax_meta = fig1.add_subplot(gs[1, 2])
+            ax_meta.axis('off')
+            ax_meta.set_title("Model Summary", pad=8, fontsize=11, fontweight='bold')
+            txt = [
+                f"Features: {len(features)}",
+                f"Samples:  {len(y)}",
+                f"R²(tr):   {r2_vals[idx]:.3f}",
+                f"Q²(3):    {Q2_3:.3f}",
+                f"Q²(5):    {Q2_5:.3f}",
+                f"Q²(LOO):  {Q2_loo:.3f}",
+            ]
+            ax_meta.text(0.02, 0.95, "\n".join(txt), va='top', ha='left', fontsize=11)
+
+            fig1.tight_layout(rect=[0, 0, 1, 0.95])
+            pdf.savefig(fig1, bbox_inches='tight')
+            plt.close(fig1)
+
+            # ---------------- PAGE 2: Your Q² scatter plot(s) ----------------
+            r_train = float(r2_vals[idx])
+            # Axis bounds derived from y/pred to keep your plot neat
+            x_min = float(np.min(y)); x_max = float(np.max(pred))
+            y_min = float(np.min(y)); y_max = float(np.max(pred))
+            pad_x = 0.05 * (x_max - x_min if x_max > x_min else 1.0)
+            pad_y = 0.05 * (y_max - y_min if y_max > y_min else 1.0)
+            lwr = [x_min - pad_x, y_min - pad_y]
+            upr = [x_max + pad_x, y_max + pad_y]
+
+            def _run_q2_plot():
+                _ = generate_q2_scatter_plot(
+                    y, pred, model.molecule_names, folds_df,
+                    features, coef_df['Estimate'], r_train, X
+                )
+
+            q2_figs = _capture_new_figs(_run_q2_plot)
+            for fig in q2_figs:
+                pdf.savefig(fig, bbox_inches='tight')
+                plt.close(fig)
+
+            # ---------------- PAGE 3+: SHAP pages ----------------
+            # try:
+            # shap_res = analyze_shap_values(
+            #     model,
+            #     model.features_df[list(features)],
+            #     feature_names=features,
+            #     target_name=getattr(model, 'output_name', 'target'),
+            #     n_top_features=10
+            # )
+            # print(f'shap results: {shap_res}')
+            # shap_figs = shap_res.get('figures', [])
+            # if not shap_figs:
+            #     # graceful fallback page
+            #     fig_err = plt.figure(figsize=(10, 3))
+            #     _page_header(fig_err, "SHAP analysis produced no figures")
+            #     plt.axis('off')
+            #     shap_figs = [fig_err]
+
+            # # optional title on first SHAP figure
+            # if shap_res.get('fig_summary') is not None:
+            #     shap_res['fig_summary'].suptitle("SHAP Summary", y=0.98, fontsize=13, fontweight='bold')
+
+            # for fig in shap_figs:
+            #     fig.text(0.01, 0.01, f"Model #{idx} | SHAP",
+            #             fontsize=8, ha='left', va='bottom', alpha=0.7)
+            #     pdf.savefig(fig, bbox_inches='tight')
+            #     plt.close(fig)
+            
+            shap_res = analyze_shap_values(
+            model,
+            model.features_df[list(features)],
+            feature_names=features,
+            target_name=getattr(model, 'output_name', 'target'),
+            n_top_features=10,
+            plot=True   # set False if you want no SHAP page
+        )
+
+        for fig in shap_res.get('figures', []):
+            fig.text(0.01, 0.01, f"Model #{idx} | SHAP", fontsize=8, ha='left', va='bottom', alpha=0.7)
+            pdf.savefig(fig, bbox_inches='tight')
+            plt.close(fig)
+
+
+
+            # except Exception as e:
+            #     fig_err = plt.figure(figsize=(10, 3))
+            #     _page_header(fig_err, "SHAP analysis skipped")
+            #     plt.axis('off')
+            #     plt.text(0.02, 0.5, f"Reason: {e}", fontsize=10)
+            #     pdf.savefig(fig_err, bbox_inches='tight')
+            #     plt.close(fig_err)
+
+
+    print(f"[PDF] Saved top-5 models report to: {pdf_path}")
+def _parse_tuple_string(s: str):
+    # "('L_11-6', 'buried_volume')" -> ['L_11-6','buried_volume']
+    return [x.strip(" '") for x in s.strip("()").split(",")]
+
+def print_models_regression_table(results, app=None ,model=None):
+
+    formulas=results['combination'].values
+    r_squared=results['r2'].values
+    q_squared=results['q2'].values
+    mae=results['mae'].values
     model_ids=[i for i in range(len(results))]
-    intercepts=[result['intercept'] for result in results]
-    model_coefficients=[result['coefficients'] for result in results]
-   
-    models=[result['models'] for result in results]
+
 
     # Create a DataFrame from the inputs
     df = pd.DataFrame({
@@ -839,18 +1041,12 @@ def print_models_regression_table(results, app=None):
         'Model_id': model_ids
     })
 
-    # Sort the DataFrame by Q.sq (descending) for a similar order
     df = df.sort_values(by='Q.sq', ascending=False)
-    
-    # Set the index to range from 1 to n (1-based indexing)
     df.index = range(1, len(df) + 1)
-    
-    # Print the DataFrame as a markdown-like table
-    
-    # Q2_3, MAE_3 = model.calculate_q2_and_mae(X, y, n_splits=3)
-    # Q2_5, MAE_5 = model.calculate_q2_and_mae(X, y, n_splits=5)
-    
-
+    try:
+        _save_top5_pdf(results,model, pdf_path="top_models_report.pdf")
+    except Exception as e:
+        print(f"[PDF] Skipping top-5 export due to error: {e}")
 
     while True:
 
@@ -871,13 +1067,10 @@ def print_models_regression_table(results, app=None):
             print("Exiting model selection.")
             break
 
-        try:
-            model = models[selected_model]
-        except IndexError:
-            print("Invalid model number. Please try again.")
-            continue
 
-        features = list(formulas[selected_model])
+        s = formulas[selected_model]
+        features = _parse_tuple_string(s) if isinstance(s, str) else list(s)
+  
         X = model.features_df[features]
         vif_df = model._compute_vif(X)
        
@@ -885,7 +1078,7 @@ def print_models_regression_table(results, app=None):
         y = model.target_vector.to_numpy()
         model.fit(X, y)
         pred, lwr, upr = model.predict(X, return_interval=True)
-        coef_df = model.get_covariace_matrix(features)
+        coef_df = model.get_covariance_matrix(features)
 
         x_min, y_min = y.min(), y.min()
         x_max, y_max = pred.max(), pred.max()
@@ -895,8 +1088,7 @@ def print_models_regression_table(results, app=None):
         upr = [x_max + padding_x, y_max + padding_y]
 
         # Debug statements
-        print(f"lower_bound (lwr): {lwr}")
-        print(f"upper_bound (upr): {upr}")
+       
 
         # Validate bounds
         if not (isinstance(lwr, (list, tuple, np.ndarray)) and len(lwr) == 2 and np.all(np.isfinite(lwr))):
@@ -958,7 +1150,7 @@ def print_models_regression_table(results, app=None):
 
 
 
-def generate_and_display_q2_scatter_plot(model, features, app=None):
+def generate_and_display_single_combination_plot(model, features, app=None):
     """
     Computes extra calculations (fitting, predictions, CV metrics, coefficient estimates, 
     and axis bounds) and then generates the Q2 scatter plot.
@@ -971,7 +1163,7 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
     Returns:
         The return value of generate_q2_scatter_plot.
     """
-    print("Starting generate_and_display_q2_scatter_plot...")
+
     
     # Extract features and target values
     try:
@@ -989,11 +1181,8 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
 
         result = fit_and_evaluate_single_combination_regression(model, features)
         pred = result['predictions']
-        # print y and pred side by side
-        # prediction_print = pd.DataFrame({'y': y, 'pred': pred})
         print('Training Set Results:', result['scores'])
-        # print("Predictions generated successfully:\n", prediction_print)
-        # print("Model fitted and predictions generated successfully.")
+
     except Exception as e:
         print("Error during model fitting/prediction:", e)
         return
@@ -1156,7 +1345,7 @@ def generate_and_display_q2_scatter_plot(model, features, app=None):
         print("Error in generate_q2_scatter_plot:", e)
         return
 
-    print("Finished generate_and_display_q2_scatter_plot.")
+
     return 
 
 
@@ -1398,127 +1587,89 @@ def plot_shap_dependence(model, X, feature_idx, interaction_idx=None, feature_na
     
     return fig
 
-def analyze_shap_values(model, X, feature_names=None, target_name="output", n_top_features=10):
+def analyze_shap_values(model, X, feature_names=None, target_name="output",
+                        n_top_features=10, plot=True):
     """
-    Perform comprehensive SHAP analysis on a model and return detailed results.
-    
-    Parameters:
-    -----------
-    model : model object
-        The fitted model to analyze.
-    X : numpy.ndarray or pandas.DataFrame
-        Feature matrix for which to compute SHAP values.
-    feature_names : list, optional
-        Names of features. If None and X is a DataFrame, column names are used.
-    target_name : str, optional
-        Name of the target variable for reporting.
-    n_top_features : int, optional
-        Number of top features to include in the detailed analysis.
-    
-    Returns:
-    --------
-    dict
-        Dictionary containing SHAP analysis results, including:
-        - shap_values: Raw SHAP values
-        - feature_importance: DataFrame of features sorted by mean absolute SHAP value
-        - interaction_strength: DataFrame of feature interactions (if supported)
+    Compute SHAP analysis and RETURN results (figures optional).
+    Guaranteed to return explicit Matplotlib Figure handles when plot=True.
     """
-    
-    
-    # Determine feature names
+    import numpy as np
+    import pandas as pd
+    import shap
+    import matplotlib.pyplot as plt
+
+    # ---- feature names
     if feature_names is None:
         if isinstance(X, pd.DataFrame):
             feature_names = X.columns.tolist()
         else:
             feature_names = [f"Feature {i}" for i in range(X.shape[1])]
-    
+
     results = {}
-    
-    # Create explainer
+
+    # ---- explainer
     try:
         explainer = shap.Explainer(model)
-   
-    except Exception as e:
+    except Exception:
+        background = shap.sample(X, min(50, X.shape[0])) if isinstance(X, pd.DataFrame) else X
+        background = background if isinstance(background, np.ndarray) else background.values
+        explainer = shap.KernelExplainer(model.predict, background)
 
-        explainer = shap.KernelExplainer(model.predict, shap.sample(X, min(50, X.shape[0])))
-    
-    # Calculate SHAP values
+    # ---- SHAP values
     shap_values = explainer.shap_values(X)
-    
-    # Handle different output formats
     if isinstance(shap_values, list):
-        # For multi-class models, use mean across classes or first class
         if len(shap_values) > 1:
-          
             mean_shap = np.abs(np.array(shap_values)).mean(axis=0)
             results['shap_values'] = shap_values
-            results['mean_shap'] = mean_shap
         else:
             mean_shap = np.abs(shap_values[0])
             results['shap_values'] = shap_values[0]
-            results['mean_shap'] = mean_shap
     else:
         mean_shap = np.abs(shap_values)
         results['shap_values'] = shap_values
-        results['mean_shap'] = mean_shap
-    
-    # Feature importance based on SHAP values
+    results['mean_shap'] = mean_shap
+
+    # ---- importance
     feature_importance = pd.DataFrame({
         'Feature': feature_names,
         'Mean Absolute SHAP Value': np.mean(np.abs(mean_shap), axis=0),
-        'Max Absolute SHAP Value': np.max(np.abs(mean_shap), axis=0)
-    })
-    feature_importance = feature_importance.sort_values('Mean Absolute SHAP Value', ascending=False)
+        'Max Absolute SHAP Value':  np.max(np.abs(mean_shap), axis=0)
+    }).sort_values('Mean Absolute SHAP Value', ascending=False)
     results['feature_importance'] = feature_importance
-    
-    # Get top features
-    top_features = feature_importance['Feature'].head(n_top_features).tolist()
-    results['top_features'] = top_features
-    
-    # Plot SHAP summary
-    fig_summary = plot_shap_summary(model, X, feature_names, max_display=n_top_features)
-    results['fig_summary'] = fig_summary
-    
-    # Plot dependence plots for top features
-    dependence_plots = []
-    for feature in top_features[:5]:  # Limit to first 5 to avoid too many plots
-        fig_dep = plot_shap_dependence(model, X, 
-                                        feature if isinstance(X, pd.DataFrame) else feature_names.index(feature),
-                                        feature_names=feature_names)
-        dependence_plots.append(fig_dep)
-    results['dependence_plots'] = dependence_plots
-    
-    # Try to calculate and plot interactions (if supported)
-    try:
-        if hasattr(explainer, 'shap_interaction_values'):
-            shap_interaction = explainer.shap_interaction_values(X)
-            if isinstance(shap_interaction, list):
-                shap_interaction = shap_interaction[0]
-            
-            # Calculate interaction strengths
-            interaction_strength = np.zeros((X.shape[1], X.shape[1]))
-            for i in range(X.shape[1]):
-                for j in range(X.shape[1]):
-                    if i != j:
-                        interaction_strength[i, j] = np.abs(shap_interaction[:, i, j]).mean()
-            
-            interaction_df = pd.DataFrame(interaction_strength, 
-                                            index=feature_names,
-                                            columns=feature_names)
-            results['interaction_strength'] = interaction_df
-            
-            # Plot top interactions
-            plt.figure(figsize=(10, 8))
-            sns.heatmap(interaction_df, cmap='viridis', annot=True, fmt=".4f")
-            plt.title("SHAP Interaction Strengths")
-            plt.tight_layout()
-            plt.savefig('shap_interactions.png', dpi=300, bbox_inches='tight')
-            results['fig_interaction'] = plt.gcf()
-            
-    except Exception as e:
-        print(f"Interaction analysis not supported by this explainer: {e}")
-    
+    results['top_features'] = feature_importance['Feature'].head(n_top_features).tolist()
+
+    # ---- figures (explicit creation)
+    results['figures'] = []
+    results['fig_summary'] = None
+
+    if plot:
+        # Create a NEW figure explicitly and draw into it
+        fig = plt.figure(figsize=(9, 6))
+        ax = fig.add_subplot(111)
+
+        # shap.summary_plot draws on the current figure; show=False prevents blocking
+        # Use the raw matrix (values) if X is a DataFrame
+        X_mat = X.values if isinstance(X, pd.DataFrame) else X
+        shap.summary_plot(
+            results['shap_values'],
+            X_mat,
+            feature_names=feature_names,
+            show=False,
+            max_display=n_top_features
+        )
+
+        # Tighten and hand back the figure
+        try:
+            fig.tight_layout()
+        except Exception:
+            pass
+
+        results['fig_summary'] = fig
+        results['figures'].append(fig)
+
     return results
+
+
 
 
 def univariate_threshold_analysis(X: pd.DataFrame, y: pd.Series, thresholds_per_feature=100, plot_top_n=5):

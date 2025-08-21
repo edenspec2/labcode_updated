@@ -54,13 +54,10 @@ def show_highly_correlated_pairs(df, corr_thresh=0.95):
     if pairs_sorted:
         import pandas as pd
         table = pd.DataFrame(pairs_sorted, columns=["Feature 1", "Feature 2", "Correlation", "Perfect"])
-        print("\nPerfectly correlated feature pairs (|corr|=1):")
-        print(table[table["Perfect"]])
-        print("\nOther highly correlated pairs:")
-        print(table[~table["Perfect"]])
+    
         return table
     else:
-        print(f"No pairs with |correlation| > {corr_thresh}")
+      
         return None
 
 
@@ -585,7 +582,7 @@ class Molecule:
             npa_df = self.get_npa_df_single(base_atoms_indices, sub_atoms=sub_atoms, type=type)
         return npa_df
     
-    def get_dipole_gaussian_df_single(self, atoms,origin ,visualize_bool=False) -> pd.DataFrame:
+    def get_dipole_gaussian_df_single(self, atoms,origin=None ,visualize_bool=False) -> pd.DataFrame:
   
         dipole_df = calc_dipole_gaussian(self.coordinates_array, np.array(self.gauss_dipole_df), atoms,origin=origin)
         try:
@@ -740,82 +737,198 @@ class Molecule:
         # go over df to check if there are equal frequencies and remove them, saving the
         return vibration_df
         
-    def get_ring_vibrations(self, ring_atom_indices: List[List[int]]) -> pd.DataFrame:
+    # def get_ring_vibrations(self, ring_atom_indices: List[List[int]]) -> pd.DataFrame:
+    #     """
+    #     Parameters
+    #     ----------
+    #     ring_atom_indices :working example: molecule_1.get_ring_vibrations([6]) 
+            
+    #     enter a list of the primary axis atom and the para atom to it.
+    #     For example - for a ring of atoms 1-6 where 4 is connected to the main group and 1 is para to it
+    #     (ortho will be 3 & 5 and meta will be 2 & 6) - enter the input [1] or [1,4].
+            
+    #     Returns
+    #     -------
+    #     dataframe
+    #         cross  cross_angle      para  para_angle
+    #     0  657.3882    81.172063  834.4249   40.674833
+
+    #     """
+    #     try:
+
+    #         if isinstance(ring_atom_indices[0], list):
+    #             df_list = []
+    #             for atoms in ring_atom_indices:
+    #                 try:
+    #                     z, x, c, v, b, n = get_benzene_ring_indices(self.bonds_df, atoms)
+    #                     ring_atom_indices_group = [[z, x], [c, v], [b, n]]
+    #                     filtered_df = get_filtered_ring_df(self.info_df, self.coordinates_array, self.vibration_dict, ring_atom_indices_group)
+    #                 except FileNotFoundError:
+    #                     print(f"[ERROR] No vibration - Check atom numbering in molecule {self.molecule_name}")
+    #                     return None
+    #                 except Exception as e:
+    #                     print(f"[ERROR] Failed to process atom set {atoms} - {e}")
+    #                     #log_exception()
+    #                     continue
+
+    #                 df = calc_min_max_ring_vibration(filtered_df)
+    #                 df.rename(index={
+    #                     'cross': f'cross_{atoms}',
+    #                     'cross_angle': f'cross_angle{atoms}',
+    #                     'para': f'para{atoms}',
+    #                     'para_angle': f'para_angle_{atoms}'
+    #                 }, inplace=True)
+
+    #                 df_list.append(df)
+
+    #             if df_list:
+    #                 result = pd.concat(df_list, axis=0)
+
+    #                 return result
+    #             else:
+    #                 return None
+    #         else:
+    #             try:
+    #                 z, x, c, v, b, n = get_benzene_ring_indices(self.bonds_df, ring_atom_indices)
+    #                 ring_atom_indices_group = [[z, x], [c, v], [b, n]]
+    #             except Exception as e:
+    #                 print(f"[ERROR] Error in get_ring_vibrations (get_benzene_ring_indices): {e}")
+    #                 #log_exception()
+    #                 return None
+
+    #             try:
+    #                 filtered_df = get_filtered_ring_df(self.info_df, self.coordinates_array, self.vibration_dict, ring_atom_indices_group)
+    #             except FileNotFoundError:
+    #                 print(f"[ERROR] No vibration - Check atom numbering in molecule {self.molecule_name}")
+    #                 return None
+    #             except Exception as e:
+    #                 print(f"[ERROR] Error in get_ring_vibrations (get_filtered_ring_df): {e}")
+    #                 #log_exception()
+    #                 return None
+
+    #             result = calc_min_max_ring_vibration(filtered_df)
+    #             return result
+    #     except Exception as e:
+    #         print(f"[ERROR] Unexpected error in get_ring_vibrations for molecule {getattr(self, 'molecule_name', 'Unknown')}: {e}")
+    #         #log_exception()
+    #         return None
+
+    def get_ring_vibrations(
+        self,
+        ring_atom_indices: List[List[int]],
+        *,
+        return_nan_on_empty: bool = True,   # if True -> return a NaN row when filters empty
+        verbose: bool = True,
+        **filter_kwargs,                    # passed through to get_filtered_ring_df if you add knobs later
+    ) -> pd.DataFrame:
         """
         Parameters
         ----------
-        ring_atom_indices :working example: molecule_1.get_ring_vibrations([6]) 
-            
-        enter a list of the primary axis atom and the para atom to it.
-        For example - for a ring of atoms 1-6 where 4 is connected to the main group and 1 is para to it
-        (ortho will be 3 & 5 and meta will be 2 & 6) - enter the input [1] or [1,4].
-            
+        ring_atom_indices : list
+            Either a single list like [1] or [1,4], or a list of such lists, e.g. [[1],[2,5],...].
+            Example: molecule_1.get_ring_vibrations([6])
+
         Returns
         -------
-        dataframe
-            cross  cross_angle      para  para_angle
-        0  657.3882    81.172063  834.4249   40.674833
-
+        pd.DataFrame or None
+            If multiple inputs: stacked rows per atom-set. Index is labeled (e.g., 'cross_[1, 4]').
+            Columns: cross, cross_angle, para, para_angle (from calc_min_max_ring_vibration).
+            If filters produce no data and `return_nan_on_empty=True`, returns a single NaN row.
+            Otherwise returns None.
         """
+        def _process_one(atom_set):
+            # Resolve benzene partner indices
+            try:
+                z, x, c, v, b, n = get_benzene_ring_indices(self.bonds_df, atom_set)
+                ring_atom_indices_group = [[z, x], [c, v], [b, n]]
+            except Exception as e:
+                if verbose:
+                    print(f"[ERROR] get_benzene_ring_indices failed for {atom_set}: {e}")
+                return None
+
+            # Filter vibrations
+            try:
+                filtered_df = get_filtered_ring_df(
+                    self.info_df, self.coordinates_array, self.vibration_dict, ring_atom_indices_group,
+                    **filter_kwargs
+                )
+            except FileNotFoundError:
+                if verbose:
+                    print(f"[ERROR] No vibration - check atom numbering in molecule {getattr(self, 'molecule_name', 'Unknown')}")
+                return None
+            except Exception as e:
+                if verbose:
+                    print(f"[ERROR] get_filtered_ring_df failed for {atom_set}: {e}")
+                return None
+
+            # Handle empty filters early
+            if filtered_df is None or getattr(filtered_df, "empty", False):
+                if verbose:
+                    print("No data within the specified thresholds. Adjust your thresholds.")
+                if return_nan_on_empty:
+                    # Build a NaN row with expected columns
+                    nan_row = pd.DataFrame(
+                        [[np.nan, np.nan, np.nan, np.nan]],
+                        columns=["cross", "cross_angle", "para", "para_angle"]
+                    )
+                    nan_row.rename(index={0: f"empty_{atom_set}"}, inplace=True)
+                    return nan_row
+                return None
+
+            # Safe compute min/max summarization
+            try:
+                df = calc_min_max_ring_vibration(filtered_df)
+            except ValueError as e:
+                # e.g., argmin/argmax on empty after internal filtering
+                if verbose:
+                    print(f"[WARN] Summary failed for {atom_set}: {e}")
+                if return_nan_on_empty:
+                    nan_row = pd.DataFrame(
+                        [[np.nan, np.nan, np.nan, np.nan]],
+                        columns=["cross", "cross_angle", "para", "para_angle"]
+                    )
+                    nan_row.rename(index={0: f"empty_{atom_set}"}, inplace=True)
+                    return nan_row
+                return None
+            except Exception as e:
+                if verbose:
+                    print(f"[ERROR] calc_min_max_ring_vibration failed for {atom_set}: {e}")
+                return None
+
+            # Label rows nicely
+            # df.rename(index={
+            #     'cross': f'cross_{atom_set}',
+            #     'cross_angle': f'cross_angle_{atom_set}',
+            #     'para': f'para_{atom_set}',
+            #     'para_angle': f'para_angle_{atom_set}'
+            # }, inplace=True, errors='ignore')
+
+            return df
+
         try:
+            # Normalize input shape to a list of lists
+            if not isinstance(ring_atom_indices, list):
+                ring_atom_indices = [ring_atom_indices]
+            if ring_atom_indices and not isinstance(ring_atom_indices[0], list):
+                ring_atom_indices = [ring_atom_indices]
 
-            if isinstance(ring_atom_indices[0], list):
-                df_list = []
-                for atoms in ring_atom_indices:
-                    try:
-                        z, x, c, v, b, n = get_benzene_ring_indices(self.bonds_df, atoms)
-                        ring_atom_indices_group = [[z, x], [c, v], [b, n]]
-                        filtered_df = get_filtered_ring_df(self.info_df, self.coordinates_array, self.vibration_dict, ring_atom_indices_group)
-                    except FileNotFoundError:
-                        print(f"[ERROR] No vibration - Check atom numbering in molecule {self.molecule_name}")
-                        return None
-                    except Exception as e:
-                        print(f"[ERROR] Failed to process atom set {atoms} - {e}")
-                        #log_exception()
-                        continue
+            out = []
+            for atoms in ring_atom_indices:
+                res = _process_one(atoms)
+                if res is not None:
+                    out.append(res)
 
-                    df = calc_min_max_ring_vibration(filtered_df)
-                    df.rename(index={
-                        'cross': f'cross_{atoms}',
-                        'cross_angle': f'cross_angle{atoms}',
-                        'para': f'para{atoms}',
-                        'para_angle': f'para_angle_{atoms}'
-                    }, inplace=True)
-
-                    df_list.append(df)
-
-                if df_list:
-                    result = pd.concat(df_list, axis=0)
-
-                    return result
-                else:
-                    return None
+            if out:
+                return pd.concat(out, axis=0)
             else:
-                try:
-                    z, x, c, v, b, n = get_benzene_ring_indices(self.bonds_df, ring_atom_indices)
-                    ring_atom_indices_group = [[z, x], [c, v], [b, n]]
-                except Exception as e:
-                    print(f"[ERROR] Error in get_ring_vibrations (get_benzene_ring_indices): {e}")
-                    #log_exception()
-                    return None
+                if verbose:
+                    print(f"[INFO] No ring vibration data produced for {getattr(self, 'molecule_name', 'Unknown')}.")
+                return None
 
-                try:
-                    filtered_df = get_filtered_ring_df(self.info_df, self.coordinates_array, self.vibration_dict, ring_atom_indices_group)
-                except FileNotFoundError:
-                    print(f"[ERROR] No vibration - Check atom numbering in molecule {self.molecule_name}")
-                    return None
-                except Exception as e:
-                    print(f"[ERROR] Error in get_ring_vibrations (get_filtered_ring_df): {e}")
-                    #log_exception()
-                    return None
-
-                result = calc_min_max_ring_vibration(filtered_df)
-                return result
         except Exception as e:
             print(f"[ERROR] Unexpected error in get_ring_vibrations for molecule {getattr(self, 'molecule_name', 'Unknown')}: {e}")
-            #log_exception()
             return None
-
+        
  
     
     def get_bend_vibration_single(self, atom_pair: List[int], threshold: float = 1300)-> pd.DataFrame:
@@ -937,13 +1050,13 @@ class Molecules():
         
         for molecule in self.molecules:
             try:
-                print(f'Processing Sterimol for {molecule.molecule_name}')
+                
                 sterimol_dict[molecule.molecule_name]=molecule.get_sterimol(atom_indices, radii, sub_structure=sub_structure, drop_atoms=drop_atoms, visualize_bool=visualize_bool, mode=mode)
             except Exception as e:
                 print(f'Error: {molecule.molecule_name} sterimol could not be processed: {e}')
                 log_exception("get_sterimol_dict")
                 pass
-        return sterimol_dict
+        return dict_to_horizontal_df(sterimol_dict)
     
     def get_npa_dict(self,atom_indices,sub_atoms=None):
         """
@@ -977,11 +1090,9 @@ class Molecules():
                 print(f'Error: {molecule.molecule_name} npa could not be processed: {e}')
                 log_exception("get_npa_dict")
                 pass
-            
-        return npa_dict
-    
 
-    
+        return dict_to_horizontal_df(npa_dict)
+
     def get_ring_vibration_dict(self,ring_atom_indices, threshold=1550):
         """
         Parameters
@@ -1015,7 +1126,7 @@ class Molecules():
                 print(f'Error: {molecule.molecule_name} ring vibration could not be processed: {e}')
                 traceback.print_exc()
                 pass
-        return ring_dict
+        return dict_to_horizontal_df(ring_dict)
     
     def get_dipole_dict(self,atom_indices,origin=None,visualize_bool=False):
         """
@@ -1043,7 +1154,7 @@ class Molecules():
             except Exception as e:
                 print(f'Error: {molecule.molecule_name} Dipole could not be processed: {e}')
                 log_exception("get_dipole_dict")
-        return dipole_dict
+        return dict_to_horizontal_df(dipole_dict)
     
     def get_bond_angle_dict(self,atom_indices):
         """
@@ -1074,7 +1185,7 @@ class Molecules():
                 print(f'Error: {molecule.molecule_name} Angle could not be processed: {e}')
                 log_exception("get_bond_angle_dict")
                 pass
-        return bond_angle_dict
+        return dict_to_horizontal_df(bond_angle_dict)
     
     def get_bond_length_dict(self,atom_pairs):
         """
@@ -1108,7 +1219,7 @@ class Molecules():
                 print(f'Error: {molecule.molecule_name} Bond Length could not be processed: {e}')
                 
                 pass
-        return bond_length_dict
+        return dict_to_horizontal_df(bond_length_dict)
     
     def get_stretch_vibration_dict(self,atom_pairs,threshold=3000):
         """
@@ -1142,7 +1253,7 @@ class Molecules():
                 log_exception("get_stretch_vibration_dict")
                 pass
 
-        return stretch_vibration_dict
+        return dict_to_horizontal_df(stretch_vibration_dict)
     
     def get_charge_df_dict(self,atom_indices):
         """
@@ -1173,7 +1284,7 @@ class Molecules():
                 print(f'Error: could not calculate nbo value for {molecule.molecule_name}: {e} ')
                 log_exception("get_charge_df_dict")
                 pass
-        return nbo_dict
+        return charge_dict_to_horizontal_df(nbo_dict)
     
     def get_charge_diff_df_dict(self,atom_indices,type='all'):
         """
@@ -1204,7 +1315,7 @@ class Molecules():
                 print(f'Error: could not calculate nbo difference for {molecule.molecule_name}: {e} ')
                 log_exception("get_charge_diff_df_dict")
                 pass
-        return charge_diff_dict
+        return charge_dict_to_horizontal_df(charge_diff_dict)
     
     def get_bend_vibration_dict(self,atom_pairs,threshold=1300):
         """
@@ -1238,7 +1349,7 @@ class Molecules():
                 print(f'Error: could not calculate bend vibration for {molecule.molecule_name} : {e}')
                 #log_exception("get_bend_vibration_dict")
                 pass
-        return bending_dict
+        return dict_to_horizontal_df(bending_dict)
     
     def visualize_molecules(self,indices=None):
         if indices is not None:
@@ -1283,7 +1394,7 @@ class Molecules():
         mol=self.molecules[idx]
         mol.get_sterimol(indices,visualize_bool=True)
         
-    def get_molecules_features_set(self, entry_widgets, parameters=None, answers_list=None, save_as=False):
+    def get_molecules_features_set(self, entry_widgets, parameters=None, answers_list=None, save_as=False, csv_file_name='features_csv'):
         """
         Gathers user input from entry_widgets, applies parameters,
         extracts features, and optionally saves results to a file.
@@ -1333,16 +1444,16 @@ class Molecules():
 
         # List of feature extraction steps as (key, handler function, *extra_args)
         feature_steps = [
-            ('ring', lambda a: dict_to_horizontal_df(self.get_ring_vibration_dict(a))),
-            ('stretching', lambda a: dict_to_horizontal_df(self.get_stretch_vibration_dict(a, answers.get('stretch', [None])[0]))),
-            ('bending', lambda a: dict_to_horizontal_df(self.get_bend_vibration_dict(a, answers.get('bend', [None])[0]))),
-            ('npa', lambda a: dict_to_horizontal_df(self.get_npa_dict(a, sub_atoms=answers.get('sub_atoms', [])))),
-            ('dipole', lambda a: dict_to_horizontal_df(self.get_dipole_dict(a, origin=answers.get('center_atoms', [])))),
-            ('charges', lambda a: charge_dict_to_horizontal_df(self.get_charge_df_dict(a))),
-            ('charge_diff', lambda a: charge_dict_to_horizontal_df(self.get_charge_diff_df_dict(a))),
-            ('sterimol', lambda a: dict_to_horizontal_df(self.get_sterimol_dict(a, radii=radii, drop_atoms=answers.get('drop_atoms', [])))),
-            ('bond_angle', lambda a: dict_to_horizontal_df(self.get_bond_angle_dict(a))),
-            ('bond_length', lambda a: dict_to_horizontal_df(self.get_bond_length_dict(a))),
+            ('ring', lambda a: self.get_ring_vibration_dict(a)),
+            ('stretching', lambda a: self.get_stretch_vibration_dict(a, answers.get('stretch', [None])[0])),
+            ('bending', lambda a: self.get_bend_vibration_dict(a, answers.get('bend', [None])[0])),
+            ('npa', lambda a: self.get_npa_dict(a, sub_atoms=answers.get('sub_atoms', []))),
+            ('dipole', lambda a: self.get_dipole_dict(a, origin=answers.get('center_atoms', []))),
+            ('charges', lambda a: self.get_charge_df_dict(a)),
+            ('charge_diff', lambda a: self.get_charge_diff_df_dict(a)),
+            ('sterimol', lambda a: self.get_sterimol_dict(a, radii=radii, drop_atoms=answers.get('drop_atoms', []))),
+            ('bond_angle', lambda a: self.get_bond_angle_dict(a)),
+            ('bond_length', lambda a: self.get_bond_length_dict(a)),
         ]
 
         # 6. Apply each step if the relevant input is present (and not empty)
@@ -1359,21 +1470,28 @@ class Molecules():
 
         # 7. Add polarizability (isotropic) block
         if iso:
-            rows = []
-            for molecule in self.molecules:
-                info = molecule.polarizability_df.copy().iloc[[0]]
-                info.index = [molecule.molecule_name]
-                info['energy'] = molecule.energy_value.values
-                rows.append(info)
-            polarizability_df_concat = pd.concat(rows, axis=0)
-            polarizability_df_concat = polarizability_df_concat.dropna(axis=1, how='all')
-            polarizability_df_concat = polarizability_df_concat.reset_index().set_index('index')
-            res_df = safe_concat(res_df, polarizability_df_concat)
+            try:
+                rows = []
+                for molecule in self.molecules:
+                    info = molecule.polarizability_df.copy().iloc[[0]]
+                    info.index = [molecule.molecule_name]
+                    print(f'extracting energy - {molecule.energy_value.values}')
+                    info['energy'] = molecule.energy_value.values
+                    rows.append(info)
+                polarizability_df_concat = pd.concat(rows, axis=0)
+                polarizability_df_concat = polarizability_df_concat.dropna(axis=1, how='all')
+                polarizability_df_concat = polarizability_df_concat.reset_index().set_index('index')
+                res_df = safe_concat(res_df, polarizability_df_concat)
+            except Exception as e:
+                print(f"Error processing polarizability/Energy for {getattr(self.molecules[0], 'molecule_name', 'unknown')}: {e}")
+                log_exception("get_molecules_comp_set_app – polarizability")
 
         # 8. Interactive analysis
         interactive_corr_heatmap_with_highlights(res_df)
         show_highly_correlated_pairs(res_df, corr_thresh=0.95)
-
+        if save_as:
+            res_df.to_csv(f"{csv_file_name}.csv", index=True)
+            
         return res_df
 
 
