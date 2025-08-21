@@ -15,7 +15,7 @@
 python -m __main__.py gui
 ```
 
-<center><img src="figures/gui_main" class="center"></center>
+<center><img src="figures/gui main" class="center"></center>
 
 **Use File Handler to convert log files to feathers, or use the example feather files.**
 
