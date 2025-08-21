@@ -581,7 +581,7 @@ def save_to_feather(df, filename):
 
 def logs_to_feather(dir_path):
     string_report=''
-    failed_files_string='Files with Errors created with missing DataFrames-\n'
+    failed_files_string=None
     os.chdir(dir_path)
     if not os.path.exists('feather_files'):
         os.mkdir('feather_files')
@@ -603,7 +603,9 @@ def logs_to_feather(dir_path):
             os.chdir('..')
         else:
             continue
-    string_report+=failed_files_string + 'Check the log files and reported errors for more information.'
+    if failed_files_string is not None:
+        string_report = failed_files_string + 'Check the log files and reported errors for more information.'
+        
     os.chdir(dir_path)
     
     print('Done!')

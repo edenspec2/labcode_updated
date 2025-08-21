@@ -247,7 +247,7 @@ class MoleculeApp:
         self.label.grid(row=0, column=0, padx=20, pady=10)
 
         self.folder_path = StringVar()
-        self.browse_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Browse for Feather Files Directory", command=self.browse_directory)
+        self.browse_button = customtkinter.CTkButton(self.sidebar_frame_left, text="Browse Feather Directory", command=self.browse_directory)
         self.browse_button.grid(row=1, column=0, padx=20, pady=10)
         createToolTip(self.browse_button, "Choose the directory where the Feather files are located to initialize them as Molecule objects.")
         
@@ -1734,10 +1734,7 @@ def main():
     if args.command == "gui":
         run_gui_app()
 
-    elif args.command == "interactive":
-        feather_dir = input("Enter the path to the feather files directory: ")
-        molecules = load_molecules(feather_dir)
-        interactive_cli(molecules)
+
         
     elif args.command == "logs_to_feather":
         log_dir = input("Enter the path to the log files directory: ")
@@ -1782,55 +1779,6 @@ def main():
     elif args.command == "model":
         csv_path=input("Enter the path to the csv file: ")
 
-    elif args.command == "install":
-        packages = [
-        "pandas",
-        "rdkit",
-        "python-igraph",
-        "XlsxWriter",
-        "dgl",
-        "ipywidgets",
-        "pyarrow",
-        "plotly",
-        "customtkinter",
-        "chardet",  
-        "matplotlib",
-        "rmsd",
-        "networkx",
-        "dash",
-        "pyvista",
-        "pyvistaqt",
-        "morfeus-ml",
-        "scikit-learn",
-        "seaborn",
-        "PIL",  # Note: PIL is often installed as Pillow
-        "scipy",
-        "tqdm",
-        "statsmodels",
-        "adjustText",
-        "multiprocess",
-        'random',
-        'shap',
-        'pymc'
-    ]
-
-        def install(package):
-                # Replace 'your_python_path' with the path of the Python executable used in CMD
-            result = subprocess.run([sys.executable, "-m", "pip", "install", package], capture_output=True, text=True)
-
-            if result.returncode == 0:
-                print(f"Package installed successfully {package}.")
-            else:
-                print("Error:", result.stderr)
-
-        [install(package) for package in packages]
-        print(f'Installed the Following Packages : {packages}\n {len(packages)} in total.')
-
-    else:
-        print("Path to package directory to run the usage notebook.")
-        print(os.path.abspath(__file__))
-
-        parser.print_help()
 
 if __name__ == "__main__":
     main()

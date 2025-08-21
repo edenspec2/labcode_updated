@@ -218,7 +218,7 @@ def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params
 
             # Define each dipole component and total vector with label and color
             scale=2
-            print(f"🔥 dipole vector: {vec!r} (scaled by {scale})")
+           
             comps = [
                 ((vec[0]*scale, 0, 0), 'red', 'Dipole X'),
                 ((0, vec[1]*scale, 0), 'green', 'Dipole Y'),

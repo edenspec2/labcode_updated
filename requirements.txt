@@ -16,7 +16,7 @@ pyvistaqt
 morfeus-ml
 scikit-learn
 seaborn
-PIL
+pillow
 scipy
 tqdm
 statsmodels
