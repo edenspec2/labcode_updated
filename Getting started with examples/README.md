@@ -15,7 +15,7 @@
 python -m __main__.py gui
 ```
 
-<center><img src="figures/gui main" class="center"></center>
+<center><img src="figures/gui_main" class="center"></center>
 
 **Use File Handler to convert log files to feathers, or use the example feather files.**
 
@@ -42,7 +42,7 @@ Once we open the Feature Extraction window, we'll be presented with many questio
 
 Each of the features and their options are described with an example of what the input should look like.
 
-<center><img src="figures/feature extraction choose parameters" width="800" height="500"></center>
+<center><img src="figures/feature_extraction_choose_parameters" width="800" height="500"></center>
 
 Visualize Basic Structure - Visalizes the smallest structure in the set.
 
