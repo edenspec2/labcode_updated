@@ -1,16 +1,12 @@
-**It is highly recommended to begin by running the following example hand-in-hand with this guide**
+**The following section focuses on the GUI use, for more advanced usage refere to the Practical Notebooks for feature extraction and modeling**
 
-## Download example log files
-
-Please find the example log files on the package's [Github]('(https://github.com/edenspec2/LabCode/blob/main/Getting%20started%20with%20examples/Example_log_files.zip)')
-
-Once downloaded and unzipped, you are ready to go!
+## Log files convertion example
 
 For user convenience, we demonstrate usage with a small number of molecules, such that downloading the log files directly to a local machine will stay within memory-usage reason. As stated on the home page, it is generally not the case. 
 
 ## Run logs to feather converter
 
-<center><img src="figures/logs_to_feather.jpg" class="center"></center>
+
 
 **A directory named 'feather_files' will be created inside the logs directory with the feather files inside it.**
 **Now that we extracted the files we can run the GUI for easy feature extraction.**
@@ -19,8 +15,8 @@ For user convenience, we demonstrate usage with a small number of molecules, suc
 
 
 ```{r mol, eval=FALSE}
-# Run MolFeatures 
-python -m MolFeatures gui
+# Run the following command in the MolFeatures directory. 
+python -m __main__.py gui
 ```
 
 <center><img src="figures/gui_dashboard.jpg" class="center"></center>
