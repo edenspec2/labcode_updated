@@ -15,7 +15,7 @@
 python -m __main__.py gui
 ```
 
-<center><img src="figures/gui_dashboard.jpg" class="center"></center>
+<center><img src="figures/gui_main.png" class="center"></center>
 
 **Use File Handler to convert log files to feathers, or use the example feather files.**
 
@@ -34,7 +34,7 @@ This image will help us select atoms for the process of feature extraction.
 
 <center><img src="figures/visualize.jpg" width="250" height="300"></center>
 
-<center><img src="figures/vis_example.jpg" width="500" height="450"></center>
+<center><img src="figures/molvisualizer.png" width="500" height="450"></center>
 
 ## Features
 
@@ -42,7 +42,7 @@ Once we open the Feature Extraction window, we'll be presented with many questio
 
 Each of the features and their options are described with an example of what the input should look like.
 
-<center><img src="figures/extract_features.jpg" width="800" height="500"></center>
+<center><img src="figures/feature_extraction_choose_parameters.png" width="800" height="500"></center>
 
 Visualize Basic Structure - Visalizes the smallest structure in the set.
 
@@ -61,10 +61,10 @@ in addition a csv file will be saved with the features extracted**
 
 #### Inputs file 
 
-The inputs file is saved in a text format. users can edit the file manualy by changing the indices inside the brackets.
+The inputs file is saved in a text format. users can edit the file manualy by changing the indices in the dictionary.
 By choosing Load input users can load the file, the indices will appear in the corresponding rubrics.
 
-<center><img src="figures/input_file.jpg" width="500" height="600"></center>
+<center><img src="figures/input_example.png" width="500" height="600"></center>
 
 
 
