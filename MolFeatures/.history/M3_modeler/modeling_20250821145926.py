@@ -156,8 +156,7 @@ def create_results_table(db_path='results.db'):
             avg_accuracy REAL,
             avg_f1_score REAL,
             threshold REAL,
-            model TEXT,
-            predictions TEXT
+            model TEXT
         );
     ''')
     print("Table 'regression_results' has been ensured to exist.")

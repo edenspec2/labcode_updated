@@ -348,3 +348,21 @@ def stratified_sampling_with_plots(df, size ,group='class' , plot=True):
         plot_distribution_scatter(stratified_sample, group, title="Class Distribution After Stratified Sampling")
     
     return stratified_sample
+
+def add_output_column_csv(csv_filepath, output_column_name, output_values):
+    """
+    Adds an output column to a CSV file and saves it.
+
+    Parameters:
+    - csv_filepath (str): Path to the CSV file.
+    - output_column_name (str): Name of the new output column.
+    - output_values (list): List of values to add to the new column.
+    """
+    # Read the existing CSV file
+    df = pd.read_csv(csv_filepath, index_col=0)
+    
+    # Add the new output column
+    df[output_column_name] = output_values
+    
+    # Save the updated DataFrame back to the CSV file
+    df.to_csv(csv_filepath)

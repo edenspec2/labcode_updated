@@ -20,9 +20,9 @@ import os
 from matplotlib.backends.backend_pdf import PdfPages
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
-    from .modeling import fit_and_evaluate_single_combination_regression , fit_and_evaluate_single_combination_classification
+    from .modeling import fit_and_evaluate_single_combination_regression
 except ImportError as e:
-    from modeling import fit_and_evaluate_single_combination_regression , fit_and_evaluate_single_combination_classification
+    from modeling import fit_and_evaluate_single_combination_regression
 
 def show_table_window(title, df):
     """
@@ -79,6 +79,42 @@ def get_valid_integer(prompt, default_value):
                     return default_value
                 
 
+def fit_and_evaluate_single_combination_classification(model, combination, accuracy_threshold=0.7, return_probabilities=False):
+        selected_features = model.features_df[list(combination)]
+        X = selected_features.to_numpy()
+        y = model.target_vector.to_numpy()
+
+        # Fit the model
+        model.fit(X, y)
+
+        # Evaluate the model
+        evaluation_results = model.evaluate(X, y)
+      
+        # Check if accuracy is above the threshold
+        if evaluation_results['accuracy'] > accuracy_threshold:
+            avg_accuracy, avg_f1,avg_r2 = model.cross_validation(X, y) ## , avg_auc
+            evaluation_results['avg_accuracy'] = avg_accuracy
+            evaluation_results['avg_f1_score'] = avg_f1
+            evaluation_results['avg_r2'] = avg_r2
+            # evaluation_results['avg_auc'] = avg_auc
+
+        results={
+            'combination': combination,
+            'scores': evaluation_results,
+            'models': model
+        }
+
+        if return_probabilities:
+
+            probabilities = model.model.predict_proba(X)
+            # Creating a DataFrame for probabilities
+            prob_df = pd.DataFrame(probabilities, columns=[f'Prob_Class_{i+1}' for i in range(probabilities.shape[1])])
+            prob_df['Predicted_Class'] = model.model.predict(X)
+            prob_df['True_Class'] = y
+
+            return results, prob_df
+
+        return results
 
 
 def set_q2_plot_settings(ax, lower_bound, upper_bound, fontsize=15):
@@ -670,17 +706,17 @@ def plot_enhanced_confusion_matrix(cm, classes, precision, recall, accuracy, fig
 
 
 
-def print_models_classification_table(results , app=None , model=None):
- 
-    formulas=results['combination']
-    accuracy=results['accuracy']
-    precision=results['precision']
-    recall=results['recall']
-    f1=results['f1_score']
-    mcfaden=results['mcfadden_r2']
+def print_models_classification_table(results , app=None):
+    formulas=[result['combination'] for result in results]
+    accuracy=[result['scores']['accuracy'] for result in results]
+    precision=[result['scores']['precision'] for result in results]
+    recall=[result['scores']['recall'] for result in results]
+    f1=[result['scores']['f1_score'] for result in results]
+    mcfaden=[result['scores']['mc_fadden_r2'] for result in results]
     model_ids=[i for i in range(len(results))]
-    avg_accuracy=results['avg_accuracy']
-    avg_f1=results['avg_f1_score']
+    models=[result['models'] for result in results]
+    avg_accuracy=[result['scores'].get('avg_accuracy', float('-inf')) for result in results]
+    avg_f1=[result['scores'].get('avg_f1_score', float('-inf')) for result in results]
     # avg_auc=[result['scores'].get('avg_auc', float('-inf')) for result in results]
     # Create a DataFrame from the inputs
     df = pd.DataFrame({
@@ -692,6 +728,8 @@ def print_models_classification_table(results , app=None , model=None):
         'mcfaden': mcfaden,
         'avg_accuracy': avg_accuracy,
         'avg_f1': avg_f1,
+        #'avg_auc': avg_auc,
+
         'Model_id': model_ids
     })
     df.sort_values(by='avg_accuracy', ascending=False, inplace=True)
@@ -725,16 +763,21 @@ def print_models_classification_table(results , app=None , model=None):
             print("Exiting model selection.")
             break
 
+        try:
+            model = models[selected_model]
+        except IndexError:
+            print("Invalid model number. Please try again.")
+            continue
 
         _, probablities_df = fit_and_evaluate_single_combination_classification(model, formulas[selected_model], return_probabilities=True)
-        X=model.features_df[_parse_tuple_string(formulas[selected_model])]
+        X=model.features_df[list(formulas[selected_model])]
         # x=pd.DataFrame(X, columns=formulas[selected_model])
         vif_df = model._compute_vif(X)
         samples_names=model.molecule_names
         plot_probabilities(probablities_df, samples_names)
         print_models_vif_table(vif_df)
         # Print the confusion matrix
-        y_pred = model.predict(model.features_df[_parse_tuple_string(formulas[selected_model])].to_numpy())
+        y_pred = model.predict(model.features_df[list(formulas[selected_model])].to_numpy())
         y_true = model.target_vector.to_numpy()
         cm = confusion_matrix(y_true, y_pred)
         print("\nConfusion Matrix\n")
@@ -922,6 +965,33 @@ def _save_top5_pdf(results, model, pdf_path="top_models_report.pdf"):
                 pdf.savefig(fig, bbox_inches='tight')
                 plt.close(fig)
 
+            # ---------------- PAGE 3+: SHAP pages ----------------
+            # try:
+            # shap_res = analyze_shap_values(
+            #     model,
+            #     model.features_df[list(features)],
+            #     feature_names=features,
+            #     target_name=getattr(model, 'output_name', 'target'),
+            #     n_top_features=10
+            # )
+            # print(f'shap results: {shap_res}')
+            # shap_figs = shap_res.get('figures', [])
+            # if not shap_figs:
+            #     # graceful fallback page
+            #     fig_err = plt.figure(figsize=(10, 3))
+            #     _page_header(fig_err, "SHAP analysis produced no figures")
+            #     plt.axis('off')
+            #     shap_figs = [fig_err]
+
+            # # optional title on first SHAP figure
+            # if shap_res.get('fig_summary') is not None:
+            #     shap_res['fig_summary'].suptitle("SHAP Summary", y=0.98, fontsize=13, fontweight='bold')
+
+            # for fig in shap_figs:
+            #     fig.text(0.01, 0.01, f"Model #{idx} | SHAP",
+            #             fontsize=8, ha='left', va='bottom', alpha=0.7)
+            #     pdf.savefig(fig, bbox_inches='tight')
+            #     plt.close(fig)
             
             shap_res = analyze_shap_values(
             model,
@@ -936,8 +1006,19 @@ def _save_top5_pdf(results, model, pdf_path="top_models_report.pdf"):
             fig.text(0.01, 0.01, f"Model #{idx} | SHAP", fontsize=8, ha='left', va='bottom', alpha=0.7)
             pdf.savefig(fig, bbox_inches='tight')
             plt.close(fig)
+
+
+
+            # except Exception as e:
+            #     fig_err = plt.figure(figsize=(10, 3))
+            #     _page_header(fig_err, "SHAP analysis skipped")
+            #     plt.axis('off')
+            #     plt.text(0.02, 0.5, f"Reason: {e}", fontsize=10)
+            #     pdf.savefig(fig_err, bbox_inches='tight')
+            #     plt.close(fig_err)
+
+
     print(f"[PDF] Saved top-5 models report to: {pdf_path}")
-    
 def _parse_tuple_string(s: str):
     # "('L_11-6', 'buried_volume')" -> ['L_11-6','buried_volume']
     return [x.strip(" '") for x in s.strip("()").split(",")]
@@ -989,7 +1070,7 @@ def print_models_regression_table(results, app=None ,model=None):
 
         s = formulas[selected_model]
         features = _parse_tuple_string(s) if isinstance(s, str) else list(s)
-        print(features)
+  
         X = model.features_df[features]
         vif_df = model._compute_vif(X)
        
@@ -1094,14 +1175,21 @@ def generate_and_display_single_combination_plot(model, features, app=None):
     except Exception as e:
         print("Error extracting features:", e)
         return
+    
+   
     try:
+
         result = fit_and_evaluate_single_combination_regression(model, features)
         pred = result['predictions']
         print('Training Set Results:', result['scores'])
+
     except Exception as e:
         print("Error during model fitting/prediction:", e)
         return
+
     # Retrieve coefficient estimates
+    
+
     # Compute cross-validation metrics
     try:
         print("Calculating cross-validation metrics for 3-fold CV...")
@@ -1124,9 +1212,12 @@ def generate_and_display_single_combination_plot(model, features, app=None):
           
             if model.leftout_samples is not None and len(model.leftout_samples) > 0:
                 print("Calculating left-out samples prediction and metrics...")
+
                 X_left = model.leftout_samples[features]  # DataFrame shape (n_leftout, 4)
                 X_left = X_left.reindex()
                 y_left = model.leftout_target_vector  # Series shape (n_leftout,)
+               
+
                 # 3) call your predictor; let it add constant & reorder itself
                 try:
                     leftout_pred = model.predict_for_leftout(X_left, y=y_left, calc_interval=False)

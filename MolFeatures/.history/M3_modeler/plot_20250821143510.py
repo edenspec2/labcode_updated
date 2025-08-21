@@ -671,7 +671,7 @@ def plot_enhanced_confusion_matrix(cm, classes, precision, recall, accuracy, fig
 
 
 def print_models_classification_table(results , app=None , model=None):
- 
+    print(results)
     formulas=results['combination']
     accuracy=results['accuracy']
     precision=results['precision']
@@ -727,14 +727,14 @@ def print_models_classification_table(results , app=None , model=None):
 
 
         _, probablities_df = fit_and_evaluate_single_combination_classification(model, formulas[selected_model], return_probabilities=True)
-        X=model.features_df[_parse_tuple_string(formulas[selected_model])]
+        X=model.features_df[list(formulas[selected_model])]
         # x=pd.DataFrame(X, columns=formulas[selected_model])
         vif_df = model._compute_vif(X)
         samples_names=model.molecule_names
         plot_probabilities(probablities_df, samples_names)
         print_models_vif_table(vif_df)
         # Print the confusion matrix
-        y_pred = model.predict(model.features_df[_parse_tuple_string(formulas[selected_model])].to_numpy())
+        y_pred = model.predict(model.features_df[list(formulas[selected_model])].to_numpy())
         y_true = model.target_vector.to_numpy()
         cm = confusion_matrix(y_true, y_pred)
         print("\nConfusion Matrix\n")
@@ -989,7 +989,7 @@ def print_models_regression_table(results, app=None ,model=None):
 
         s = formulas[selected_model]
         features = _parse_tuple_string(s) if isinstance(s, str) else list(s)
-        print(features)
+  
         X = model.features_df[features]
         vif_df = model._compute_vif(X)
        
@@ -1094,14 +1094,21 @@ def generate_and_display_single_combination_plot(model, features, app=None):
     except Exception as e:
         print("Error extracting features:", e)
         return
+    
+   
     try:
+
         result = fit_and_evaluate_single_combination_regression(model, features)
         pred = result['predictions']
         print('Training Set Results:', result['scores'])
+
     except Exception as e:
         print("Error during model fitting/prediction:", e)
         return
+
     # Retrieve coefficient estimates
+    
+
     # Compute cross-validation metrics
     try:
         print("Calculating cross-validation metrics for 3-fold CV...")
@@ -1124,9 +1131,12 @@ def generate_and_display_single_combination_plot(model, features, app=None):
           
             if model.leftout_samples is not None and len(model.leftout_samples) > 0:
                 print("Calculating left-out samples prediction and metrics...")
+
                 X_left = model.leftout_samples[features]  # DataFrame shape (n_leftout, 4)
                 X_left = X_left.reindex()
                 y_left = model.leftout_target_vector  # Series shape (n_leftout,)
+               
+
                 # 3) call your predictor; let it add constant & reorder itself
                 try:
                     leftout_pred = model.predict_for_leftout(X_left, y=y_left, calc_interval=False)

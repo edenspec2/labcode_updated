@@ -1094,14 +1094,21 @@ def generate_and_display_single_combination_plot(model, features, app=None):
     except Exception as e:
         print("Error extracting features:", e)
         return
-    try:
-        result = fit_and_evaluate_single_combination_regression(model, features)
-        pred = result['predictions']
-        print('Training Set Results:', result['scores'])
-    except Exception as e:
-        print("Error during model fitting/prediction:", e)
-        return
+    
+   
+    # try:
+
+    result = fit_and_evaluate_single_combination_regression(model, features)
+    pred = result['predictions']
+    print('Training Set Results:', result['scores'])
+
+    # except Exception as e:
+    #     print("Error during model fitting/prediction:", e)
+    #     return
+
     # Retrieve coefficient estimates
+    
+
     # Compute cross-validation metrics
     try:
         print("Calculating cross-validation metrics for 3-fold CV...")
@@ -1124,9 +1131,12 @@ def generate_and_display_single_combination_plot(model, features, app=None):
           
             if model.leftout_samples is not None and len(model.leftout_samples) > 0:
                 print("Calculating left-out samples prediction and metrics...")
+
                 X_left = model.leftout_samples[features]  # DataFrame shape (n_leftout, 4)
                 X_left = X_left.reindex()
                 y_left = model.leftout_target_vector  # Series shape (n_leftout,)
+               
+
                 # 3) call your predictor; let it add constant & reorder itself
                 try:
                     leftout_pred = model.predict_for_leftout(X_left, y=y_left, calc_interval=False)

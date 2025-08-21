@@ -124,7 +124,7 @@ def insert_result_into_db_classification(db_path, combination, results, threshol
     }
 
     result_df = pd.DataFrame(result_dict)
-   
+    print(result_df.head())
     if not os.path.isfile(csv_path):
         result_df.to_csv(csv_path, index=False, mode='w')
     else:
@@ -156,8 +156,7 @@ def create_results_table(db_path='results.db'):
             avg_accuracy REAL,
             avg_f1_score REAL,
             threshold REAL,
-            model TEXT,
-            predictions TEXT
+            model TEXT
         );
     ''')
     print("Table 'regression_results' has been ensured to exist.")
@@ -186,9 +185,9 @@ def insert_result_into_db(db_path, combination, r2, q2, mae,rmsd, threshold,mode
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute('''
-        INSERT INTO regression_results (combination, r2, q2, mae, rmsd, threshold, model, predictions)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-    ''', (str(combination), r2, q2, mae, rmsd, threshold, str(model), str(predictions)))
+        INSERT INTO regression_results (combination, r2, q2, mae, rmsd, threshold, model)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+    ''', (str(combination), r2, q2, mae, rmsd, threshold, str(model)))
     conn.commit()
     conn.close()
 
@@ -603,8 +602,7 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
                 'mae': mae,
                 'rmsd': rmsd,
                 'threshold': r2_threshold,
-                'model': model,
-                'predictions': y_pred,
+                'model': model
             }
             # print(type(model),'type of model variable')
             insert_result_into_db(
@@ -616,8 +614,7 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
                 rmsd=rmsd,
                 threshold=r2_threshold,
                 csv_path=csv_path,
-                model=model,
-                predictions=y_pred
+                model=model
             )
             return result_dict
         except Exception as e:

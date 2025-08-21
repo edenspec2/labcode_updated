@@ -70,9 +70,7 @@ def create_results_table_classification(db_path='results.db'):
             precision REAL,
             recall REAL,
             f1_score REAL,
-            mcfadden_r2 REAL,
-            avg_accuracy REAL,
-            avg_f1_score REAL,
+            mc_fadden_r2 REAL,
             threshold REAL
         );
     ''')
@@ -88,7 +86,7 @@ def insert_result_into_db_classification(db_path, combination, results, threshol
     Args:
         db_path (str): Path to SQLite database.
         combination (str): Feature combination used.
-        results (dict): Dictionary with keys: 'accuracy', 'precision', 'recall', 'f1_score', 'mcfadden_r2'.
+        results (dict): Dictionary with keys: 'accuracy', 'precision', 'recall', 'f1_score', 'mc_fadden_r2'.
         threshold (float): Threshold used.
         csv_path (str): Path to CSV file for backup/logging.
     """
@@ -96,17 +94,16 @@ def insert_result_into_db_classification(db_path, combination, results, threshol
     precision = results.get('precision')
     recall = results.get('recall')
     f1 = results.get('f1_score')
-    mcfadden_r2 = results.get('mcfadden_r2')
-    avg_accuracy = results.get('avg_accuracy')
-    avg_f1_score = results.get('avg_f1_score')
+    mc_fadden_r2 = results.get('mc_fadden_r2')
+
     # Insert into SQLite
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute('''
         INSERT INTO classification_results (
-            combination, accuracy, precision, recall, f1_score, mcfadden_r2, threshold, avg_accuracy, avg_f1_score
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-    ''', (str(combination), accuracy, precision, recall, f1, mcfadden_r2, threshold, avg_accuracy, avg_f1_score))
+            combination, accuracy, precision, recall, f1_score, mc_fadden_r2, threshold
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+    ''', (str(combination), accuracy, precision, recall, f1, mc_fadden_r2, threshold))
     conn.commit()
     conn.close()
 
@@ -117,14 +114,11 @@ def insert_result_into_db_classification(db_path, combination, results, threshol
         'precision': [precision],
         'recall': [recall],
         'f1_score': [f1],
-        'mcfadden_r2': [mcfadden_r2],
-        'avg_accuracy': [avg_accuracy],
-        'avg_f1_score': [avg_f1_score],
+        'mc_fadden_r2': [mc_fadden_r2],
         'threshold': [threshold]
     }
 
     result_df = pd.DataFrame(result_dict)
-   
     if not os.path.isfile(csv_path):
         result_df.to_csv(csv_path, index=False, mode='w')
     else:
@@ -153,11 +147,8 @@ def create_results_table(db_path='results.db'):
             q2 REAL,
             mae REAL,
             rmsd REAL,
-            avg_accuracy REAL,
-            avg_f1_score REAL,
             threshold REAL,
-            model TEXT,
-            predictions TEXT
+            model TEXT
         );
     ''')
     print("Table 'regression_results' has been ensured to exist.")
@@ -186,9 +177,9 @@ def insert_result_into_db(db_path, combination, r2, q2, mae,rmsd, threshold,mode
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute('''
-        INSERT INTO regression_results (combination, r2, q2, mae, rmsd, threshold, model, predictions)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-    ''', (str(combination), r2, q2, mae, rmsd, threshold, str(model), str(predictions)))
+        INSERT INTO regression_results (combination, r2, q2, mae, rmsd, threshold, model)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+    ''', (str(combination), r2, q2, mae, rmsd, threshold, str(model)))
     conn.commit()
     conn.close()
 
@@ -482,14 +473,10 @@ def get_feature_combinations(features, min_features_num=2, max_features_num=None
             count_combinations += 1
             total_combinations += 1
             yield combo
-
-def _parse_tuple_string(s: str):
-    # "('L_11-6', 'buried_volume')" -> ['L_11-6','buried_volume']
-    return [x.strip(" '") for x in s.strip("()").split(",")]
-   
+        
         # Print the count of combinations for each number of features
 def fit_and_evaluate_single_combination_classification(model, combination, threshold=0.5, return_probabilities=False):
-    selected_features = model.features_df[_parse_tuple_string(combination)]
+    selected_features = model.features_df[list(combination)]
     X = selected_features.to_numpy()
     y = model.target_vector.to_numpy()
 
@@ -500,12 +487,12 @@ def fit_and_evaluate_single_combination_classification(model, combination, thres
     evaluation_results, y_pred = model.evaluate(X, y)
     
     # Check if accuracy is above the threshold
-    if evaluation_results['mcfadden_r2'] > threshold:
+    if evaluation_results['mc_fadden_r2'] > threshold:
         avg_accuracy, avg_f1, avg_r2 = model.cross_validation(X, y , model.n_splits) ## , avg_auc
         evaluation_results['avg_accuracy'] = avg_accuracy
         evaluation_results['avg_f1_score'] = avg_f1
-        evaluation_results['mcfadden_r2'] = avg_r2
-   
+        evaluation_results['mc_fadden_r2'] = avg_r2
+        # evaluation_results['avg_auc'] = avg_auc
 
     results={
         'combination': combination,
@@ -603,8 +590,7 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
                 'mae': mae,
                 'rmsd': rmsd,
                 'threshold': r2_threshold,
-                'model': model,
-                'predictions': y_pred,
+                'model': model
             }
             # print(type(model),'type of model variable')
             insert_result_into_db(
@@ -616,8 +602,7 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
                 rmsd=rmsd,
                 threshold=r2_threshold,
                 csv_path=csv_path,
-                model=model,
-                predictions=y_pred
+                model=model
             )
             return result_dict
         except Exception as e:
@@ -1545,7 +1530,7 @@ class ClassificationModel:
         self.names_column = names_column
         self.min_features_num = min_features_num
         self.max_features_num = max_features_num
-        self.metrics = metrics if metrics is not None else ['accuracy', 'precision', 'recall', 'f1', 'roc_auc', 'mcfadden_r2']
+        self.metrics = metrics if metrics is not None else ['accuracy', 'precision', 'recall', 'f1', 'roc_auc', 'mc_fadden_r2']
         self.return_coefficients = return_coefficients
         self.n_splits = n_splits
         self.ordinal = ordinal
@@ -1958,7 +1943,7 @@ class ClassificationModel:
             'precision': precision,
             'recall': recall,
             'f1_score': f1,
-            'mcfadden_r2': mcfadden_r2_var
+            'mc_fadden_r2': mcfadden_r2_var
             #'auc': auc
         }
         return results , y_pred
@@ -2030,12 +2015,11 @@ class ClassificationModel:
             result = fit_and_evaluate_single_combination_classification(
                 self, combo, threshold=mcfadden_threshold
             )
-            print(f"Evaluated combination: {combo}, scores: {result}")
             # insert into DB & CSV
             insert_result_into_db_classification(
                 self.db_path,
                 combo,
-                result['scores'],   # expects keys: accuracy, precision, recall, f1_score, mcfadden_r2
+                result['scores'],   # expects keys: accuracy, precision, recall, f1_score, mc_fadden_r2
                 mcfadden_threshold,
                 csv_path='classification_results.csv'
             )
@@ -2047,24 +2031,28 @@ class ClassificationModel:
                 for combo in tqdm(combos_to_run, desc='Parallel evaluation')
             )
         else:
-            for combo in tqdm(combos_to_run, desc='evaluation'):
+            for combo in tqdm(combos_to_run, desc='Serial evaluation'):
                 process_and_insert(combo)
 
         # --- Reload the full, up-to-date results from the database ---
         all_results = load_results_from_db(self.db_path, table='classification_results')
-       
+
         # --- Sort by McFadden R² and take top N ---
-        # take top n results based on McFadden R²
-        sorted_results = all_results.sort_values(by='mcfadden_r2', ascending=False).head(top_n)
+        sorted_results = sorted(
+            all_results,
+            key=lambda x: x['scores'].get('accuracy', 0),
+            reverse=True
+        )[:top_n]
+
         # --- Display and store the best models/combinations ---
-        print_models_classification_table(sorted_results, app, self)
-        
-        self.combinations_list = sorted_results['combination'].tolist()
+        print_models_classification_table(sorted_results, app)
+        self.models_list = [r['models'] for r in sorted_results]
+        self.combinations_list = [r['combination'] for r in sorted_results]
 
         # --- Optionally predict on left-out set ---
         if self.leave_out:
-            X = self.leftout_samples.to_numpy()
-            y = self.leftout_target_vector.to_numpy()
+            X = self.predict_features_df.to_numpy()
+            y = self.predict_target_vector.to_numpy()
             self.fit(X, y)
             preds = self.predict(X)
             df_lo = pd.DataFrame({
