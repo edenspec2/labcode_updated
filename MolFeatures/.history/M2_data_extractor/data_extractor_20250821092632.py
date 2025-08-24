@@ -1521,5 +1521,3 @@ class Molecules():
             data_to_xyz(molecule.xyz_df,(molecule.molecule_name+'.xyz'))
         os.chdir('../')
 
-
-
