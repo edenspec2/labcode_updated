@@ -39,4 +39,4 @@ For detailed guides and documentation, see [MoleculaR's web page](https://barkai
 
 ## Examples
 
-For hands-on examples, see the **`Getting_started_with_examples`** directory.
+For hands-on examples, see the **`Getting_started_with_examples`** directory inside **MolFeatures**.
