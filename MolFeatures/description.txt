@@ -1,8 +1,0 @@
-In the "Molecule Data Extractor" interface, the "Browse for Feather Files Directory" button is a convenient tool for users to quickly locate and load their directories containing Feather-format files. 
-
-Data Analysis: The tool allows the production of computation sets and extraction of DataFrames and input files for ML.
-
-Visualization: Users can visualize molecules.
-
-File Creation: The application supports creating .com files, and choose basis set, functional and so on.
-

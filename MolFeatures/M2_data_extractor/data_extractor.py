@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 
-def show_highly_correlated_pairs(df, corr_thresh=0.95):
+def show_highly_correlated_pairs(df, corr_thresh=0.8):
     """
     Display all feature pairs with |correlation| above corr_thresh,
     and highlight those with perfect correlation (|corr|=1).
@@ -48,12 +48,12 @@ def show_highly_correlated_pairs(df, corr_thresh=0.95):
             cval = corr.iloc[i, j]
             if abs(cval) > corr_thresh:
                 is_perfect = abs(cval) == 1.0
-                pairs.append((features[i], features[j], cval, is_perfect))
+                pairs.append((features[i], features[j], cval))
     # Sort: perfect correlations first, then by absolute correlation
     pairs_sorted = sorted(pairs, key=lambda x: (not x[3], -abs(x[2])))
     if pairs_sorted:
         import pandas as pd
-        table = pd.DataFrame(pairs_sorted, columns=["Feature 1", "Feature 2", "Correlation", "Perfect"])
+        table = pd.DataFrame(pairs_sorted, columns=["Feature 1", "Feature 2", "Correlation"])
     
         return table
     else:
@@ -774,9 +774,9 @@ class Molecule:
                 print(f'Strech Vibration Error: no vibration array for the molecule {self.molecule_name} for {atom_pair} - check atom numbering in molecule')
                 return None
             # print(extended_vib_df)
-            # vibration_df, idx = calc_max_frequency_gen_vibration(extended_vib_df)
-            # return vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
-            return extended_vib_df
+            vibration_df, idx = calc_max_frequency_gen_vibration(extended_vib_df) ## remove for later versions
+            return vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
+            # return extended_vib_df
         else:
             print(f'Strech Vibration Error: the following bonds do not exist-check atom numbering in molecule: \n {self.molecule_name} for {atom_pair} \n')
             
@@ -1027,7 +1027,7 @@ class Molecule:
             raise ValueError(f'Bend Vibration - Atoms do not share a center in molecule {self.molecule_name} - for atoms {atom_pair} check atom numbering in molecule')
         else:
             # Create the extended DataFrame for the vibration modes
-            extended_df = extended_df_for_vib(self.vibration_dict, self.info_df, atom_pair, threshold)
+            extended_df = extended_df_for_stretch(self.vibration_dict, self.info_df, atom_pair, threshold)
             # Calculate the cross product and magnitude for each row in the extended DataFrame
             cross_list = []
             cross_mag_list = []
@@ -1541,7 +1541,7 @@ class Molecules():
             ('stretching', lambda a: self.get_stretch_vibration_dict(a, answers.get('stretch', [None])[0])),
             ('bending', lambda a: self.get_bend_vibration_dict(a, answers.get('bend', [None])[0])),
             ('npa', lambda a: self.get_npa_dict(a, sub_atoms=answers.get('sub_atoms', []))),
-            ('dipole', lambda a: self.get_dipole_dict(a, origin=answers.get('center_atoms', []))),
+            ('dipole', lambda a: self.get_dipole_dict(a)),
             ('charges', lambda a: self.get_charge_df_dict(a)),
             ('charge_diff', lambda a: self.get_charge_diff_df_dict(a)),
             ('sterimol', lambda a: self.get_sterimol_dict(a, radii=radii, drop_atoms=answers.get('drop_atoms', []))),
@@ -1581,10 +1581,11 @@ class Molecules():
 
         # 8. Interactive analysis
         interactive_corr_heatmap_with_highlights(res_df)
-        show_highly_correlated_pairs(res_df, corr_thresh=0.95)
+        correlation_table = show_highly_correlated_pairs(res_df, corr_thresh=0.8)
         res_df=res_df.sort_index(ascending=False)
         if save_as:
             res_df.to_csv(f"{csv_file_name}.csv", index=True)
+            correlation_table.to_csv(f"{csv_file_name}_correlation_table.csv", index=True)
             
         return res_df
 

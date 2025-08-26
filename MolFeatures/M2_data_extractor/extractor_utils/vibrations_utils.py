@@ -272,93 +272,93 @@ def calc_vibration_dot_product_from_pairs(
         extended_df['Frequency'] = info_df.loc[extended_df.index, 'Frequency'].values
 
     extended_df.reset_index(drop=True, inplace=True)
+    return extended_df
+    # tag_results = []
 
-    tag_results = []
-
-    # Now: for the two highest amplitude modes, do symmetry tagging
-    if vibration_mode_dict is not None and not extended_df.empty:
-        # Get indices for top 2 amplitudes
-        top_idxs = extended_df['Amplitude'].abs().nlargest(2).index.tolist()
-        # tag_results = []
+    # # Now: for the two highest amplitude modes, do symmetry tagging
+    # if vibration_mode_dict is not None and not extended_df.empty:
+    #     # Get indices for top 2 amplitudes
+    #     top_idxs = extended_df['Amplitude'].abs().nlargest(2).index.tolist()
+    #     # tag_results = []
         
-        tag_list = []
-        for idx in top_idxs:
-            freq = extended_df.loc[idx, 'Frequency']
-            amp = extended_df.loc[idx, 'Amplitude']
-            freq_key = freq
-            if freq_key in vibration_mode_dict:
-                mode_vectors = vibration_mode_dict[freq_key]  # shape: (n_atoms, 3)
-            else:
-                mode_vectors = list(vibration_mode_dict.values())[idx]
-            # Get amplitudes of each atom for this mode
+    #     tag_list = []
+    #     for idx in top_idxs:
+    #         freq = extended_df.loc[idx, 'Frequency']
+    #         amp = extended_df.loc[idx, 'Amplitude']
+    #         freq_key = freq
+    #         if freq_key in vibration_mode_dict:
+    #             mode_vectors = vibration_mode_dict[freq_key]  # shape: (n_atoms, 3)
+    #         else:
+    #             mode_vectors = list(vibration_mode_dict.values())[idx]
+    #         # Get amplitudes of each atom for this mode
           
-            amplitudes = np.linalg.norm(mode_vectors, axis=1)
-            # Sort by closeness to 'amp'
-            sorted_idx = np.argsort(np.abs(amplitudes - amp))
+    #         amplitudes = np.linalg.norm(mode_vectors, axis=1)
+    #         # Sort by closeness to 'amp'
+    #         sorted_idx = np.argsort(np.abs(amplitudes - amp))
 
-            first_atom = sorted_idx[0]
-            second_atom = sorted_idx[1] if len(sorted_idx) > 1 else first_atom
+    #         first_atom = sorted_idx[0]
+    #         second_atom = sorted_idx[1] if len(sorted_idx) > 1 else first_atom
             
-            min_ratio = 0.5
-            if amplitudes[second_atom] < min_ratio * amplitudes[first_atom]:
+    #         min_ratio = 0.5
+    #         if amplitudes[second_atom] < min_ratio * amplitudes[first_atom]:
 
-                tag = "insufficient_second_movement"
-                sim = np.nan
-                print(f"Second atom (index {second_atom}) movement ({amplitudes[second_atom]:.3f}) is less than half of first atom ({amplitudes[first_atom]:.3f} , {first_atom}) for mode {idx} (skipping symmetry tag).")
-                vibration_df, idx = calc_max_frequency_gen_vibration(extended_df)
-                vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
-                return vibration_df
+    #             tag = "insufficient_second_movement"
+    #             sim = np.nan
+    #             print(f"Second atom (index {second_atom}) movement ({amplitudes[second_atom]:.3f}) is less than half of first atom ({amplitudes[first_atom]:.3f} , {first_atom}) for mode {idx} (skipping symmetry tag).")
+    #             vibration_df, idx = calc_max_frequency_gen_vibration(extended_df)
+    #             vibration_df.rename(index={idx: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'})
+    #             return vibration_df
                 
-            else:
+    #         else:
              
 
-                if first_atom > second_atom:
-                    first_atom, second_atom = second_atom, first_atom
-                vec1 = mode_vectors[first_atom]
-                vec2 = mode_vectors[second_atom]
+    #             if first_atom > second_atom:
+    #                 first_atom, second_atom = second_atom, first_atom
+    #             vec1 = mode_vectors[first_atom]
+    #             vec2 = mode_vectors[second_atom]
                 
-                tag, sim = check_directional_symmetry(vec1, vec2)
-                # print atoms and amplitudes
-                print(f"Mode {idx}: Atoms {first_atom} and {second_atom} with amplitudes {amplitudes[first_atom]:.3f} and {amplitudes[second_atom]:.3f}, similarity: {sim:.3f}")
-                Amplitude= amp
-                tag+=f'_Stretch_{atom_pair[0]}_{atom_pair[1]}'
-                tag_results.append({
-                    'Frequency': freq,
-                    'Amplitude': Amplitude,
-                })
-                tag_list.append(tag)
+    #             tag, sim = check_directional_symmetry(vec1, vec2)
+    #             # print atoms and amplitudes
+    #             print(f"Mode {idx}: Atoms {first_atom} and {second_atom} with amplitudes {amplitudes[first_atom]:.3f} and {amplitudes[second_atom]:.3f}, similarity: {sim:.3f}")
+    #             Amplitude= amp
+    #             tag+=f'_Stretch_{atom_pair[0]}_{atom_pair[1]}'
+    #             tag_results.append({
+    #                 'Frequency': freq,
+    #                 'Amplitude': Amplitude,
+    #             })
+    #             tag_list.append(tag)
                 
-        tag_df = pd.DataFrame(tag_results,index=tag_list) 
-        # check tag list, if its the same tag for both , check symmetry of vec from third_atom and forth_atom
-        if len(tag_list) == 2 and tag_list[0] == tag_list[1]:
-            print(f"Both modes have the same tag: {tag_list[0]}. Checking symmetry with third and fourth atoms.")
-            tag_results_backup = []
-            tag_list_backup = []
-            for idx in top_idxs:
-                freq = extended_df.loc[idx, 'Frequency']
-                amp = extended_df.loc[idx, 'Amplitude']
-                freq_key = freq
-                if freq_key in vibration_mode_dict:
-                    mode_vectors = vibration_mode_dict[freq_key]  # shape: (n_atoms, 3)
-                amplitudes= np.linalg.norm(mode_vectors, axis=1)
-                sorted_idx = np.argsort(np.abs(amplitudes))[::-1]
-                third_atom = sorted_idx[2] if len(sorted_idx) > 2 else first_atom
-                fourth_atom = sorted_idx[3] if len(sorted_idx) > 3 else second_atom
-                vec3 = mode_vectors[third_atom]
-                vec4 = mode_vectors[fourth_atom]
+    #     tag_df = pd.DataFrame(tag_results,index=tag_list) 
+    #     # check tag list, if its the same tag for both , check symmetry of vec from third_atom and forth_atom
+    #     if len(tag_list) == 2 and tag_list[0] == tag_list[1]:
+    #         print(f"Both modes have the same tag: {tag_list[0]}. Checking symmetry with third and fourth atoms.")
+    #         tag_results_backup = []
+    #         tag_list_backup = []
+    #         for idx in top_idxs:
+    #             freq = extended_df.loc[idx, 'Frequency']
+    #             amp = extended_df.loc[idx, 'Amplitude']
+    #             freq_key = freq
+    #             if freq_key in vibration_mode_dict:
+    #                 mode_vectors = vibration_mode_dict[freq_key]  # shape: (n_atoms, 3)
+    #             amplitudes= np.linalg.norm(mode_vectors, axis=1)
+    #             sorted_idx = np.argsort(np.abs(amplitudes))[::-1]
+    #             third_atom = sorted_idx[2] if len(sorted_idx) > 2 else first_atom
+    #             fourth_atom = sorted_idx[3] if len(sorted_idx) > 3 else second_atom
+    #             vec3 = mode_vectors[third_atom]
+    #             vec4 = mode_vectors[fourth_atom]
                 
-                tag, sim = check_directional_symmetry(vec3, vec4)
-                tag += f'_Stretch_{atom_pair[0]}_{atom_pair[1]}'
-                tag_results_backup.append({
-                    'Frequency': freq,
-                    'Amplitude': Amplitude,
-                })
-                tag_list_backup.append(tag)
+    #             tag, sim = check_directional_symmetry(vec3, vec4)
+    #             tag += f'_Stretch_{atom_pair[0]}_{atom_pair[1]}'
+    #             tag_results_backup.append({
+    #                 'Frequency': freq,
+    #                 'Amplitude': Amplitude,
+    #             })
+    #             tag_list_backup.append(tag)
             
-            tag_df = pd.DataFrame(tag_results_backup,index=tag_list_backup)
+    #         tag_df = pd.DataFrame(tag_results_backup,index=tag_list_backup)
 
-        print(tag_df, "\nWe strongly recommend to visualize the vibration modes to confirm the symmetry/asymmetry.")
-        return tag_df
+    #     print(tag_df, "\nWe strongly recommend to visualize the vibration modes to confirm the symmetry/asymmetry.")
+        # return tag_df
 
 def calc_max_frequency_gen_vibration(extended_df):  ## fix so 0 is IR and 1 is frequency
     """
