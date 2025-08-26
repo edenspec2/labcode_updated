@@ -68,11 +68,11 @@ import arviz as az
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from plot import *
-    from modeling_utils import simi_sampler, stratified_sampling_with_plots, _normalize_combination_to_columns , _parse_tuple_string
+    from modeling_utils import simi_sampler, stratified_sampling_with_plots
     from modeling_utils import *
 except:
     from M3_modeler.plot import *
-    from M3_modeler.modeling_utils import simi_sampler, stratified_sampling_with_plots, _normalize_combination_to_columns , _parse_tuple_string
+    from M3_modeler.modeling_utils import simi_sampler, stratified_sampling_with_plots
     from M3_modeler.modeling_utils import *
 
 
@@ -160,6 +160,11 @@ def _sort_results(df: pd.DataFrame) -> pd.DataFrame:
         return df
     temp = temp.sort_values(by=by, ascending=[False]*len(by))
     return temp.drop(columns=[c for c in ("_q2__", "_r2__") if c in temp.columns])
+
+def _parse_tuple_string(s: str):
+
+    return [x.strip(" '") for x in s.strip("()").split(",")]
+
 
 
         # Print the count of combinations for each number of features

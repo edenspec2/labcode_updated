@@ -1583,7 +1583,7 @@ def run_experiment(
             model.search_models(
                 top_n=top_n,
                 n_jobs=eff_n_jobs,
-                threshold=threshold,
+                initial_r2_threshold=threshold,
                 bool_parallel=bool_parallel
             )
         else:

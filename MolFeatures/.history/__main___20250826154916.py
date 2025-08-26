@@ -1573,7 +1573,7 @@ def run_experiment(
     # Decide parallel cores
     eff_n_jobs = n_jobs if bool_parallel else 1
     print(f"\n[run_experiment] mode={mode} | n_jobs={eff_n_jobs} (requested={n_jobs}, parallel={bool_parallel})")
-    print(f"[run_experiment] features={features_csv} | target={target_csv or '(none)'} | y_value={y_value}")
+    print(f"[run_experiment] features={features_csv} | target={target_csv or '(none)'} | output={output_name}")
     print(f"[run_experiment] min/max features: {min_features_num}/{max_features_num}\n")
 
     # Run
@@ -1583,7 +1583,7 @@ def run_experiment(
             model.search_models(
                 top_n=top_n,
                 n_jobs=eff_n_jobs,
-                threshold=threshold,
+                initial_r2_threshold=threshold,
                 bool_parallel=bool_parallel
             )
         else:

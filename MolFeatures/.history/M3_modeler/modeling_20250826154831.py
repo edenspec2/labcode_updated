@@ -17,6 +17,8 @@ from typing import Iterable, List, Sequence, Set, Tuple, Union, Optional
 # --- Third-party ---
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use(os.environ["MPLBACKEND"])
 import matplotlib.pyplot as plt
 import seaborn as sns
 import PIL
@@ -68,11 +70,11 @@ import arviz as az
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from plot import *
-    from modeling_utils import simi_sampler, stratified_sampling_with_plots, _normalize_combination_to_columns , _parse_tuple_string
+    from modeling_utils import simi_sampler, stratified_sampling_with_plots
     from modeling_utils import *
 except:
     from M3_modeler.plot import *
-    from M3_modeler.modeling_utils import simi_sampler, stratified_sampling_with_plots, _normalize_combination_to_columns , _parse_tuple_string
+    from M3_modeler.modeling_utils import simi_sampler, stratified_sampling_with_plots
     from M3_modeler.modeling_utils import *
 
 
@@ -160,6 +162,11 @@ def _sort_results(df: pd.DataFrame) -> pd.DataFrame:
         return df
     temp = temp.sort_values(by=by, ascending=[False]*len(by))
     return temp.drop(columns=[c for c in ("_q2__", "_r2__") if c in temp.columns])
+
+def _parse_tuple_string(s: str):
+
+    return [x.strip(" '") for x in s.strip("()").split(",")]
+
 
 
         # Print the count of combinations for each number of features
@@ -1796,31 +1803,17 @@ class ClassificationModel:
         else:
             leave_out = list(leave_out)
 
-        # Determine indices from mixed inputs (names or indices)
-        indices = []
-        name_to_index = {name: idx for idx, name in enumerate(self.molecule_names)}
-
-        for item in leave_out:
-            if isinstance(item, (int, np.integer)):
-                indices.append(int(item))
-
-            elif isinstance(item, str):
-                # try exact match first
-                if item in name_to_index:
-                    indices.append(name_to_index[item])
-                else:
-                    # try to parse as int
-                    try:
-                        idx_val = int(item)
-                        indices.append(idx_val)
-                    except ValueError:
-                        raise ValueError(
-                            f"Leave-out entry '{item}' is not a known molecule name "
-                            f"and cannot be parsed as an integer index."
-                        )
-
-            else:
-                raise ValueError("Items in leave_out must be integers or strings.")
+        # Determine if the input is indices or molecule names
+        if isinstance(leave_out[0], (int, np.integer)):
+            indices = [int(i) for i in leave_out]
+        elif isinstance(leave_out[0], str):
+            name_to_index = {name: idx for idx, name in enumerate(self.molecule_names)}
+            try:
+                indices = [name_to_index[name] for name in leave_out]
+            except KeyError as e:
+                raise ValueError(f"Molecule name {e} not found in molecule_names.") from e
+        else:
+            raise ValueError("leave_out must be a list of integers or strings.")
 
         # --- stash the relevant data ---
         selected_features = self.features_df.iloc[indices].copy()
