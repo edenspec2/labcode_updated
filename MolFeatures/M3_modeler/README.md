@@ -325,8 +325,8 @@ Each top model can generate a compact PDF “summary dashboard” including:
 ```python
 clf = ClassificationModel(csvs, process_method="one csv", output_name="class",
                           min_features_num=1, max_features_num=4)
-# Drop within class=1, keep 40 most representative across similarity
-clf.simi_sampler_(class_label=1, compare_with=0, plot=True, sample_size=40)
+# Drop within class=1, keep 10 most representative across similarity
+clf.simi_sampler_(class_label=1, compare_with=0, sample_size=10, plot=True)
 clf.search_models(top_n=30, mcfadden_threshold=0.5)
 ```
 
