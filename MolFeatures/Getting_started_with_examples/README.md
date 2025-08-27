@@ -62,54 +62,6 @@ The inputs file is saved in plain text format. Users may manually edit atom indi
 an example input file is located inside feather_example.
 ---
 
-## Sterimol from XYZ Files
-
-Sterimol parameters can also be extracted directly from `.xyz` files without the need for logs or feather files.
-
-```bash
-# To calculate Sterimol features:
-python  __main__.py sterimol
-```
-
-<center><img src="figures/sterimol_cmd.jpg" class="center"></center>
-
----
-
-## Cube Sterimol
-
-The generation of Sterimol values from density cube files is similar to the classic xyz-based approach. The main difference is that cube-based Sterimol accounts for stereo-electronic variations in atomic radii, whereas the tabulated radii used in the xyz-based method do not.
-
-<center><img src="figures/cube_sterimol.jpg" class="center"></center>
-```bash
-# To calculate Cube Sterimol features:
-python  __main__.py cube
-```
-
-## Modeling
-
-The user can run model searching from cmd with a simple command.
-```bash
-optional arguments: -h, --help show this help message and exit -m {regression,classification},
- --mode {regression,classification} Which task to run.
- -f FEATURES_CSV, --features_csv FEATURES_CSV Path to features CSV.
- -t TARGET_CSV, --target_csv TARGET_CSV Path to target/labels CSV.
- -y Y_VALUE, --y_value Y_VALUE Base name for target column in the csv.
- -j N_JOBS, --n_jobs N_JOBS Cores to use (-1 = all). If omitted, uses NSLOTS or all logical cores.
- --min-features MIN_FEATURES Minimum features per model.
- --max-features MAX_FEATURES Maximum features per model.
- --top-n TOP_N How many top models to keep/evaluate.
- --bool-parallel Enable parallel evaluation.
- --threshold THRESHOLD Initial threshold (regression(R2)/classification(mcfadden_R2)).
- --leave-out indices or molecules names to be used as external validation and prediction.
-```
-
-
-example : 
-```bash
-python __main__.py model -m classification -f C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Getting_started_with_examples\modeling_example\Logistic_Dataset_Example.csv -y class --n_jobs 1 --min-features 2 --max-features 4 --leave-out 1 2
-```
-Top 5 models will be automatically saved in a pdf file format.
-
 ## Extractor
 Another simple way to extract complete feature set is by using the extractor command.
 ```bash
@@ -135,3 +87,54 @@ python __main__.py extractor
 -o feature_set
 -f C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Getting_started_with_examples\feather_example 
 ```
+
+## Modeling
+
+The user can run model searching from cmd with a simple command.
+```bash
+optional arguments: -h, --help show this help message and exit -m {regression,classification},
+ --mode {regression,classification} Which task to run.
+ -f FEATURES_CSV, --features_csv FEATURES_CSV Path to features CSV.
+ -t TARGET_CSV, --target_csv TARGET_CSV Path to target/labels CSV.
+ -y Y_VALUE, --y_value Y_VALUE Base name for target column in the csv.
+ -j N_JOBS, --n_jobs N_JOBS Cores to use (-1 = all). If omitted, uses NSLOTS or all logical cores.
+ --min-features MIN_FEATURES Minimum features per model.
+ --max-features MAX_FEATURES Maximum features per model.
+ --top-n TOP_N How many top models to keep/evaluate.
+ --bool-parallel Enable parallel evaluation.
+ --threshold THRESHOLD Initial threshold (regression(R2)/classification(mcfadden_R2)).
+ --leave-out indices or molecules names to be used as external validation and prediction.
+```
+
+
+example : 
+```bash
+python __main__.py model -m classification -f C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Getting_started_with_examples\modeling_example\Logistic_Dataset_Example.csv -y class --n_jobs 1 --min-features 2 --max-features 4 --leave-out 1 2
+```
+
+## Sterimol from XYZ Files
+
+Sterimol parameters can also be extracted directly from `.xyz` files without the need for logs or feather files.
+
+```bash
+# To calculate Sterimol features:
+python  __main__.py sterimol
+```
+
+<center><img src="figures/sterimol_cmd.jpg" class="center"></center>
+
+---
+
+## Cube Sterimol
+
+The generation of Sterimol values from density cube files is similar to the classic xyz-based approach. The main difference is that cube-based Sterimol accounts for stereo-electronic variations in atomic radii, whereas the tabulated radii used in the xyz-based method do not.
+
+<center><img src="figures/cube_sterimol.jpg" class="center"></center>
+```bash
+# To calculate Cube Sterimol features:
+python  __main__.py cube
+```
+
+
+Top 5 models will be automatically saved in a pdf file format.
+
