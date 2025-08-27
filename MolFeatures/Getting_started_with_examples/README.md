@@ -1,29 +1,21 @@
 ## Extracting Feathers files from logs
 ```bash
-python -m __main__.py logs_to_feather
+python  __main__.py logs_to_feather
 ```
 then proceed to enter path for the log files, a directory called feather_files will be created.
 
 
 ## GUI Usage
 
-**Quick Start:** Launch the GUI directly with:
+**Quick Start:** Run the following command in the `MolFeatures` directory:
 
 ```bash
-python -m __main__.py gui
+python  __main__.py gui
 ```
 
 **The following section focuses on using the GUI. For more advanced workflows, refer to the Practical Notebooks for feature extraction and modeling.**
 
 ---
-
-## Opening the GUI App
-
-Run the following command in the `MolFeatures` directory:
-
-```bash
-python -m __main__.py gui
-```
 
 <center><img src="figures/gui_main.png" class="center"></center>
 
@@ -82,7 +74,7 @@ Sterimol parameters can also be extracted directly from `.xyz` files without the
 
 ```bash
 # To calculate Sterimol features:
-python -m __main__.py sterimol
+python  __main__.py sterimol
 ```
 
 <center><img src="figures/sterimol_cmd.jpg" class="center"></center>
