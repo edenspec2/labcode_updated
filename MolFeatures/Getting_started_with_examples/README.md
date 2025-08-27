@@ -73,7 +73,7 @@ It is recommended to **Save input/output** for reproducibility. Alongside the in
 The inputs file is saved in plain text format. Users may manually edit atom indices in the dictionary. By choosing **Load input**, the GUI will populate indices in the relevant fields.
 
 <center><img src="figures/input_example.png" width="500" height="600"></center>
-
+an example input file is located inside feather_example.
 ---
 
 ## Sterimol from XYZ Files
