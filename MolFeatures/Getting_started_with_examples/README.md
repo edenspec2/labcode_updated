@@ -138,3 +138,29 @@ example :
 python __main__.py model -m classification -f C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Getting_started_with_examples\modeling_example\Logistic_Dataset_Example.csv -y class --n_jobs 1 --min-features 2 --max-features 4 --leave-out 1 2
 ```
 Top 5 models will be automatically saved in a pdf file format.
+
+## Extractor
+Another simple way to extract complete feature set is by using the extractor command.
+```bash
+python __main__.py extractor -h
+
+usage: __main__.py extractor [-h] -i INPUT -o OUTPUT [-f FEATHER_DIRECTORY]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -i INPUT, --input INPUT
+                        Path to input file.
+  -o OUTPUT, --output OUTPUT
+                        Path to output file.
+  -f FEATHER_DIRECTORY, --feather_directory FEATHER_DIRECTORY
+                        Directory of feather files set to extract features from.
+```
+This option lets user who already have an input file, or already created one using the GUI to quickly load and extract the desired features.
+
+Example:
+```bash
+python __main__.py extractor 
+-i C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Getting_started_with_examples\feather_example\input_example.json
+-o feature_set
+-f C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Getting_started_with_examples\feather_example 
+```
