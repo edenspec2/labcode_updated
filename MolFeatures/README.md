@@ -3,6 +3,7 @@ Type the following command inside MolFeatures to see all options -
 ```bash
 python __main__.py
 
+<<<<<<< HEAD
 usage: __main__.py [-h] {gui,model,feature_extraction,logs_to_feather,cube,sterimol} ...
 
 MolFeatures Package
@@ -28,3 +29,5 @@ python  __main__.py logs_to_feather
 then proceed to enter path for the log files, a directory called feather_files will be created.
 
 ## Recomended : Work with the jupyter notebooks to learn more about feature extraction and modeling - go to Getting_started_with_examples
+=======
+>>>>>>> ee5d223cd70f667fb0d7d768f3943887562baa9b
