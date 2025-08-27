@@ -1,6 +1,6 @@
 # MolFeatures
 
-**A Python package for the physical-organic chemist — designed for easy, chemical-intuition–based molecular feature extraction.**
+**A Python package for computational chemists - designed for easy, chemical intuition based molecular feature extraction.**
 This package is modeled after the R package *MoleculaR*.
 For detailed guides and documentation, see [MoleculaR's web page](https://barkais.github.io/).
 
