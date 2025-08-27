@@ -1621,7 +1621,7 @@ def run_gui_app():
 def run_feature_extraction(input_file, output_file = 'features_set', molecules_dir_name='feather_example'):
     answers = load_answers_json(input_file)
     mols = load_molecules(molecules_dir_name, renumber=False)
-    mols.get_molecules_features_set(answers, save_as=True, csv_file_name=output_file)
+    mols.get_molecules_features_set(answers, save_as=True, output_file=output_file)
 
 def load_molecules(molecules_dir_name, renumber=False):
     return Molecules(molecules_dir_name, renumber=renumber)
@@ -1677,14 +1677,12 @@ def main():
 
     # Subcommand for running the GUI app
     gui_parser = subparsers.add_parser("gui", help="Run the GUI app")
-    # interactive_parser = subparsers.add_parser("interactive", help="Start interactive CLI for cmd line operations")
-    model_parser = subparsers.add_parser("model", help="Run regression or classification")
-    feature_extraction = subparsers.add_parser("extractor", help="Run feature extraction - complete set - from input file")
+    interactive_parser = subparsers.add_parser("interactive", help="Start interactive CLI for cmd line operations")
     conver_parser = subparsers.add_parser("logs_to_feather", help="Convert log files to feather files")
     cube_parser = subparsers.add_parser("cube", help="Calculates cube sterimol from cube files")
     sterimol_parser = subparsers.add_parser("sterimol", help="Calculate sterimol values from xyz files")
-
-    
+    install_parser = subparsers.add_parser("install", help="Install required packages")
+    model_parser = subparsers.add_parser("model", help="Run regression or classification")
     model_parser.add_argument("-m", "--mode", choices=["regression", "classification"], required=True,
                               help="Which task to run.")
     model_parser.add_argument("-f", "--features_csv", required=True, help="Path to features CSV.")
@@ -1698,11 +1696,14 @@ def main():
     model_parser.add_argument("--bool-parallel", action="store_false", help="Enable parallel evaluation.")
     model_parser.add_argument("--threshold", type=float, default=0.70, help="Initial threshold (regression(R2)/classification(mcfadden_R2)).")
     model_parser.add_argument("--leave-out", nargs="*", default=[], help="Space-separated list of samples to leave out.")
+   
+    args = parser.parse_args()
+
+    feature_extraction = subparsers.add_parser("feature_extraction", help="Run feature extraction - complete set - from input file")
     feature_extraction.add_argument("-i", "--input", required=True, help="Path to input file.")
     feature_extraction.add_argument("-o", "--output", required=True, help="Path to output file.")
-    feature_extraction.add_argument("-f", "--feather_directory", default=".", help="Directory of feather files set to extract features from.")
+    feature_extraction.add_argument("--feather_directory", default=".", help="Directory of feather files set to extract features from.")
 
-    args = parser.parse_args()
     if args.command == "gui":
         run_gui_app()
         
@@ -1777,7 +1778,7 @@ def main():
             output_file=args.output
         )
 
-
+## elif command empty then print all available options
     else:
         parser.print_help()
 

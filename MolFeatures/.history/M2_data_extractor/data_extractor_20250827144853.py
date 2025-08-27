@@ -1574,14 +1574,14 @@ class Molecules():
                         polar.index = [molecule.molecule_name]
                         info = polar
                     except Exception as e:
-                        pass
+                        print(f"[WARN] Polarizability missing for {molecule.molecule_name}: {e}")
 
                     # Try energy
                     try:
-                        # print(f"Extracting energy - {getattr(molecule.energy_value, 'values', molecule.energy_value)}")
+                        print(f"Extracting energy - {getattr(molecule.energy_value, 'values', molecule.energy_value)}")
                         info["energy"] = molecule.energy_value.values
                     except Exception as e:
-                        pass
+                        print(f"[WARN] Energy missing for {molecule.molecule_name}: {e}")
 
                     rows.append(info)
 
@@ -1593,7 +1593,7 @@ class Molecules():
 
             except Exception as e:
                 print(
-                    f"Error processing polarizability/Energy for this set: {e} - check feather file"
+                    f"Error processing polarizability/Energy for {getattr(self.molecules[0], 'molecule_name', 'unknown')}: {e} - check feather file"
                 )
                 log_exception("get_molecules_comp_set_app – polarizability/energy")
 

@@ -1621,7 +1621,7 @@ def run_gui_app():
 def run_feature_extraction(input_file, output_file = 'features_set', molecules_dir_name='feather_example'):
     answers = load_answers_json(input_file)
     mols = load_molecules(molecules_dir_name, renumber=False)
-    mols.get_molecules_features_set(answers, save_as=True, csv_file_name=output_file)
+    mols.get_molecules_features_set(answers, save_as=True, output_file=output_file)
 
 def load_molecules(molecules_dir_name, renumber=False):
     return Molecules(molecules_dir_name, renumber=renumber)

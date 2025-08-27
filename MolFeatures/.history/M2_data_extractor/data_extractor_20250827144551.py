@@ -1566,36 +1566,18 @@ class Molecules():
             try:
                 rows = []
                 for molecule in self.molecules:
-                    info = pd.DataFrame(index=[molecule.molecule_name])
-
-                    # Try polarizability
-                    try:
-                        polar = molecule.polarizability_df.copy().iloc[[0]]
-                        polar.index = [molecule.molecule_name]
-                        info = polar
-                    except Exception as e:
-                        pass
-
-                    # Try energy
-                    try:
-                        # print(f"Extracting energy - {getattr(molecule.energy_value, 'values', molecule.energy_value)}")
-                        info["energy"] = molecule.energy_value.values
-                    except Exception as e:
-                        pass
-
+                    info = molecule.polarizability_df.copy().iloc[[0]]
+                    info.index = [molecule.molecule_name]
+                    print(f'extracting energy - {molecule.energy_value.values}')
+                    info['energy'] = molecule.energy_value.values
                     rows.append(info)
-
-                if rows:
-                    polar_energy_concat = pd.concat(rows, axis=0)
-                    polar_energy_concat = polar_energy_concat.dropna(axis=1, how='all')
-                    polar_energy_concat = polar_energy_concat.reset_index().set_index('index')
-                    res_df = safe_concat(res_df, polar_energy_concat)
-
+                polarizability_df_concat = pd.concat(rows, axis=0)
+                polarizability_df_concat = polarizability_df_concat.dropna(axis=1, how='all')
+                polarizability_df_concat = polarizability_df_concat.reset_index().set_index('index')
+                res_df = safe_concat(res_df, polarizability_df_concat)
             except Exception as e:
-                print(
-                    f"Error processing polarizability/Energy for this set: {e} - check feather file"
-                )
-                log_exception("get_molecules_comp_set_app – polarizability/energy")
+                print(f"Error processing polarizability/Energy for {getattr(self.molecules[0], 'molecule_name', 'unknown')}: {e}")
+                log_exception("get_molecules_comp_set_app – polarizability")
 
         # 8. Interactive analysis
         interactive_corr_heatmap_with_highlights(res_df)
@@ -1604,8 +1586,7 @@ class Molecules():
         if save_as:
             res_df.to_csv(f"{csv_file_name}.csv", index=True)
             correlation_table.to_csv(f"{csv_file_name}_correlation_table.csv", index=True)
-            print(f"Features saved to {csv_file_name}.csv and correlation table to {csv_file_name}_correlation_table.csv in {os.getcwd()}")
-
+            
         return res_df
 
 
