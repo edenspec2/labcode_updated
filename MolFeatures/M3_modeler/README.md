@@ -54,29 +54,6 @@ A comprehensive package for developing, evaluating, and applying machine‑learn
 
 ---
 
-## Installation
-
-```bash
-# (Recommended) create/activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-**Suggested versions (or newer)**
-
-* Python ≥ 3.9 (3.10+ recommended)
-* numpy ≥ 1.21, pandas ≥ 1.5, scikit‑learn ≥ 1.1
-* statsmodels ≥ 0.13 (ordinal/logit/probit)
-* shap ≥ 0.42 (optional; SHAP explanations)
-* matplotlib ≥ 3.6, seaborn (optional), adjustText (optional)
-* pymc (optional; spike‑and‑slab feature selection)
-
-> On Python 3.7–3.9, use classic typing (e.g., `Optional[Tuple[...]]`) instead of `tuple | None`.
-
----
 
 ## Data Expectations
 
@@ -97,7 +74,7 @@ You can work in **one‑CSV** or **two‑CSV** mode.
 ### Command Line
 
 ```bash
-python run.py \
+python __main__.py model\
   --mode {regression|classification} \
   --features_csv path/to/features.csv \
   --target_csv path/to/targets.csv \
@@ -133,11 +110,11 @@ python run.py \
 Regression
 
 ```bash
-python run.py \
+python __main__.py.py \
   --mode regression \
   --features_csv data/x_features.csv \
   --target_csv data/y_targets.csv \
-  --y_value alkylation_r2 \
+  --y_value yield \
   --min-features 1 --max-features 3 \
   --top-n 10 \
   --threshold 0.6
@@ -146,7 +123,7 @@ python run.py \
 Classification
 
 ```bash
-python run.py \
+python __main__.py model \
   --mode classification \
   --features_csv data/x_features.csv \
   --target_csv data/classes.csv \
