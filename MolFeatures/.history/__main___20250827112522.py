@@ -1617,15 +1617,13 @@ def run_gui_app():
     root.mainloop()
     # Your code to launch the GUI app goes here
 
-def run_feature_extraction(input_file, molecules_dir_name, output_file, verbose=False):
+def run_feature_extraction(input_file, output_file, verbose=False):
     print(f"Running feature extraction...")
     print(f"Input file: {input_file}")
     print(f"Output file: {output_file}")
     if verbose:
         print(f"Verbose mode is ON")
-    answers = load_answers_json(input_file)
-    mols = load_molecules(molecules_dir_name, renumber=False)
-    # Your code to process the answers and extract features goes here
+    
 
 def load_molecules(molecules_dir_name, renumber=False):
     return Molecules(molecules_dir_name, renumber=renumber)

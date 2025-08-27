@@ -72,23 +72,6 @@ except ImportError or ModuleNotFoundError as e:
     print(f"An error occurred: {e}, Run install_packages.py script to install the required packages.")
 
 
-def load_answers_json(path = None):
-
-    if path is not None:
-        file_path = path
-    else:
-        file_path = filedialog.askopenfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-    if not file_path:
-        return {}
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    print(f'printing loaded data from json file: {data}')
-    return data
-
-
 def get_local_setup_version():
     """
     Look for a line like `version='0.9009'` in the sibling setup.py
@@ -96,8 +79,9 @@ def get_local_setup_version():
     """
     here = os.path.abspath(os.path.dirname(__file__))
     setup_path = os.path.join(here, 'setup.py')
+    version_pattern = re.compile(r"version\s*=\s*['\"]([^'\"]+)['\"]")
+    
     try:
-        version_pattern = re.compile(r"version\s*=\s*['\"]([^'\"]+)['\"]")
         with open(setup_path, encoding='utf-8') as f:
             for line in f:
                 match = version_pattern.search(line)
@@ -821,7 +805,7 @@ class MoleculeApp:
         Loads answers from a file, closes the old question window,
         and rebuilds it with loaded answers.
         """
-        loaded_entries = load_answers_json()
+        loaded_entries = self.load_answers_json()
         if not loaded_entries:
             return  # If user cancels or no entries found, do nothing
 
@@ -837,7 +821,17 @@ class MoleculeApp:
         self.build_question_interface(self.new_window, questions, loaded_entries=loaded_entries)
 
 
-    
+    def load_answers_json(self):
+        file_path = filedialog.askopenfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if not file_path:
+            return {}
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        print(f'printing loaded data from jason file: {data}')
+        return data 
 
     def save_input_json(self, entry_widgets):
         """
@@ -1617,15 +1611,6 @@ def run_gui_app():
     root.mainloop()
     # Your code to launch the GUI app goes here
 
-def run_feature_extraction(input_file, molecules_dir_name, output_file, verbose=False):
-    print(f"Running feature extraction...")
-    print(f"Input file: {input_file}")
-    print(f"Output file: {output_file}")
-    if verbose:
-        print(f"Verbose mode is ON")
-    answers = load_answers_json(input_file)
-    mols = load_molecules(molecules_dir_name, renumber=False)
-    # Your code to process the answers and extract features goes here
 
 def load_molecules(molecules_dir_name, renumber=False):
     return Molecules(molecules_dir_name, renumber=renumber)
