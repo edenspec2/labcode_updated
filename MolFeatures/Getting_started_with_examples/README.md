@@ -1,3 +1,10 @@
+## Extracting Feathers files from logs
+```bash
+python -m __main__.py logs_to_feather
+```
+then proceed to enter path for the log files, a directory called feather_files will be created.
+
+
 ## GUI Usage
 
 **Quick Start:** Launch the GUI directly with:
