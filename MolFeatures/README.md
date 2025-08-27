@@ -21,11 +21,6 @@ optional arguments:
 ```
 
 
-## Extracting Feathers files from logs
-```bash
-python  __main__.py logs_to_feather
-```
-then proceed to enter path for the log files, a directory called feather_files will be created.
 
 ## Recomended : Work with the jupyter notebooks to learn more about feature extraction and modeling - go to Getting_started_with_examples
 
