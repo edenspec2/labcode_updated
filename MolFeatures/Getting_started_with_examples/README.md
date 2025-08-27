@@ -109,7 +109,13 @@ optional arguments: -h, --help show this help message and exit -m {regression,cl
 
 example : 
 ```bash
-python __main__.py model -m classification -f C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Getting_started_with_examples\modeling_example\Logistic_Dataset_Example.csv -y class --n_jobs 1 --min-features 2 --max-features 4 --leave-out 1 2
+python __main__.py model -m classification
+-f C:\Users\edens\Documents\GitHub\LabCode\MolFeatures\Getting_started_with_examples\modeling_example\Logistic_Dataset_Example.csv 
+-y class 
+--n_jobs 1 
+--min-features 2 
+--max-features 4 
+--leave-out 1 2
 ```
 
 ## Sterimol from XYZ Files
