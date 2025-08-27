@@ -94,8 +94,10 @@ python  __main__.py cube
 ## Modeling
 
 The user can run model searching from cmd with a simple command.
-
+```bash
 optional arguments: -h, --help show this help message and exit -m {regression,classification}, --mode {regression,classification} Which task to run. -f FEATURES_CSV, --features_csv FEATURES_CSV Path to features CSV. -t TARGET_CSV, --target_csv TARGET_CSV Path to target/labels CSV. -y Y_VALUE, --y_value Y_VALUE Base name for output files. -j N_JOBS, --n_jobs N_JOBS Cores to use (-1 = all). If omitted, uses NSLOTS or all logical cores. --min-features MIN_FEATURES Minimum features per model. --max-features MAX_FEATURES Maximum features per model. --top-n TOP_N How many top models to keep/evaluate. --bool-parallel Enable parallel evaluation. --threshold THRESHOLD Initial threshold (regression(R2)/classification(mcfadden_R2)). --leave-out [LEAVE_OUT ...]
+```
+
 
 example : 
 ```bash
