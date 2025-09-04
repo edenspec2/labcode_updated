@@ -310,7 +310,7 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
 
 
 
-def check_linear_regression_assumptions(X,y,dir=None):
+def check_linear_regression_assumptions(X,y):
     # Load data
     # Fit linear regression model
     model = sm.OLS(y, sm.add_constant(X)).fit()
@@ -348,8 +348,7 @@ def check_linear_regression_assumptions(X,y,dir=None):
     probplot(residuals, dist="norm", plot=plt)
     plt.title('Q-Q plot of residuals')
     plt.show()
-    if dir:
-        plt.savefig(os.path.join(dir, 'qq_plot_residuals.png'))
+
 
 class PlotModel:
     def __init__(self, model):

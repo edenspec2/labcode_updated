@@ -898,7 +898,7 @@ def _try(func, default=None, note: Optional[str] = None):
             print(f"[PDF] Error occurred on line {e.__traceback__.tb_lineno}")
         return default
 
-def _save_top5_pdf_regression(results: pd.DataFrame, model, pdf_path: str = "top_models_report.pdf", k: int = 5):
+def _save_top5_pdf(results: pd.DataFrame, model, pdf_path: str = "top_models_report.pdf", k: int = 5):
     """
     Build a multi-page PDF summarizing the top-k models by R² (default 5).
     Structure:
@@ -1136,7 +1136,7 @@ def _save_top5_pdf_regression(results: pd.DataFrame, model, pdf_path: str = "top
             target_vector = model.target_vector.values
             feature = feature
             molecules_names = model.molecule_names
-            # fig = _try(lambda: plot_feature_vs_target(feature_values, target_vector, feature_name=feature, point_labels=molecule_names, figsize=(adjusted_figsize[0]/n_cols*2, adjusted_figsize[1]/n_rows*1.5)), default=None, note="Feature vs Target plot failed")
+            fig = _try(lambda: plot_feature_vs_target(feature_values, target_vector, feature_name=feature, point_labels=molecule_names, figsize=(adjusted_figsize[0]/n_cols*2, adjusted_figsize[1]/n_rows*1.5)), default=None, note="Feature vs Target plot failed")
             if fig:
                 page_counter += 1
                 _footer(fig, left_text="MolFeatures • Feature vs Target", page_num=page_counter)
@@ -1170,7 +1170,7 @@ def print_models_regression_table(results, app=None ,model=None):
     df.index = range(1, len(df) + 1)
     try:
         pdf_path = model.paths.pdf / f"{model.name}_top_models_report.pdf"
-        _save_top5_pdf_regression(results,model, pdf_path=pdf_path)
+        _save_top5_pdf(results,model, pdf_path=pdf_path)
     except Exception as e:
         print(f"[PDF] Skipping top-5 export due to error: {e}")
 
@@ -1253,7 +1253,7 @@ def print_models_regression_table(results, app=None ,model=None):
             print(pd.DataFrame({'Q2_LOOCV':[Q2_loo], 'MAE': [MAE_loo]}).to_markdown(tablefmt="pipe", index=False))
         
         # Create a text file with the results
-        txt_path = model.paths.logs / 'regression_results.txt'
+        txt_path = model.paths.results / 'regression_results.txt'
         with open(txt_path, 'a') as f:
             f.write(f"Models list {df.to_markdown(index=False, tablefmt='pipe')} \n\n Model Coefficients\n\n{coef_df.to_markdown(tablefmt='pipe')}\n\n3-fold CV\n\n{pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt='pipe', index=False)}\n\n5-fold CV\n\n{pd.DataFrame({'Q2':[Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt='pipe', index=False)}\n\n")
             print('Results saved to regression_results.txt in {}'.format(os.getcwd()))
@@ -1262,8 +1262,8 @@ def print_models_regression_table(results, app=None ,model=None):
         r=r_squared[selected_model]
         # Generate and display the Q2 scatter plot
 
-        _ = generate_q2_scatter_plot(y, pred, model.molecule_names,folds_df ,features,coef_df['Estimate'] ,r,X, lwr, upr, plot=True, dir=model.paths.figs)
-        # _ = plot_feature_vs_target(X, y, features, dir=model.paths.figs)
+        _ = generate_q2_scatter_plot(y, pred, model.molecule_names,folds_df ,features,coef_df['Estimate'] ,r,X, lwr, upr, plot=True, dir=model.paths.figures)
+        _ = plot_feature_vs_target(X, y, features, dir=model.paths.figures)
         # Ask the user if they want to select another model or exit
         if not app:
             cont = input("Do you want to select another model? (y/n): ").strip().lower()
@@ -1455,10 +1455,10 @@ def generate_and_display_single_combination_plot(model, features, app=None):
         print("Calling generate_q2_scatter_plot with computed values...")
         # Remove pi_lower and pi_upper if you are not calculating prediction intervals
         plot_output = generate_q2_scatter_plot(
-            y, pred, model.molecule_names, folds_df, features, coef_df['Estimate'], r, plot=True, dir=model.paths.figs
+            y, pred, model.molecule_names, folds_df, features, coef_df['Estimate'], r, plot=True, dir=model.paths.figures
         )
         X=model.features_df[features]
-        shap_plot = model.plot_shap_values(X, plot=True, dir=model.paths.figs)
+        shap_plot = model.plot_shap_values(X, plot=True, dir=model.paths.figures)
         print("Plot generated successfully.")
     except Exception as e:
         print("Error in generate_q2_scatter_plot:", e)

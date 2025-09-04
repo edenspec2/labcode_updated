@@ -11,7 +11,7 @@ from adjustText import adjust_text
 from itertools import combinations
 import sqlite3
 import os 
-from typing import  List , Literal ,Union, Optional
+from typing import  List, Optional , Literal
 
 def _add_drop_status(simi_table: pd.DataFrame, class_label, keep_pos, label_col_hint="Label"):
     df = simi_table.copy()
@@ -831,10 +831,7 @@ def prepare_run_dirs(
     os.environ.setdefault("MPLBACKEND", "Agg")
     return RunPaths(root, db, pdf, figs, tables, exports, logs)
 
-def resolve_db_path(db_path_arg: Union[str, Path],
-                    dataset_name: str,
-                    db_dir: Optional[Path]) -> str:
-
+def resolve_db_path(db_path_arg: str | Path, dataset_name: str, db_dir: Path | None) -> str:
     """
     If db_path_arg ends with `.db`, treat it as a full path.
     Else, treat it as a prefix and build `<prefix>_<dataset_name>.db`.

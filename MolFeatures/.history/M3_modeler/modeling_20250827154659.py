@@ -310,7 +310,7 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
 
 
 
-def check_linear_regression_assumptions(X,y,dir=None):
+def check_linear_regression_assumptions(X,y):
     # Load data
     # Fit linear regression model
     model = sm.OLS(y, sm.add_constant(X)).fit()
@@ -348,8 +348,7 @@ def check_linear_regression_assumptions(X,y,dir=None):
     probplot(residuals, dist="norm", plot=plt)
     plt.title('Q-Q plot of residuals')
     plt.show()
-    if dir:
-        plt.savefig(os.path.join(dir, 'qq_plot_residuals.png'))
+
 
 class PlotModel:
     def __init__(self, model):
@@ -393,14 +392,9 @@ class LinearRegressionModel:
         self.n_splits = n_splits
         self.scale=scale
         self.name=os.path.splitext(os.path.basename(self.csv_filepaths.get('features_csv_filepath')))[0]
-        self.paths = prepare_run_dirs(
-            base_dir="runs",
-            dataset_name=self.name,
-            y_value=self.y_value,
-            tag=self.model_type  # e.g., 'linear' or 'lasso'
-        )
 
-        self.db_path = resolve_db_path(db_path, self.name, self.paths.db)
+
+        self.db_path = db_path + f'_{self.name}.db'
         create_results_table(self.db_path)
         
         if self.model_type.lower() == 'linear':
