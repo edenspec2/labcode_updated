@@ -545,27 +545,39 @@ def direction_atoms_for_sterimol(bonds_df, base_atoms) -> list:  # help function
     
 
 def get_molecule_connections(bonds_df, source, direction, mode='all'):
-    bonds_df.columns = [0, 1]  # Ensure correct names for igraph
+    # Ensure correct column names for igraph
+    bonds_df = bonds_df.copy()
+    bonds_df.columns = [0, 1]
 
-    bonds_df[[0, 1]] = bonds_df[[0, 1]].apply(pd.to_numeric, errors='raise').astype(int)    
+    # Ensure integer atom indices
+    bonds_df[[0, 1]] = bonds_df[[0, 1]].apply(pd.to_numeric, errors='raise').astype(int)
+
+    # Build graph
     graph = ig.Graph.DataFrame(edges=bonds_df, directed=False)
+
+    # If edge (source, direction) doesn’t exist → add it
+    if not graph.are_connected(source, direction):
+        graph.add_edge(source, direction)
+
     # Get all simple paths from source
     paths = graph.get_all_simple_paths(v=source, mode='all')
-    # Only keep paths that start with [source, direction]
-    paths_with_start = [path for path in paths if len(path) >= 2 and path[0] == source and path[1] == direction]
-    # Flatten and unique
-    longest_path = np.unique(flatten_list(paths_with_start))
+
+    # Keep only paths starting with [source, direction]
+    paths_with_start = [path for path in paths 
+                        if len(path) >= 2 and path[0] == source and path[1] == direction]
 
     if mode == 'all':
+        longest_path = np.unique(flatten_list(paths_with_start))
+        
         return longest_path
+
     elif mode == 'shortest':
-        # If you want the shortest such path:
         if paths_with_start:
             shortest_path = min(paths_with_start, key=len)
             return shortest_path
         else:
             return []
-
+        
 def find_longest_simple_path(bonds_df):
     """
     bonds_df : pandas.DataFrame with exactly two columns [u, v] (integer atom indices)

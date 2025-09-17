@@ -390,25 +390,57 @@ class MoleculeApp:
     
     def leave_out_molecules(self):
         """
-        Opens a new Tkinter window with a list of molecules as checkboxes.
+        Opens a new Tkinter window with a scrollable list of molecules as checkboxes.
         Returns the list of indices for any molecules the user checks.
         """
-        names = self.molecules_csv_names  # Assuming this is a list of molecule names
-     
+        names = self.molecules_csv_names  # list of molecule names
+
         # Create a new Toplevel window
         new_window = Toplevel(self.master)
         new_window.title("Select Molecules to Remove")
+        new_window.geometry("400x400")  # optional size
 
-        # We'll store the (index, IntVar) for each molecule in a list
+        # --- Scrollable frame setup ---
+        container = Frame(new_window)
+        canvas = Canvas(container)
+        scrollbar = Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollable_frame = Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        container.pack(fill="both", expand=True)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # --- Add checkboxes ---
         var_list = []
         for i, name in enumerate(names):
             var = IntVar()
-            chk = Checkbutton(new_window, text=name, variable=var)
-            chk.pack(anchor="w", padx=10, pady=2)
+            chk = Checkbutton(scrollable_frame, text=name, variable=var, anchor="w")
+            chk.pack(fill="x", padx=10, pady=2, anchor="w")
             var_list.append((i, var))
 
-        # We'll store selected indices here after the user clicks 'Confirm'
+        # --- Collect selection ---
         selected_indices = []
+
+        def confirm_selection():
+            nonlocal selected_indices
+            selected_indices = [i for i, var in var_list if var.get() == 1]
+            new_window.destroy()
+
+        Button(new_window, text="Confirm", command=confirm_selection).pack(pady=10)
+
+        # Wait for window to close before returning
+        new_window.grab_set()
+        new_window.wait_window()
+
+        return selected_indices
 
         def confirm_selection():
             """Collect all checked molecules and close the window."""
@@ -581,12 +613,12 @@ class MoleculeApp:
                 
             
             if model_type == 'classification':
-                classification = ClassificationModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='class', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
-                classification_results = classification.search_models(top_n=top_n, accuracy_threshold=threshold)
+                classification = ClassificationModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', y_value='class', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
+                classification_results = classification.search_models(top_n=top_n, threshold=threshold)
             elif model_type =='linear_regression':
                
-                linear_regression = LinearRegressionModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', output_name='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
-                regression_results = linear_regression.search_models(top_n=top_n, initial_r2_threshold=threshold)
+                linear_regression = LinearRegressionModel({'features_csv_filepath': features_csv, 'target_csv_filepath': target_csv}, process_method='one csv', y_value='output', leave_out=leave_out_indices, min_features_num=min_features_num, max_features_num=max_features_num, metrics=None, return_coefficients=False,app=self)
+                regression_results = linear_regression.search_models(top_n=top_n, threshold=threshold)
 
         run_button = Button(new_window, text="Run Model", command=run_model)
         run_button.grid(row=8, column=1, padx=10, pady=20)

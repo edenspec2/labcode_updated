@@ -1,0 +1,2 @@
+formula,accuracy,precision,recall,f1,mcfadden_r2,avg_mcfadden_r2,avg_accuracy,avg_f1,Model_id
+"('-2-3-', '-2-7-')",,,,,,,,,0

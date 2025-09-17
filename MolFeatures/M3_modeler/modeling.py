@@ -162,67 +162,118 @@ def _sort_results(df: pd.DataFrame) -> pd.DataFrame:
 
 
         # Print the count of combinations for each number of features
-def fit_and_evaluate_single_combination_classification(model, combination, threshold=0.5, return_probabilities=False):
+def fit_and_evaluate_single_combination_classification(
+    model,
+    combination,
+    threshold: float = 0.5,
+    return_probabilities: bool = False,
+    categorical_max_unique: int = 20,
+    categorical_frac: float = 0.05,
+):
+    import numpy as np
+    import pandas as pd
+
     try:
-        colms=_normalize_combination_to_columns(combination)
+        colms = _normalize_combination_to_columns(combination)
         selected_features = model.features_df[colms]
-    except:
+    except Exception:
         selected_features = model.features_df[list(combination)]
 
-    X = selected_features.to_numpy()
+    X_df = selected_features.copy()
     y = model.target_vector.to_numpy()
 
-    # Fit the model
+    # --- Separate categorical-like integer columns ---
+   
+    categorical_cols = []
+    for c in X_df.columns:
+        series = X_df[c].dropna()
+        if pd.api.types.is_integer_dtype(series):
+            categorical_cols.append(c)
+        elif pd.api.types.is_float_dtype(series):
+            # Check if all non-NaN values are integers (e.g. 0.0, 1.0, 2.0)
+            if np.allclose(series, series.astype(int)):
+                categorical_cols.append(c)
+
+    continuous_cols = [c for c in X_df.columns if c not in categorical_cols]
+
+    # --- One-hot encode categorical columns ---
+    X_cont = X_df[continuous_cols]
+
+    valid_cats = [c for c in categorical_cols if c in X_df.columns]
+    # print(valid_cats,'valid_cats',categorical_cols,'categorical_cols', X_df,'X_df.')
+    if valid_cats:
+        X_cats = pd.get_dummies(
+            X_df,
+            columns=valid_cats,
+            prefix={c: c for c in categorical_cols},
+            prefix_sep="_",
+            dummy_na=False
+        )
+        X_cont = X_df[continuous_cols]
+        X_processed = pd.concat([X_cont, X_cats], axis=1)
+    else:
+        X_processed = X_df
+
+
+    X = X_processed.to_numpy()
+
+    # --- Fit the model ---
     model.fit(X, y)
 
-    # Evaluate the model
+    # --- Evaluate the model ---
     evaluation_results, y_pred = model.evaluate(X, y)
-    
-    # Check if accuracy is above the threshold
-    if evaluation_results['mcfadden_r2'] > threshold:
-        
-        avg_accuracy, avg_f1, avg_r2 = model.cross_validation(X, y , model.n_splits) ## , avg_auc
-        evaluation_results['avg_accuracy'] = avg_accuracy
-        evaluation_results['avg_f1_score'] = avg_f1
-        evaluation_results['avg_mcfadden_r2'] = avg_r2
-   
+    mcf = evaluation_results.get("mcfadden_r2", None)
+    acc = evaluation_results.get("accuracy", None)
 
-    results={
-        'combination': combination,
-        'scores': evaluation_results,
-        'model': model,
-        'predictions': y_pred
+    # Use accuracy if McFadden's R² is missing or not a finite number
+    use_accuracy = (mcf is None) or (isinstance(mcf, float) and not np.isfinite(mcf))
+
+    gate_metric = acc if use_accuracy else mcf
+    metric_name = "accuracy" if use_accuracy else "mcfadden_r2"
+
+    if gate_metric is not None and gate_metric > threshold:
+        avg_accuracy, avg_f1, avg_r2 = model.cross_validation(X, y, model.n_splits)
+        evaluation_results["avg_accuracy"] = avg_accuracy
+        evaluation_results["avg_f1_score"] = avg_f1
+        evaluation_results["avg_mcfadden_r2"] = avg_r2
+
+
+
+    results = {
+        "combination": combination,
+        "scores": evaluation_results,
+        "model": model,
+        "predictions": y_pred,
     }
 
+    # --- Optionally return probabilities ---
     if return_probabilities:
-        if model.ordinal:
+        if getattr(model, "ordinal", False):
             cumulative_probs = model.result.predict(exog=X)
-            # Calculate class probabilities from cumulative probabilities
-            # For class i: P(Y = i) = P(Y <= i) - P(Y <= i - 1)
             class_probs = np.zeros_like(cumulative_probs)
-            
-            # First class probability is the cumulative probability of being in the first class
+
             class_probs[:, 0] = cumulative_probs[:, 0]
-            
-            # Intermediate class probabilities
             for i in range(1, cumulative_probs.shape[1]):
                 class_probs[:, i] = cumulative_probs[:, i] - cumulative_probs[:, i - 1]
-            
-            # Last class probability is 1 - cumulative probability of being in the previous class
             class_probs[:, -1] = 1 - cumulative_probs[:, -2]
-            prob_df = pd.DataFrame(probabilities, columns=[f'Prob_Class_{i+1}' for i in range(probabilities.shape[1])])
-            prob_df['Predicted_Class'] = model.model.predict(X)
-            prob_df['True_Class'] = y
+
+            prob_df = pd.DataFrame(
+                class_probs,
+                columns=[f"Prob_Class_{i+1}" for i in range(class_probs.shape[1])]
+            )
+            prob_df["Predicted_Class"] = model.model.predict(X)
+            prob_df["True_Class"] = y
             return results, prob_df
         else:
             probabilities = model.model.predict_proba(X)
-            # Creating a DataFrame for probabilities
-            prob_df = pd.DataFrame(probabilities, columns=[f'Prob_Class_{i+1}' for i in range(probabilities.shape[1])])
-            prob_df['Predicted_Class'] = model.model.predict(X)
-            prob_df['True_Class'] = y
+            prob_df = pd.DataFrame(
+                probabilities,
+                columns=[f"Prob_Class_{i+1}" for i in range(probabilities.shape[1])]
+            )
+            prob_df["Predicted_Class"] = model.model.predict(X)
+            prob_df["True_Class"] = y
+            return results, prob_df
 
-            return results, prob_df 
-        
     return results
 
 
@@ -376,8 +427,13 @@ class LinearRegressionModel:
             alpha=1.0,
             app=None,
             db_path='results', 
-            scale=True              # <--- If lasso, this is the regularization strength
+            scale=True ,
+            seed = 42 ,           # <--- If lasso, this is the regularization strength
     ):
+
+        self.random_state = seed
+        self.setup_random_seeds()
+
         self.csv_filepaths = csv_filepaths
         self.process_method = process_method
         self.y_value = y_value
@@ -393,6 +449,7 @@ class LinearRegressionModel:
         self.n_splits = n_splits
         self.scale=scale
         self.name=os.path.splitext(os.path.basename(self.csv_filepaths.get('features_csv_filepath')))[0]
+
         self.paths = prepare_run_dirs(
             base_dir="runs",
             dataset_name=self.name,
@@ -436,6 +493,23 @@ class LinearRegressionModel:
             self.XtX_inv     = None
         
         self.check_linear_regression_assumptions()
+    
+
+    def setup_random_seeds(self) -> None:
+        """
+        Set random seeds across Python, NumPy, and optionally PyTorch 
+        to ensure reproducible results. Also stores a `self.random_state`
+        attribute for use in other methods.
+        """
+        # Python built-in
+        random.seed(self.random_state)
+
+        # NumPy
+        np.random.seed(self.random_state)
+
+        # Make Python hash-based operations deterministic
+        os.environ["PYTHONHASHSEED"] = str(self.random_state)
+
     
 
     def check_linear_regression_assumptions(self):
@@ -686,7 +760,7 @@ class LinearRegressionModel:
 
             mu = intercept + pm.math.dot(X, betas)
             y_obs = pm.Normal('y_obs', mu=mu, sigma=sigma, observed=y)
-            trace = pm.sample(n_samples, tune=n_tune, target_accept=target_accept, chains=2, random_seed=self.random_state, progressbar=verbose)
+            trace = pm.sample(n_samples, tune=n_tune, target_accept=target_accept, chains=4, cores=1, random_seed=self.random_state, progressbar=verbose)
 
         inclusion_probs = trace.posterior['spike'].mean(dim=("chain", "draw")).values
 
@@ -718,7 +792,7 @@ class LinearRegressionModel:
     def compute_correlation(
         self,
         correlation_threshold: float = 0.80,
-        vif_threshold: float = 5.0,
+        vif_threshold: float = None,
     ) -> dict:
         """
         Analyze multicollinearity via correlation and (optionally) VIF, with optional GUI prompts.
@@ -860,18 +934,6 @@ class LinearRegressionModel:
                         keep_cols.remove(to_drop)
                         dropped_features.append(to_drop)
 
-                    # Update self.features_df with dropped columns (only once, outside loop)
-                    # if dropped_features:
-                    #     self.features_df.drop(columns=dropped_features, inplace=True, errors="ignore")
-                    #     # Refresh numeric df for consistency next time
-                    #     num_df = _numeric_df(self.features_df)
-                    #     self.corr_matrix = num_df.corr()
-                    #     # Keep original order minus drops
-                    #     self.features_list = [c for c in self.features_list if c not in dropped_features]
-                    #     msgs.append(f"Dropped (VIF>{vif_threshold}): {dropped_features}")
-                    #     msgs.append(f"Remaining features ({len(self.features_list)}): {self.features_list}")
-                    # else:
-                    #     msgs.append("No features exceeded the VIF threshold. No columns dropped.")
             else:
                 msgs.append("VIF pruning skipped by user/preference.")
                 vif_table_before = None
@@ -1086,7 +1148,7 @@ class LinearRegressionModel:
 
     # analyze_shap_values(model, X, feature_names=None, target_name="output", n_top_features=10):
 
-    def plot_shap_values(self, X, feature_names=None, target_name="output", n_top_features=10, plot=True):
+    def plot_shap_values(self, X, feature_names=None, target_name="output", n_top_features=10, plot=True, dir=None):
         """
         Plot SHAP values for the model's predictions.
         
@@ -1098,47 +1160,35 @@ class LinearRegressionModel:
         """
         model= self.model
 
-        analyze_shap_values(model, X, feature_names=feature_names, target_name=target_name, n_top_features=n_top_features, plot=plot)
+        analyze_shap_values(model, X, feature_names=feature_names, target_name=target_name, n_top_features=n_top_features, plot=plot, dir=dir)
 
     def calculate_q2_and_mae(
-    self,
-    X,
-    y,
-    n_splits=None,
-    test_size=0.1,
-    random_state=42,
-    n_iterations=5,
-    exclude_leftout: bool = True,
-):
+        self,
+        X,
+        y,
+        n_splits=None,
+        test_size=0.1,
+        random_state=42,
+        n_iterations=5,
+        exclude_leftout: bool = True,
+        plot: bool = False,
+    ):
         """
-        Always-iterated CV metrics: Q² (global out-of-fold R²), MAE, RMSD.
-
-        Iteration behavior (always runs `n_iterations`):
-        • Holdout (n_splits is None or 0): repeated random holdouts, average metrics.
-        • LOO (n_splits == 1): runs LOO once, then repeats the same metrics n_iterations times (deterministic),
-            finally averages (same value).
-        • K-fold (n_splits >= 2): runs K-fold n_iterations times with different shuffles (seeded), average metrics.
-
-        Notes
-        -----
-        • Scaling is done *inside* each split via a Pipeline.
-        • Q² is computed as ONE global R² from out-of-fold predictions per iteration (no per-fold R²).
-        • For tiny data, we guard against invalid splits and fall back when necessary.
+        Cross-validation metrics: Q², MAE, RMSD.
+        Optionally plots out-of-fold predictions instead of printing per-fold stats.
         """
         import numpy as np
-        from sklearn.model_selection import (
-            train_test_split, LeaveOneOut, KFold
-        )
+        import matplotlib.pyplot as plt
+        from sklearn.model_selection import train_test_split, LeaveOneOut, KFold
         from sklearn.pipeline import make_pipeline
         from sklearn.preprocessing import StandardScaler
         from sklearn.base import clone
         from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
-        # --- to numpy, 1D target ---
         X = np.asarray(X)
         y = np.asarray(y).ravel()
 
-        # --- optional: exclude molecules reserved for prediction ---
+        # Exclude reserved molecules
         if exclude_leftout and hasattr(self, "molecule_names_predict") and hasattr(self, "molecule_names"):
             try:
                 keep_mask = np.array(
@@ -1148,109 +1198,94 @@ class LinearRegressionModel:
                 if keep_mask.shape[0] == X.shape[0]:
                     X, y = X[keep_mask], y[keep_mask]
             except Exception:
-                pass  # tolerate name mismatches
-
-        # --- guards ---
-        if X.ndim != 2:
-            raise ValueError(f"X must be 2D, got shape {getattr(X, 'shape', None)}")
-        if y.ndim != 1 or y.shape[0] != X.shape[0]:
-            raise ValueError("y must be 1D and match X rows")
+                pass
 
         n = X.shape[0]
-        if n < 3:
-            # Too small for any sensible CV; fit once on all data
-            from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-            pipe = make_pipeline(StandardScaler(), clone(self.model))
-            pipe.fit(X, y)
-            y_hat = pipe.predict(X)
-            r2   = float(r2_score(y, y_hat)) if n >= 2 else float("nan")
-            mae  = float(mean_absolute_error(y, y_hat))
-            rmsd = float(np.sqrt(mean_squared_error(y, y_hat)))
-            # Repeat the same metrics n_iterations times and average (same value)
-            return r2, mae, rmsd
+        if X.ndim != 2 or y.ndim != 1 or y.shape[0] != n:
+            raise ValueError("X must be 2D and y must be 1D with matching rows")
 
-        # Helper: fit on train, predict on test with scaling inside the split
         def _fit_predict(train_idx, test_idx):
             pipe = make_pipeline(StandardScaler(), clone(self.model))
             pipe.fit(X[train_idx], y[train_idx])
             return pipe.predict(X[test_idx])
 
-        # accumulate per-iteration metrics
         q2_list, mae_list, rmsd_list = [], [], []
-
-        # Normalize iterations
+        all_preds, all_true, all_folds = [], [], []
         n_iter = max(1, int(n_iterations))
         base_seed = None if random_state is None else int(random_state)
 
-        # -------------------------
-        # HOLDOUT (repeated)
-        # -------------------------
+        # -----------------
+        # HOLDOUT
+        # -----------------
         if n_splits is None or n_splits == 0:
-            # ensure at least 2 test samples when possible
             for it in range(n_iter):
                 rs = None if base_seed is None else base_seed + it
-                # if n is tiny, guard test size
-                if isinstance(test_size, float):
-                    test_n = int(round(test_size * n))
-                else:
-                    test_n = int(test_size)
-                if n >= 4:
-                    test_n = max(2, min(n - 2, test_n if test_n > 0 else max(2, int(round(0.1 * n)))))
-                    te_size = test_n
-                else:
-                    # fallback for n=3: allow 1 test (R² undefined, but Q² from a single test fold is NaN)
-                    te_size = 1
-
-                tr, te = train_test_split(np.arange(n), test_size=te_size, shuffle=True, random_state=rs)
+                tr, te = train_test_split(np.arange(n), test_size=test_size, shuffle=True, random_state=rs)
                 y_hat = _fit_predict(tr, te)
-
-                # Holdout metrics on test set
-                q2   = float(r2_score(y[te], y_hat)) if len(te) >= 2 else float("nan")
-                mae  = float(mean_absolute_error(y[te], y_hat))
+                q2 = float(r2_score(y[te], y_hat)) if len(te) >= 2 else float("nan")
+                mae = float(mean_absolute_error(y[te], y_hat))
                 rmsd = float(np.sqrt(mean_squared_error(y[te], y_hat)))
-
                 q2_list.append(q2); mae_list.append(mae); rmsd_list.append(rmsd)
+                all_preds.extend(y_hat); all_true.extend(y[te]); all_folds.extend([it]*len(te))
 
-            return float(np.nanmean(q2_list)), float(np.mean(mae_list)), float(np.mean(rmsd_list))
-
-        # -------------------------
-        # LOO (repeated, deterministic)
-        # -------------------------
-        if n_splits == 1:
+        # -----------------
+        # LOO
+        # -----------------
+        elif n_splits == 1:
             loo = LeaveOneOut()
             y_pred_oof = np.empty_like(y, dtype=float)
             for tr, te in loo.split(X):
                 y_pred_oof[te] = _fit_predict(tr, te)
-
-            q2   = float(r2_score(y, y_pred_oof))
-            mae  = float(mean_absolute_error(y, y_pred_oof))
+            q2 = float(r2_score(y, y_pred_oof))
+            mae = float(mean_absolute_error(y, y_pred_oof))
             rmsd = float(np.sqrt(mean_squared_error(y, y_pred_oof)))
+            q2_list = [q2]; mae_list = [mae]; rmsd_list = [rmsd]
+            all_preds = list(y_pred_oof); all_true = list(y); all_folds = list(range(n))
 
-            # Repeat same value n_iterations times (LOO is deterministic), then average
-            return q2, mae, rmsd
+        # -----------------
+        # K-FOLD
+        # -----------------
+        else:
+            k = int(min(max(2, n // 2), int(n_splits)))
+            for it in range(n_iter):
+                rs = None if base_seed is None else base_seed + it
+                kf = KFold(n_splits=k, shuffle=True, random_state=rs)
+                y_pred_oof = np.empty_like(y, dtype=float)
+                for fold, (tr, te) in enumerate(kf.split(X)):
+                    y_hat = _fit_predict(tr, te)
+                    y_pred_oof[te] = y_hat
+                    all_preds.extend(y_hat); all_true.extend(y[te]); all_folds.extend([fold]*len(te))
+                q2 = float(r2_score(y, y_pred_oof))
+                mae = float(mean_absolute_error(y, y_pred_oof))
+                rmsd = float(np.sqrt(mean_squared_error(y, y_pred_oof)))
+                q2_list.append(q2); mae_list.append(mae); rmsd_list.append(rmsd)
 
-        # ------------------------------------
-        # K-FOLD (repeated)
-        # ------------------------------------
-        # cap n_splits so each test fold has at least 2 samples: floor(n/k) >= 2 => k <= n//2
-        k = int(min(max(2, n // 2), int(n_splits)))
+        # --- Final metrics ---
+        q2 = float(np.nanmean(q2_list))
+        mae = float(np.mean(mae_list))
+        rmsd = float(np.mean(rmsd_list))
 
-        for it in range(n_iter):
-            rs = None if base_seed is None else base_seed + it
-            kf = KFold(n_splits=k, shuffle=True, random_state=rs)
+        # -----------------
+        # Plot diagnostics
+        # -----------------
+        if plot and len(all_preds) > 0:
+            all_preds = np.array(all_preds)
+            all_true = np.array(all_true)
+            all_folds = np.array(all_folds)
+            plt.figure(figsize=(6,6))
+            scatter = plt.scatter(all_true, all_preds, c=all_folds, cmap="tab10", s=60, alpha=0.8, edgecolor="k")
+            lims = [min(all_true.min(), all_preds.min())-0.5, max(all_true.max(), all_preds.max())+0.5]
+            plt.plot(lims, lims, "r--", lw=2, label="Ideal")
+            plt.xlabel("True values")
+            plt.ylabel("Predicted values (OOF)")
+            plt.title(f"CV predictions\nQ²={q2:.3f}, MAE={mae:.3f}, RMSD={rmsd:.3f}")
+            plt.legend()
+            plt.colorbar(scatter, label="Fold")
+            plt.tight_layout()
+            plt.show()
 
-            # global OOF per iteration
-            y_pred_oof = np.empty_like(y, dtype=float)
-            for tr, te in kf.split(X):
-                y_pred_oof[te] = _fit_predict(tr, te)
+        return q2, mae, rmsd
 
-            q2   = float(r2_score(y, y_pred_oof))
-            mae  = float(mean_absolute_error(y, y_pred_oof))
-            rmsd = float(np.sqrt(mean_squared_error(y, y_pred_oof)))
-
-            q2_list.append(q2); mae_list.append(mae); rmsd_list.append(rmsd)
-
-        return float(np.mean(q2_list)), float(np.mean(mae_list)), float(np.mean(rmsd_list))
 
 
 
@@ -1636,13 +1671,15 @@ class ClassificationModel:
         self.ordinal = ordinal
         self.app=app
         name=name = os.path.splitext(os.path.basename(self.csv_filepaths.get('features_csv_filepath')))[0]
-        self.db_path = resolve_db_path(db_path, name, self.paths.db)
+
         self.paths = prepare_run_dirs(
             base_dir="runs",
             dataset_name=name,
             y_value=self.y_value,
             tag="cls"
         )
+        self.db_path = resolve_db_path(db_path, name, self.paths.db)
+        
         create_results_table_classification(self.db_path)
         if csv_filepaths:
       
@@ -1657,18 +1694,33 @@ class ClassificationModel:
                 exclude_columns = []
 
             # Identify columns to scale
-            columns_to_scale = [col for col in self.features_df.columns if col not in exclude_columns]
+            # --- Identify columns to scale: only non-integers (floats/continuous) ---
+            continuous_cols = [
+                col for col in self.features_df.columns
+                if col not in (exclude_columns or [])
+                and not pd.api.types.is_integer_dtype(self.features_df[col])
+            ]
 
-            # Apply scaling only to selected columns
+            # Columns to leave untouched
+            other_cols = [c for c in self.features_df.columns if c not in continuous_cols]
+
+            print(f"Scaling only continuous (non-integer) columns: {continuous_cols}")
+            print(f"Leaving integer columns untouched: {other_cols}")
+
+            # Apply scaling only to continuous columns
             self.scaler = ColumnTransformer(
                 transformers=[
-                    ('num', StandardScaler(), columns_to_scale)  # Scale only these columns
+                    ("num", StandardScaler(), continuous_cols),
+                    ("passthrough", "passthrough", other_cols),
                 ],
-                remainder='passthrough'  # Keep excluded columns as they are
+                remainder="drop"
             )
 
             # Fit and transform the data
-            self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+            scaled_array = self.scaler.fit_transform(self.features_df)
+            new_columns = continuous_cols + other_cols
+            self.features_df = pd.DataFrame(scaled_array, columns=new_columns, index=self.features_df.index)
+
             self.leave_out_samples(self.leave_out, keep_only=False)
             self.determine_number_of_features()
             # self.get_feature_combinations()
@@ -1679,7 +1731,7 @@ class ClassificationModel:
         else:    
             self.model = LogisticRegression(solver='lbfgs', random_state=42)
 
-    def compute_correlation(self, correlation_threshold=0.8, vif_threshold=5.0):
+    def compute_correlation(self, correlation_threshold=0.8, vif_threshold=None):
         app = self.app
         self.corr_matrix = self.features_df.corr()
         high_corr_features = self._get_highly_correlated_features(
@@ -1753,20 +1805,33 @@ class ClassificationModel:
             print(msg)
 
 
-    def simi_sampler_(self,class_label, compare_with=0, sample_size=None, plot=True):
-        data=pd.concat([self.features_df,self.target_vector],axis=1)
-        ## if self.indices exist , append to it else create it
-        if hasattr(self, 'indices'):
-            self.indices = self.indices + simi_sampler(data, class_label, compare_with, sample_size, plot)
-        else:
-            self.indices = simi_sampler(data, class_label, compare_with, sample_size, plot)
-        X = self.features_df.reset_index(drop=True)
-        y = self.target_vector.reset_index(drop=True)
-        mask = np.ones(len(X), dtype=bool)
-        mask[np.array(self.indices, dtype=int)] = False
-        self.features_df = X.iloc[mask]
-        self.target_vector = y.iloc[mask]
-        self.molecule_names = [self.molecule_names[i] for i in range(len(self.molecule_names)) if i not in self.indices]
+    def simi_sampler_(self, class_label, compare_with=0, sample_size=None, plot=False):
+        """
+        Perform similarity sampling to balance classes in the dataset.
+        """
+        data = pd.concat([self.features_df, self.target_vector], axis=1)
+
+        # If sample_size not provided, use the minimum class count
+        if sample_size is None:
+            sample_size = data["class"].astype("category").value_counts().min()
+            print(f"Sample size not provided. Using minimum class count: {sample_size}")
+        self.indices = simi_sampler(data, class_label, compare_with, sample_size, plot)
+
+        return self.indices
+        # # Rebuild X and y without the sampled indices
+        # X = self.features_df.reset_index(drop=True)
+        # y = self.target_vector.reset_index(drop=True)
+
+        # mask = np.ones(len(X), dtype=bool)
+        # mask[np.array(self.indices, dtype=int)] = False
+
+        # self.features_df = X.iloc[mask]
+        # self.target_vector = y.iloc[mask]
+
+        # # Update molecule_names to exclude indices
+        # self.molecule_names = [
+        #     self.molecule_names[i] for i in range(len(self.molecule_names)) if i not in self.indices
+        # ]
 
 
         
@@ -2470,64 +2535,157 @@ class ClassificationModel:
         return avg_accuracy, avg_f1, avg_r2
 
 
-    def search_models(self, top_n=50, n_jobs=-1, threshold=0.5, bool_parallel=False):
+    def search_models(
+        self,
+        top_n: int = 50,
+        n_jobs: int = 1,
+        threshold: float = 0.5,
+        bool_parallel: bool = False,
+        required_features: Optional[Iterable[str]] = None,
+        min_models_to_keep: int = 5,
+    ):
+        """
+        Fit and evaluate classification feature combinations with an optional set of required features.
+        Results are cached in a SQLite database and merged with any existing results.
+
+        Parameters
+        ----------
+        top_n : int
+            Number of top models to return.
+        n_jobs : int
+            Number of parallel jobs (-1 = use all cores).
+        threshold : float
+            Minimum McFadden R² threshold for evaluation.
+        bool_parallel : bool
+            Whether to use joblib Parallel for evaluation.
+        required_features : list[str], optional
+            Require all combos to include these features.
+        min_models_to_keep : int
+            Always keep at least this many models, even if top_n is smaller.
+
+        Returns
+        -------
+        pd.DataFrame
+            Top results sorted by McFadden R².
+        """
         app = self.app
+
+        # Generate all candidate feature combinations
         self.get_feature_combinations()
-        existing_results = load_results_from_db(self.db_path, table='classification_results')
-        print(f"Loaded {len(existing_results)} existing results from the database.")
-        done_combos=existing_results['combination'].tolist()
-        done_combos = set(done_combos)
-        print(f"Skipping {len(done_combos)} combinations already in the database.")
-        combos_to_run = [
-            combo for combo in self.features_combinations
-            if str(combo) not in done_combos
-        ]
-        print(f'Combos to run: {len(combos_to_run)}, done_combos: {len(done_combos)}')
-        def process_and_insert(combo):
-            # run the single-combo evaluation
-            result = fit_and_evaluate_single_combination_classification(
-                self, combo, threshold=threshold
-            )
-            insert_result_into_db_classification(
-                self.db_path,
-                combo,
-                result['scores'],   # expects keys: accuracy, precision, recall, f1_score, mcfadden_r2
-                threshold,
-                csv_path='classification_results.csv'
-            )
+        all_combos: List[Tuple[str, ...]] = list(self.features_combinations or [])
+        req: Set[str] = set(required_features or [])
 
-        # --- Execute evaluations ---
-        if bool_parallel and n_jobs > 1 and multiprocessing.cpu_count() > 1:
-            Parallel(n_jobs=n_jobs)(
-                delayed(process_and_insert)(combo)
-                for combo in tqdm(combos_to_run, desc='Parallel evaluation')
-            )
-        else:
-            for combo in tqdm(combos_to_run, desc='evaluation'):
-                process_and_insert(combo)
+        # Decide on parallel execution
+        cpu_count = multiprocessing.cpu_count()
+        effective_jobs = (
+            1
+            if (cpu_count == 1 or not bool_parallel)
+            else (n_jobs if n_jobs != -1 else cpu_count)
+        )
+        print(f"Using {effective_jobs} jobs for evaluation. Found {cpu_count} cores.")
 
-        all_results = load_results_from_db(self.db_path, table='classification_results')
-        sorted_results = all_results.sort_values(by='mcfadden_r2', ascending=False).head(top_n)
-        # --- Display and store the best models/combinations ---
-        print_models_classification_table(sorted_results, app, self)
-        self.combinations_list = sorted_results['combination'].tolist()
-        # --- Optionally predict on left-out set ---
+        # Load existing results
+        try:
+            existing_results = load_results_from_db(self.db_path, table="classification_results")
+            print(f"Loaded {len(existing_results)} existing results from DB.")
+            done_combos = set(map(str, existing_results["combination"].tolist()))
+        except Exception:
+            existing_results = pd.DataFrame()
+            done_combos = set()
+            print("[INFO] No existing results found, starting fresh.")
+
+        def _filter_new_combos() -> List[Tuple[str, ...]]:
+            """Filter combos: not in DB, must contain required features if any."""
+            out = []
+            for combo in all_combos:
+                key = str(combo)
+                if key in done_combos:
+                    continue
+                if req and not req.issubset(set(combo)):
+                    continue
+                out.append(combo)
+            return out
+
+        def _evaluate_block(threshold: float) -> pd.DataFrame:
+            """Evaluate unseen combos at given threshold."""
+            results_df = existing_results.copy()
+            combos_to_run = _filter_new_combos()
+            print(f"Combos to run: {len(combos_to_run)}, already done: {len(done_combos)}")
+
+            if not combos_to_run:
+                print(f"No new combos left at threshold {threshold:.3f}.")
+                return results_df
+
+            print(f"Evaluating {len(combos_to_run)} new combos with McFadden R² >= {threshold:.3f}...")
+            if effective_jobs == 1:
+                new_results = []
+                for combo in tqdm(combos_to_run, desc=f"Threshold {threshold:.3f} (single-core)"):
+                    try:
+                        print(f"[INFO] Evaluating combo: {combo}")
+                        result = fit_and_evaluate_single_combination_classification(
+                            self, combo, threshold=threshold
+                        )
+                        insert_result_into_db_classification(
+                            self.db_path,
+                            combo,
+                            result["scores"],
+                            threshold,
+                            csv_path="classification_results.csv",
+                        )
+                        new_results.append(result)
+                    except Exception as e:
+                        print(f"[WARN] Combo {combo} failed: {e}")
+                if new_results:
+                    results_df = pd.concat([results_df, pd.DataFrame(new_results)], ignore_index=True)
+            else:
+                Parallel(n_jobs=effective_jobs)(
+                    delayed(fit_and_evaluate_single_combination_classification)(
+                        self, combo, threshold
+                    )
+                    for combo in tqdm(combos_to_run, desc=f"Threshold {threshold:.3f} (parallel)")
+                )
+                results_df = load_results_from_db(self.db_path, table="classification_results")
+
+            return results_df
+
+        # ---- Run evaluation ------------------------------------------------
+        results = _evaluate_block(threshold)
+
+        if results.empty:
+            print("[INFO] No models were successfully evaluated.")
+            return results
+
+        # Sort results (by McFadden R² descending)
+        results = results.sort_values(by="mcfadden_r2", ascending=False)
+
+        # Keep at least min_models_to_keep
+        results = results.head(max(top_n, min_models_to_keep))
+
+        # Show results
+        if not results.empty:
+            print_models_classification_table(results, app, self)
+            self.combinations_list = results["combination"].tolist()
+
+        # ---- Left-out evaluation ------------------------------------------
         if self.leave_out:
             X = self.leftout_samples.to_numpy()
             y = self.leftout_target_vector.to_numpy()
             self.fit(X, y)
             preds = self.predict(X)
-            df_lo = pd.DataFrame({
-                'sample_name': self.molecule_names_predict,
-                'true': y.ravel(),
-                'predicted': np.array(preds).ravel()
-            })
+            df_lo = pd.DataFrame(
+                {
+                    "sample_name": self.molecule_names_predict,
+                    "true": y.ravel(),
+                    "predicted": np.array(preds).ravel(),
+                }
+            )
             if app:
                 app.show_result("\n\nPredictions on left-out samples\n\n")
                 app.show_result(df_lo.to_markdown(tablefmt="pipe", index=False))
             else:
                 print(df_lo.to_markdown(tablefmt="pipe", index=False))
-        return sorted_results
+
+        return results
 
 
     
@@ -2657,45 +2815,83 @@ class ClassificationModel:
         from statsmodels.tools.sm_exceptions import PerfectSeparationWarning
         from numpy.linalg import LinAlgError
 
+        # ---------------------- helpers ----------------------
+        def _clean_rows(Xdf: pd.DataFrame, yser: pd.Series):
+            Xdf = pd.DataFrame(Xdf)
+            yser = pd.Series(yser)
 
-        # --- Clean data (same rows for all fits) ---
-        X = pd.DataFrame(X)
-        y = pd.Series(y)
-        mask = np.isfinite(X).all(axis=1) & np.isfinite(y)
-        X, y = X.loc[mask].copy(), y.loc[mask].copy()
+            # y may be non-numeric; use notna instead of np.isfinite
+            mask_y = yser.notna()
 
-        # drop non-numeric, inf/nan rows already removed
-        X = X.select_dtypes(include=[np.number])
-        # drop zero-variance and duplicate columns
-        zero_var = [c for c in X.columns if X[c].nunique() <= 1]
-        if zero_var: X.drop(columns=zero_var, inplace=True)
-        X = X.loc[:, ~X.columns.duplicated()]
+            # Only check finiteness on numeric X columns
+            numX = Xdf.select_dtypes(include=[np.number])
+            mask_x = np.ones(len(Xdf), dtype=bool)
+            if not numX.empty:
+                mask_x &= np.isfinite(numX).all(axis=1).to_numpy()
 
-        n, p = X.shape
-        if n == 0 or p == 0:
-            print("[R2] No usable rows/features after cleaning.")
-            return float("nan")
+            mask = mask_y & mask_x
+            return Xdf.loc[mask].copy(), yser.loc[mask].copy()
 
-        X_full = sm.add_constant(X, has_constant="add")
-        cats = pd.Categorical(y)
-        k = len(cats.categories)
+        def _encode_X(Xdf: pd.DataFrame) -> pd.DataFrame:
+            # booleans -> ints
+            for c in Xdf.columns:
+                if Xdf[c].dtype == bool:
+                    Xdf[c] = Xdf[c].astype(int)
+
+            # non-numeric -> one-hot with drop_first (avoid dummy trap)
+            nonnum = [c for c in Xdf.columns if not np.issubdtype(Xdf[c].dtype, np.number)]
+            if nonnum:
+                Xdf = pd.get_dummies(Xdf, columns=nonnum, drop_first=True)
+
+            # drop zero-variance & exact duplicates
+            zero_var = [c for c in Xdf.columns if Xdf[c].nunique(dropna=False) <= 1]
+            if zero_var and verbose:
+                print(f"[R2] Dropping zero-variance columns: {zero_var}")
+            if zero_var:
+                Xdf = Xdf.drop(columns=zero_var)
+
+            # drop duplicate columns
+            dup_mask = Xdf.T.duplicated()
+            if dup_mask.any() and verbose:
+                dups = list(Xdf.columns[dup_mask])
+                print(f"[R2] Dropping duplicate columns: {dups}")
+            Xdf = Xdf.loc[:, ~dup_mask]
+
+            return Xdf
+
+        def _repair_singularity(Xf: pd.DataFrame, label: str, tol: float = 1e-8) -> Optional[pd.DataFrame]:
+            # Drop zero-variance and duplicates
+            Xf = Xf.loc[:, Xf.nunique(dropna=False) > 1]
+            Xf = Xf.loc[:, ~Xf.T.duplicated()]
+
+            # Approx collinearity check via correlation
+            corr = Xf.corr().abs()
+            upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+
+            to_drop = [col for col in upper.columns if any(upper[col] > (1 - tol))]
+            if to_drop:
+                print(f"[INFO] {label}: dropping highly collinear columns: {to_drop}")
+                Xf = Xf.drop(columns=to_drop)
+
+            rank = np.linalg.matrix_rank(Xf.values, tol=tol)
+            print(f"[OK] {label}: reduced to {Xf.shape[1]} cols, rank {rank}")
+            return Xf
 
 
-        # --- helper to fit with separation fallback ---
         def _fit_full_binary(Xf, ybin):
-            # try unpenalized first; if separation warning, retry regularized
             with warnings.catch_warnings(record=True) as w:
                 warnings.simplefilter("always", category=PerfectSeparationWarning)
                 try:
                     res = sm.Logit(ybin, Xf).fit(disp=False, method="newton", maxiter=2000)
-                except (LinAlgError, np.linalg.LinAlgError, ValueError) as e:
-
-                    w.append(type("W", (), {"category": PerfectSeparationWarning})())  # force fallback
+                except (LinAlgError, np.linalg.LinAlgError, ValueError):
                     res = None
-
-            if any(issubclass(getattr(wi, "category", type(None)), PerfectSeparationWarning) for wi in w) or res is None:
-  
-                res = sm.Logit(ybin, Xf).fit_regularized(alpha=alpha, L1_wt=0.0, maxiter=2000)
+                need_fallback = res is None or any(
+                    issubclass(getattr(wi, "category", type(None)), PerfectSeparationWarning) for wi in w
+                )
+            if need_fallback:
+                if verbose:
+                    print("[R2] Falling back to regularized Logit (L2)")
+                res = sm.Logit(ybin, Xf).fit_regularized(alpha=alpha, L1_wt=0.0, maxiter=2000, disp=False)
             return res
 
         def _fit_full_mnlogit(Xf, ycodes):
@@ -2703,42 +2899,82 @@ class ClassificationModel:
                 warnings.simplefilter("always", category=PerfectSeparationWarning)
                 try:
                     res = sm.MNLogit(ycodes, Xf).fit(disp=False, method="newton", maxiter=2000)
-                except Exception as e:
-     
-                    w.append(type("W", (), {"category": PerfectSeparationWarning})())  # force fallback
+                except Exception:
                     res = None
-            if any(issubclass(getattr(wi, "category", type(None)), PerfectSeparationWarning) for wi in w) or res is None:
-  
-                res = sm.MNLogit(ycodes, Xf).fit_regularized(alpha=alpha, L1_wt=0.0, maxiter=2000)
+                need_fallback = res is None or any(
+                    issubclass(getattr(wi, "category", type(None)), PerfectSeparationWarning) for wi in w
+                )
+            if need_fallback:
+                if verbose:
+                    print("[R2] Falling back to regularized MNLogit (L2)")
+                res = sm.MNLogit(ycodes, Xf).fit_regularized(alpha=alpha, L1_wt=0.0, maxiter=2000, disp=False)
             return res
 
-        # --- Fit full model ---
-        if k == 2:
-            y_bin = (y == cats.categories[1]).astype(int)
-            res_full = _fit_full_binary(X_full, y_bin)
-            LL_model = float(res_full.llf)
-            # LL_null analytically (intercept-only MLE): n1*log(p) + n0*log(1-p)
-            counts = np.bincount(y_bin, minlength=2).astype(float)
-        else:
-            y_codes = cats.codes  # 0..k-1
-            res_full = _fit_full_mnlogit(X_full, y_codes)
-            LL_model = float(res_full.llf)
-            counts = np.bincount(y_codes, minlength=k).astype(float)
+        # ---------------------- pipeline ----------------------
+        X, y = _clean_rows(X, y)
+        X = _encode_X(X)
 
+        n, p = X.shape
+        if n == 0 or p == 0:
+            if verbose:
+                print("[R2] No usable rows/features after cleaning.")
+            return float("nan")
+
+        # Add intercept
+        X_full = sm.add_constant(X, has_constant="add")
+
+        cats = pd.Categorical(y)
+        k = len(cats.categories)
+
+        # ---------------------- fit full model ----------------------
+        try:
+            if k == 2:
+                # Binary
+                y_bin = (y == cats.categories[1]).astype(int)
+
+                # Repair singularity if needed
+                X_try = _repair_singularity(X_full, label="binary") 
+                if X_try is None or X_try.empty:
+                    return float("nan")
+                else:
+                    X_full = X_try
+                res_full = _fit_full_binary(X_try, y_bin)
+                LL_model = float(res_full.llf)
+                counts = np.bincount(y_bin, minlength=2).astype(float)
+
+            else:
+                # Multiclass
+                y_codes = cats.codes  # 0..k-1
+
+                X_try = _repair_singularity(X_full, label="multiclass")
+                if X_try is None or X_try.empty:
+                    return float("nan")
+                else:
+                    X_full = X_try
+                res_full = _fit_full_mnlogit(X_try, y_codes)
+                LL_model = float(res_full.llf)
+                counts = np.bincount(y_codes, minlength=k).astype(float)
+
+        except Exception as e:
+            if verbose:
+                print(f"[WARN] Fit failed: {e}")
+            return float("nan")
+
+        # ---------------------- null model ----------------------
         nobs = counts.sum()
         if nobs <= 0 or (counts > 0).sum() < 2:
             return float("nan")
 
         probs = counts / nobs
-        # LL_null = sum_c n_c * log(p_c), only for classes that appear
+        # LL_null = sum_c n_c * log(p_c), for appearing classes only
         LL_null = float(np.sum(counts[counts > 0] * np.log(probs[counts > 0])))
 
-
-        if np.isclose(LL_null, 0.0):
+        # Guard against degenerate null likelihood
+        if not np.isfinite(LL_null) or np.isclose(LL_null, 0.0):
             LL_null = 1e-15
 
+        # ---------------------- McFadden R^2 ----------------------
         r2 = 1.0 - (LL_model / LL_null)
-
         return r2
 
 

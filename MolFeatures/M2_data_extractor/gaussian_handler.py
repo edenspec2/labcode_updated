@@ -148,3 +148,80 @@ def feather_file_handler(feather_file: str) -> List[Any]:
 
         return [df_dict, vib_dict, charge_dict, ev]
 
+
+def save_to_feather(
+    df_dict: Dict[str, pd.DataFrame],
+    vib_dict: Dict[str, Any],
+    charge_dict: Dict[str, pd.DataFrame],
+    ev_df: pd.DataFrame,
+    out_file: str
+) -> None:
+    """
+    Reconstructs a single DataFrame from processed molecular pieces
+    and saves it as a feather file in the same format as feather_file_handler expects.
+
+    Parameters
+    ----------
+    df_dict : dict
+        Dictionary of DataFrames (xyz, dipole, pol, info, etc.).
+    vib_dict : dict
+        Dictionary of vibration vectors (mode -> numpy array / DataFrame).
+    charge_dict : dict
+        Dictionary of charge DataFrames: {'nbo', 'hirshfeld', 'cm5'}.
+    ev_df : pd.DataFrame
+        Single-row DataFrame with energy value.
+    out_file : str
+        Path to save the feather file.
+    """
+
+    # --- Core DataFrames reconstruction ---
+    xyz = df_dict.get("xyz", pd.DataFrame(columns=["atom", "x", "y", "z"]))
+    dipole_df = df_dict.get("dipole", pd.DataFrame(columns=["dip_x", "dip_y", "dip_z", "total_dipole"]))
+    pol_df = df_dict.get("polarizability", pd.DataFrame(columns=["aniso", "iso"]))
+    info_df = df_dict.get("info", pd.DataFrame(columns=["Frequency", "IR"]))
+
+    # Charges
+    nbo_df = charge_dict.get("nbo", pd.DataFrame(columns=["charge"]))
+    hirsh_df = charge_dict.get("hirshfeld", pd.DataFrame(columns=["charge"]))
+    cm5_df = charge_dict.get("cm5", pd.DataFrame(columns=["charge"]))
+
+    # Rename charge columns to match original names
+    nbo_df = nbo_df.rename(columns={"charge": "nbo_charge"})
+    hirsh_df = hirsh_df.rename(columns={"charge": "hirshfeld_charge"})
+    cm5_df = cm5_df.rename(columns={"charge": "cm5_charge"})
+
+    # Energy
+    ev_val = None
+    if ev_df is not None and not ev_df.empty:
+        try:
+            ev_val = float(ev_df.iloc[0, 0])
+        except Exception:
+            ev_val = None
+    ev_col = pd.Series([ev_val] * len(xyz), name="energy")
+
+    # --- Vibrations reconstruction ---
+    vib_frames = []
+    for mode, arr in vib_dict.items():
+        # arr could be numpy array or DataFrame
+        if isinstance(arr, pd.DataFrame):
+            frame = arr
+        else:
+            frame = pd.DataFrame(arr)
+        frame.columns = [f"{mode}_{i}" for i in range(frame.shape[1])]
+        vib_frames.append(frame)
+
+    vib_df = pd.concat(vib_frames, axis=1) if vib_frames else pd.DataFrame()
+
+    # --- Concatenate everything into one big DataFrame ---
+    main_df = pd.concat(
+        [xyz, dipole_df, pol_df, nbo_df, hirsh_df, cm5_df, info_df, vib_df],
+        axis=1
+    )
+
+    # Add energy column (single value broadcasted)
+    main_df.insert(0, "energy", ev_col)
+
+    # Save as feather
+    main_df.reset_index(drop=True).to_feather(out_file)
+
+    print(f"Feather file saved: {out_file}")

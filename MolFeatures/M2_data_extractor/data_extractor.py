@@ -15,7 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     # Now you can import from the parent directory
-    from gaussian_handler import feather_file_handler
+    from gaussian_handler import feather_file_handler, save_to_feather
     from utils import visualize
     from utils.help_functions import *
     from extractor_utils.sterimol_utils import *
@@ -23,7 +23,7 @@ try:
     from extractor_utils.dipole_utils import *
     from extractor_utils.vibrations_utils import *
 except:
-    from .gaussian_handler import feather_file_handler
+    from .gaussian_handler import feather_file_handler, save_to_feather
     from ..utils import visualize
     from ..utils.help_functions import *
     from .extractor_utils.sterimol_utils import *
@@ -59,6 +59,84 @@ def show_highly_correlated_pairs(df, corr_thresh=0.8):
     else:
       
         return None
+
+
+from typing import Dict, Iterable, Optional, Union, Literal
+
+import numpy as np
+import pandas as pd
+
+def _validate_and_build_maps(n: int, renumbering_dict: Dict[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Validate 1-based renumbering and build:
+    - old_to_new (0-based): index i (old) -> new index
+    - new_to_old (0-based): index j (new) -> old index (a permutation/order vector)
+    """
+    if not renumbering_dict:
+        # Identity
+        old_to_new = np.arange(n, dtype=int)
+        new_to_old = np.arange(n, dtype=int)
+        return old_to_new, new_to_old
+
+    # Basic checks
+    for k, v in renumbering_dict.items():
+        if not (isinstance(k, int) and isinstance(v, int)):
+            raise ValueError("renumbering_dict must map int→int (1-based).")
+        if not (1 <= k <= n and 1 <= v <= n):
+            raise ValueError(f"Mapping out of range: {k}->{v} for n={n}.")
+
+    # Ensure no duplicate targets
+    new_targets = list(renumbering_dict.values())
+    if len(set(new_targets)) != len(new_targets):
+        raise ValueError("renumbering_dict has duplicate target indices (non-bijective).")
+
+    # Build maps (0-based)
+    old_to_new = np.arange(n, dtype=int)          # default identity
+    for old1, new1 in renumbering_dict.items():
+        old_to_new[old1 - 1] = new1 - 1
+
+    # Invert map to get the permutation "order" (new_to_old)
+    # For positions not explicitly moved, identity holds.
+    new_to_old = np.empty(n, dtype=int)
+    new_to_old.fill(-1)
+    for old0, new0 in enumerate(old_to_new):
+        if new_to_old[new0] != -1:
+            # Should never happen after duplicate-target check
+            raise ValueError(f"Non-bijective mapping detected for new index {new0+1}.")
+        new_to_old[new0] = old0
+
+    # Safety: all filled?
+    if (new_to_old < 0).any():
+        raise ValueError("Incomplete inversion of mapping. Check renumbering_dict.")
+
+    return old_to_new, new_to_old
+
+
+def _reindex_like(obj: Union[pd.Series, pd.DataFrame], order: np.ndarray) -> Union[pd.Series, pd.DataFrame]:
+    """Reindex a Series/DataFrame (row-wise) by an integer order vector (0-based)."""
+    if hasattr(obj, "iloc"):
+        out = obj.iloc[order].copy()
+        out.index = range(len(out))  # normalize to 0..n-1
+        return out
+    raise TypeError(f"Unsupported type for reindexing: {type(obj)}")
+
+
+def _remap_bonds_df(bonds_df: pd.DataFrame, old_to_new: np.ndarray, assume_0_based: bool = True) -> pd.DataFrame:
+    """
+    Remap bonds (two integer columns) using old_to_new (0-based map).
+    If your bonds are 1-based, set assume_0_based=False.
+    """
+    out = bonds_df.copy()
+    cols = out.columns[:2]
+    if not assume_0_based:
+        # convert 1-based to 0-based, map, then back to 1-based
+        out[cols] = out[cols].astype(int) - 1
+        out[cols] = out[cols].applymap(lambda idx: int(old_to_new[idx]))
+        out[cols] = out[cols] + 1
+    else:
+        out[cols] = out[cols].astype(int)
+        out[cols] = out[cols].applymap(lambda idx: int(old_to_new[idx]))
+    return out
 
 
 
@@ -114,6 +192,8 @@ class Molecule:
             # Connectivity and atom typing
             self.bonds_df = extract_connectivity(self.xyz_df, threshold_distance=self.threshold)
             self.atype_list = nob_atype(self.xyz_df, self.bonds_df)
+            
+            
         except Exception as e:
             print(f"Warning: Error initializing structural properties for {getattr(self, 'molecule_name', 'Unknown')}: {e}")
             # Set default values for missing properties
@@ -135,7 +215,9 @@ class Molecule:
             self.charge_dict = self.parameter_list[2] if len(self.parameter_list) > 2 else {}
             self.vibration_dict = self.parameter_list[1] if len(self.parameter_list) > 1 else {}
             self.vibration_mode_dict = build_vibration_mode_dict(self.vibration_dict, self.info_df)
-
+            self.dfs = self.vibration_dict_to_dfs()
+            # print('xxx')
+            # print(self.dfs)
             # Energy values
             self.energy_value = self.parameter_list[0].get('energy_df', pd.DataFrame()) if len(self.parameter_list) > 2 else pd.DataFrame()
         
@@ -149,113 +231,167 @@ class Molecule:
             if not hasattr(self, 'info_df'): self.info_df = pd.DataFrame()
             if not hasattr(self, 'energy_value'): self.energy_value = pd.DataFrame()
 
-    def renumber_atoms(self, renumbering_dict):
-        """
-        Renumbers atoms according to a provided dictionary and updates all relevant data structures.
-        
-        Args:
-            renumbering_dict (dict): Dictionary mapping old atom numbers (1-based) to new atom numbers
-                                        {old_num: new_num, ...}
-        
-        Returns:
-            None: Updates the molecule's data structures in-place
-        """
-        # Store the new index order for future use if needed
-        self.new_index_order = [renumbering_dict.get(i+1, i+1) for i in range(len(self.xyz_df))]
-        
-        # Create a copy of the original data
-        old_xyz_df = self.xyz_df.copy()
-        
-        # Create a new DataFrame with the renumbered indices
-        new_xyz_df = pd.DataFrame(index=range(len(old_xyz_df)), columns=old_xyz_df.columns)
-        
-        # Rearrange the XYZ data according to the renumbering
-        for old_idx in range(len(old_xyz_df)):
-            old_num = old_idx + 1  # Convert to 1-based indexing
-            new_num = renumbering_dict.get(old_num, old_num) - 1  # Get new number (defaulting to old) and convert to 0-based
-            new_xyz_df.loc[new_num] = old_xyz_df.iloc[old_idx]
-        for col in old_xyz_df.columns:
-            new_xyz_df[col] = new_xyz_df[col].astype(old_xyz_df[col].dtype)
-        # Update the XYZ dataframe and coordinates array
-        self.xyz_df = new_xyz_df
-        self.coordinates_array = np.array(self.xyz_df[['x', 'y', 'z']].astype(float))
-      
-        # Recompute connectivity on the renumbered structure
-        self.bonds_df = extract_connectivity(self.xyz_df)
-        self.atype_list = nob_atype(self.xyz_df, self.bonds_df)
-        
-        # Renumber charge data
-        if self.charge_dict:
-            new_charge_dict = {}
-           
-            for charge_type, charge_data in self.charge_dict.items():
-                # If charge_data is a dict (with pandas Series/DataFrames as values)
-                if isinstance(charge_data, dict):
-                    new_charge_data = {}
-                    for subkey, subdata in charge_data.items():
-                        # Assume subdata is a pandas Series or DataFrame
-                        new_subdata = subdata.copy()
-                        for old_idx in range(len(subdata)):
-                            old_num = old_idx + 1
-                            new_num = renumbering_dict.get(old_num, old_num) - 1
-                            new_subdata.iloc[new_num] = subdata.iloc[old_idx]
-                        new_charge_data[subkey] = new_subdata
-                    new_charge_dict[charge_type] = new_charge_data
-                # If charge_data is a pandas Series/DataFrame directly
-                elif hasattr(charge_data, 'iloc'):
-                    new_charge_data = charge_data.copy()
-                    for old_idx in range(len(charge_data)):
-                        old_num = old_idx + 1
-                        new_num = renumbering_dict.get(old_num, old_num) - 1
-                        new_charge_data.iloc[new_num] = charge_data.iloc[old_idx]
-                    new_charge_dict[charge_type] = new_charge_data
-                else:
-                    raise TypeError(f"Unsupported type in charge_dict for {charge_type}: {type(charge_data)}")
 
+
+
+    def renumber_atoms(
+        self,
+        renumbering_dict: Dict[int, int],
+        *,
+        rebuild_connectivity: bool = False,
+        bonds_are_0_based: bool = False,
+        verbose: bool = True,
+        save_feather: bool = False, out_file: Optional[str] = None
+    ) -> None:
+        """
+        Renumber atoms according to a 1-based mapping and update relevant data.
+        - Robust validation (range, duplicates)
+        - Vectorized reindexing for xyz_df and charge_dict entries
+        - Vibration keys 'vibration_atom_X' remapped to new indices
+        - Connectivity can be preserved by remapping bonds_df, or recomputed
+
+        Parameters
+        ----------
+        renumbering_dict : dict
+            1-based dictionary: {old_atom_num: new_atom_num}.
+            Unspecified atoms keep their original numbers (identity).
+        rebuild_connectivity : bool, default False
+            If True: recompute connectivity via `extract_connectivity(self.xyz_df)`.
+            If False: preserve original `self.bonds_df` by remapping indices.
+        bonds_are_0_based : bool, default True
+            Set False if your `self.bonds_df` stores atom numbers 1-based.
+        verbose : bool, default True
+            Print a short success message and summary.
+
+        Notes
+        -----
+        - Stores the following helpers:
+            self.old_to_new (np.ndarray, 0-based)
+            self.new_to_old (np.ndarray, 0-based permutation)
+            self.new_index_order (list[int], 1-based new numbers in old-order for backward compat)
+        - Assumes self.xyz_df has columns ['x','y','z'] (floats) and one row per atom.
+        """
+        if not hasattr(self, "xyz_df"):
+            raise AttributeError("self.xyz_df is required before renumbering.")
+
+        n = len(self.xyz_df)
+        old_to_new, new_to_old = _validate_and_build_maps(n, renumbering_dict)
+
+        # Save maps for downstream use
+        self.old_to_new = old_to_new              # old idx -> new idx (0-based)
+        self.new_to_old = new_to_old              # new idx -> old idx (0-based)
+        self.new_index_order = (old_to_new + 1).tolist()  # 1-based, for compatibility
+
+        # --- Reorder XYZ (vectorized) ---
+        old_xyz_df = self.xyz_df.copy()
+        self.xyz_df = old_xyz_df.iloc[new_to_old].reset_index(drop=True)
+
+        # Ensure numeric coordinate dtypes
+        for c in ("x", "y", "z"):
+            if c in self.xyz_df.columns:
+                self.xyz_df[c] = pd.to_numeric(self.xyz_df[c], errors="coerce")
+        self.coordinates_array = self.xyz_df[["x", "y", "z"]].to_numpy(dtype=float)
+
+        # --- Connectivity & atom types ---
+        if hasattr(self, "bonds_df") and isinstance(self.bonds_df, pd.DataFrame) and not rebuild_connectivity:
+            # Preserve original bonds by remapping indices
+            self.bonds_df = _remap_bonds_df(self.bonds_df, old_to_new=self.old_to_new, assume_0_based=bonds_are_0_based)
+        else:
+            # Recompute from geometry (may differ from original)
+            if "extract_connectivity" not in globals() and not hasattr(self, "extract_connectivity"):
+                raise NameError("extract_connectivity is not available to recompute bonds. Set rebuild_connectivity=False or provide it.")
+            # Support bound method or global function
+            _extract = getattr(self, "extract_connectivity", globals().get("extract_connectivity"))
+            self.bonds_df = _extract(self.xyz_df)
+
+        # Atom types (depends on your implementation)
+        if "nob_atype" not in globals() and not hasattr(self, "nob_atype"):
+            # Skip silently if not available
+            self.atype_list = getattr(self, "atype_list", None)
+        else:
+            _atype = getattr(self, "nob_atype", globals().get("nob_atype"))
+            self.atype_list = _atype(self.xyz_df, self.bonds_df)
+
+        # --- Renumber charges (vectorized) ---
+        if hasattr(self, "charge_dict") and self.charge_dict:
+            new_charge_dict: Dict[str, Any] = {}
+            for charge_type, charge_data in self.charge_dict.items():
+                if isinstance(charge_data, dict):
+                    new_sub = {}
+                    for subkey, subdata in charge_data.items():
+                        if hasattr(subdata, "iloc"):
+                            new_sub[subkey] = _reindex_like(subdata, new_to_old)
+                        else:
+                            raise TypeError(f"Unsupported nested type in charge_dict[{charge_type}][{subkey}]: {type(subdata)}")
+                    new_charge_dict[charge_type] = new_sub
+                elif hasattr(charge_data, "iloc"):
+                    new_charge_dict[charge_type] = _reindex_like(charge_data, new_to_old)
+                else:
+                    raise TypeError(f"Unsupported type in charge_dict[{charge_type}]: {type(charge_data)}")
             self.charge_dict = new_charge_dict
 
-        
-        # Renumber vibration data
-        if self.vibration_dict:
-            new_vib_dict = {}
-            for key, value in self.vibration_dict.items():
-                if key.startswith('vibration_atom_'):
-                    atom_num = int(key.split('_')[-1])
-                    new_atom_num = renumbering_dict.get(atom_num, atom_num)
-                    new_key = f'vibration_atom_{new_atom_num}'
-                    new_vib_dict[new_key] = value
+        # --- Renumber vibration dict keys like 'vibration_atom_{i}' ---
+        if hasattr(self, "vibration_dict") and self.vibration_dict:
+            new_vib_dict: Dict[str, Any] = {}
+            for key, val in self.vibration_dict.items():
+                if key.startswith("vibration_atom_"):
+                    try:
+                        old_atom_1b = int(key.split("_")[-1])
+                    except ValueError:
+                        new_vib_dict[key] = val  # leave untouched if unexpected format
+                        continue
+                    # Map 1-based old -> 0-based -> 1-based new
+                    if not (1 <= old_atom_1b <= n):
+                        # out of range, keep as-is
+                        new_vib_dict[key] = val
+                        continue
+                    new_atom_1b = int(old_to_new[old_atom_1b - 1] + 1)
+                    new_key = f"vibration_atom_{new_atom_1b}"
+                    if new_key in new_vib_dict:
+                        raise ValueError(f"Collision in vibration_dict keys after renumbering: {new_key}")
+                    new_vib_dict[new_key] = val
                 else:
-                    new_vib_dict[key] = value
+                    new_vib_dict[key] = val
             self.vibration_dict = new_vib_dict
+        # Note: self.vibration_mode_dict may need similar treatment if it uses atom indices in keys
+        if hasattr(self, "vibration_mode_dict") and self.vibration_mode_dict:
+            new_mode_dict: Dict[str, Any] = {}
+            for key, val in self.vibration_mode_dict.items():
+                # key is frequency, np.float value is array of shape (n, 3)
+                if isinstance(val, np.ndarray) and val.shape[0] == n and val.shape[1] == 3:
+                    new_array = val[old_to_new, :]
+                    new_mode_dict[key] = new_array
+                else:
+                    new_mode_dict[key] = val  # leave untouched if unexpected format
+                    continue
+                    
+            self.vibration_mode_dict = new_mode_dict
+        if verbose:
+            moved = {k: v for k, v in renumbering_dict.items() if k != v}
+            msg = "Atoms successfully renumbered."
+            if moved:
+                msg += f" Moved: {moved} (1-based)."
+            print(msg)
         
-        # Update dipole and polarizability data if they have atom-specific components
-        # (This depends on the specific format of these dataframes)
-        # For most cases, these are molecular properties and don't need renumbering
-        
-        print(f"Atoms successfully renumbered according to the provided dictionary")
-    def reindex_vibration_dict(self):
-        """
-        Reindexes a vibration dictionary based on a new index order.
+        if save_feather:
+            if out_file is None:
+                out_file = os.path.join(self.molecule_path, f"{self.molecule_name}_renumbered.feather")
 
-        Parameters:
-        vib_dict (dict): The original vibration dictionary to be reindexed.
-        new_index_order (list): A list of integers representing the new atom numbers.
+            save_to_feather(
+                df_dict={
+                    "xyz": self.xyz_df,
+                    "dipole": self.gauss_dipole_df,
+                    "polarizability": self.polarizability_df,
+                    "info": self.info_df
+                },
+                vib_dict=self.vibration_dict,
+                charge_dict=self.charge_dict,
+                ev_df=self.energy_value,
+                out_file=out_file
+            )
+            if verbose:
+                print(f"Renumbered data saved to {out_file}\n Saved to path: {os.getcwd()}")
 
-        Returns:
-        dict: A new vibration dictionary reindexed according to new_index_order.
-        """
-        # Building a mapping from old to new indices
-        mapping = {i + 1: new_index for i, new_index in enumerate(self.new_index_order)}
-
-        # Creating a new reindexed dictionary
-        new_vib_dict = {}
-        for old_index, new_index in mapping.items():
-            old_key = f'vibration_atom_{old_index}'
-            new_key = f'vibration_atom_{new_index}'
-            if old_key in self.vibration_dict:
-                new_vib_dict[new_key] = self.vibration_dict[old_key]
-
-        return new_vib_dict
 
 
     def get_molecule_descriptors_df(self) -> pd.DataFrame:
@@ -284,6 +420,75 @@ class Molecule:
         for var_name, var_value in vars(self).items():
             if isinstance(var_value, pd.DataFrame):
                 var_value.to_csv(f"{var_name}.csv", index=False)
+
+
+    def vibration_dict_to_dfs(self, debug: bool = False):
+        """
+        Converts the vibration dictionary to a DataFrame for easier handling.
+
+        Args:
+            debug (bool): If True, prints debugging information.
+
+        Returns:
+            list[pd.DataFrame]: A list of DataFrames grouped by frequency.
+        """
+        
+        self.vib_df_list = []
+        self.bonds_df_vib = self.bonds_df
+
+        if debug:
+            print(f"[DEBUG] Starting vibration_dict_to_dfs")
+            print(f"[DEBUG] vibration_dict contains {len(self.vibration_dict)} entries")
+
+        for key, value in self.vibration_dict.items():
+            if debug:
+                print(f"\n[DEBUG] Processing key: {key}")
+                print(f"[DEBUG] Raw value shape: {value.shape}")
+
+            # --- get atom index from key ---
+            idx = int(key.split('_')[-1]) - 1
+
+            # --- filter out NaNs ---
+            before_shape = value.shape
+            value = value[~np.isnan(value).any(axis=1)]
+            after_shape = value.shape
+            if debug:
+                print(f"[DEBUG] Removed NaNs: {before_shape} -> {after_shape}")
+
+            # --- construct new array ---
+            new_array = np.array([value[i] for i in range(value.shape[0])])
+            if debug:
+                print(f"[DEBUG] new_array shape: {new_array.shape}")
+
+            # --- build DataFrame ---
+            df = pd.DataFrame(new_array, columns=['x', 'y', 'z'])
+            df['frequency'] = self.info_df['Frequency'].values
+
+            indice = [self.xyz_df['atom'].iloc[idx]] * len(value)
+            df.insert(0, 'atom', indice)
+
+            if debug:
+                print(f"[DEBUG] DataFrame built for {key}: shape {df.shape}")
+                print(df.head())
+
+            # --- update attributes ---
+            self.vib_df_list.append(df)
+            self.vibration_dict[key] = new_array
+
+            # --- rebuild combined xyz_df ---
+            xyz_df = pd.DataFrame()
+            for vib_df in self.vib_df_list:
+                xyz_df = pd.concat([xyz_df, vib_df[['atom','x','y','z','frequency']]], axis=0)
+
+            self.dfs = [group.reset_index(drop=True) for _, group in xyz_df.groupby(xyz_df.iloc[:, -1])]
+
+        if debug:
+            print(f"\n[DEBUG] Finished building dfs: {len(self.dfs)} groups")
+            for i, df in enumerate(self.dfs[:3]):  # preview only first 3 groups
+                print(f"[DEBUG] Group {i} shape: {df.shape}")
+                print(df.head())
+
+        return self.dfs
 
 
     def visualize_molecule(self, vector=None) -> None:
@@ -762,13 +967,13 @@ class Molecule:
         vibration_array: Union[List[float], None] = self.vibration_dict.get('vibration_atom_{}'.format(str(vibration_atom_num)))
         return calc_max_frequency_magnitude(vibration_array, self.info_df.T)
 
-    def get_stretch_vibration_single(self, atom_pair: List[int],threshold=3000)-> pd.DataFrame:
+    def get_stretch_vibration_single(self, atom_pair: List[int],threshold=1600,upper_threshold=3000)-> pd.DataFrame:
         
        
         if check_pair_in_bonds(atom_pair, self.bonds_df) == True:
             try:
                 extended_vib_df = calc_vibration_dot_product_from_pairs(
-                    self.coordinates_array, self.vibration_dict, atom_pair, self.info_df,threshold=threshold,vibration_mode_dict=self.vibration_mode_dict
+                    self.coordinates_array, self.vibration_dict, atom_pair, self.info_df,threshold=threshold,upper_threshold=upper_threshold,vibration_mode_dict=self.vibration_mode_dict
                 )
             except TypeError:
                 print(f'Strech Vibration Error: no vibration array for the molecule {self.molecule_name} for {atom_pair} - check atom numbering in molecule')
@@ -783,7 +988,6 @@ class Molecule:
             df=pd.DataFrame([[np.nan,np.nan]],columns=[['Frequency','Amplitude']])
             df.rename(index={0: f'Stretch_{atom_pair[0]}_{atom_pair[1]}'},inplace=True)
             
-            
             return df
     
     ### check if all frequencies are the same for different vibrations and remove, check what atoms are moving the most
@@ -791,7 +995,7 @@ class Molecule:
     ### split all the vibrations to symmetric and asymmetric
     ## if you found symmetric look for the asymmetric
 
-    def get_stretch_vibration(self, atom_pairs: List[int],threshold=3000)-> pd.DataFrame:
+    def get_stretch_vibration(self, atom_pairs: List[int],threshold=1600,upper_threshold=3500)-> pd.DataFrame:
         """
         Parameters
         ----------
@@ -812,14 +1016,14 @@ class Molecule:
         """
         if isinstance(atom_pairs[0], list):
             # If atom_pairs is a list of lists, process each pair individually and concatenate the results
-            vibration_list = [self.get_stretch_vibration_single(pair,threshold) for pair in atom_pairs]
+            vibration_list = [self.get_stretch_vibration_single(pair,threshold,upper_threshold) for pair in atom_pairs]
             # Filter out None results
             vibration_list = [vib for vib in vibration_list if vib is not None]
             vibration_df = pd.concat(vibration_list, axis=0)
             
         else:
             # If atom_pairs is a single pair, just process that pair
-            vibration_df=self.get_stretch_vibration_single(atom_pairs,threshold)
+            vibration_df=self.get_stretch_vibration_single(atom_pairs,threshold,upper_threshold)
         
         # go over df to check if there are equal frequencies and remove them, saving the
         return vibration_df
@@ -1105,7 +1309,20 @@ class Molecules():
             mol_name=mol.molecule_name
             data_to_xyz(xyz_df, f'{mol_name}.xyz')
         os.chdir('../')
-
+    
+    def renumber_all_molecules(self,indices=None):
+        if indices:
+            self.filter_molecules(indices)
+            
+        for i, molecule in enumerate(self.molecules):
+            try:
+                molecule.renumber_atoms()
+                print(f'Molecule {molecule.molecule_name} renumbered successfully.')
+            except Exception as e:
+                print(f'Error renumbering molecule {molecule.molecule_name}: {e}')
+                log_exception("renumber_all_molecules")
+        print('All molecules renumbered.')
+    
     def filter_molecules(self, indices):
         self.molecules = [self.molecules[i] for i in indices]
         self.molecules_names = [self.molecules_names[i] for i in indices]
@@ -1314,7 +1531,7 @@ class Molecules():
                 pass
         return dict_to_horizontal_df(bond_length_dict)
     
-    def get_stretch_vibration_dict(self,atom_pairs,threshold=3000):
+    def get_stretch_vibration_dict(self,atom_pairs,threshold=1600,upper_threshold=3500):
         """
         Returns a dictionary with the stretch vibrations calculated for the specified atom pairs.
 
@@ -1340,7 +1557,7 @@ class Molecules():
         print(f'Calculating stretch vibration for atoms {atom_pairs} with threshold {threshold} \n Remember : ALWAYS LOOK AT THE RESULTING VIBRATION')
         for molecule in self.molecules:
             try:
-                stretch_vibration_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs,threshold)
+                stretch_vibration_dict[molecule.molecule_name]=molecule.get_stretch_vibration(atom_pairs,threshold,upper_threshold)
             except Exception as e:
                 print(f'Error: could not calculate strech vibration for {molecule.molecule_name}: {e} ')
                 log_exception("get_stretch_vibration_dict")
@@ -1487,13 +1704,17 @@ class Molecules():
         mol=self.molecules[idx]
         mol.get_sterimol(indices,visualize_bool=True)
         
-    def get_molecules_features_set(self, entry_widgets, parameters=None, answers_list=None, save_as=False, csv_file_name='features_csv'):
+    def get_molecules_features_set(self, entry_widgets, parameters=None, answers_list=None, save_as=False, csv_file_name='features_output'):
         """
         Gathers user input from entry_widgets, applies parameters,
         extracts features, and optionally saves results to a file.
         """
         import pandas as pd
-
+        import datetime
+        # add timestamp to filename
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        if save_as:
+            csv_file_name = f"{csv_file_name}_{timestamp}"
         # 1. Prepare answers from GUI (robust to both widget.get() and prefilled strings)
         answers = {}
         if parameters is None:
@@ -1538,7 +1759,7 @@ class Molecules():
         # List of feature extraction steps as (key, handler function, *extra_args)
         feature_steps = [
             ('ring', lambda a: self.get_ring_vibration_dict(a)),
-            ('stretching', lambda a: self.get_stretch_vibration_dict(a, answers.get('stretch', [None])[0])),
+            ('stretching', lambda a: self.get_stretch_vibration_dict(a, answers.get('stretch', [None])[0], answers.get('upper_stretch', [None])[0])),
             ('bending', lambda a: self.get_bend_vibration_dict(a, answers.get('bend', [None])[0])),
             ('npa', lambda a: self.get_npa_dict(a, sub_atoms=answers.get('sub_atoms', []))),
             ('dipole', lambda a: self.get_dipole_dict(a)),
@@ -1600,8 +1821,18 @@ class Molecules():
         # 8. Interactive analysis
         interactive_corr_heatmap_with_highlights(res_df)
         correlation_table = show_highly_correlated_pairs(res_df, corr_thresh=0.8)
-        res_df=res_df.sort_index(ascending=False)
+
+        res_df=res_df.sort_index(ascending=False,inplace=False)
+        
         if save_as:
+            # organize res_df by the in in index if possible
+
+            print(res_df.head(5))
+            res_df = res_df.sort_index(
+            key=lambda idx: idx.map(
+                lambda x: int(re.search(r"\d+", x).group()) if re.search(r"\d+", x) else x
+            )
+        )
             res_df.to_csv(f"{csv_file_name}.csv", index=True)
             correlation_table.to_csv(f"{csv_file_name}_correlation_table.csv", index=True)
             print(f"Features saved to {csv_file_name}.csv and correlation table to {csv_file_name}_correlation_table.csv in {os.getcwd()}")

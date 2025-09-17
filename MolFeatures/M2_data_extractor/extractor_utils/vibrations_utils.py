@@ -185,11 +185,13 @@ def calc_vibration_dot_product(extended_vib_df, coordinates_vector):
     # vibration_dot_product=abs(np.dot(extended_vib_df[[0,1,2]], coordinates_vector)) + abs(np.dot(extended_vib_df[[3,4,5]], coordinates_vector))
     return vibration_dot_product_list
 
-def extended_df_for_stretch(vibration_dict: dict, info_df:pd.DataFrame,atom_pair,threshhold: int = 3000):
+def extended_df_for_stretch(vibration_dict: dict, info_df:pd.DataFrame,atom_pair,threshhold: int = 1600, upper_threshold: int = 3500):
     vibration_array_pairs,_= vibrations_dict_to_list(vibration_dict, atom_pair)
     array=pd.DataFrame(np.hstack([vibration_array_pairs[0][0],vibration_array_pairs[0][1]]))
     df=pd.concat([array,info_df['Frequency']],axis=1)
     filter_df=df[df['Frequency']>threshhold]
+    if upper_threshold:
+        filter_df=filter_df[filter_df['Frequency']<upper_threshold]
     return filter_df
 
 
@@ -251,7 +253,8 @@ def calc_vibration_dot_product_from_pairs(
     atom_pair: list,
     info_df: pd.DataFrame,
     operation: str = 'dot',
-    threshold: float = 3000,
+    threshold: float = 1600,
+    upper_threshold: float = 3500,
     vibration_mode_dict: dict = None,
     similarity_tol: float = 0.1
 ) -> pd.DataFrame:
@@ -262,7 +265,7 @@ def calc_vibration_dot_product_from_pairs(
     """
 
     atoms = adjust_indices(atom_pair)
-    extended_df = extended_df_for_stretch(vibration_dict, info_df, atom_pair, threshold)
+    extended_df = extended_df_for_stretch(vibration_dict, info_df, atom_pair, threshold, upper_threshold)
     coordinates_vector = coordinates_array[atoms[0]] - coordinates_array[atoms[1]]
     vibration_dot_product = calc_vibration_dot_product(extended_df, coordinates_vector)
     extended_df['Amplitude'] = vibration_dot_product

@@ -74,10 +74,16 @@ def plot_similarity_scatter_with_status(df: pd.DataFrame, x_col: str, title: str
 
 
 
+from typing import Optional, Literal, List
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+
+
 def simi_sampler(
     data: pd.DataFrame,
     class_label,
-    compare_with=0,
+    compare_with: Optional[str] = "self",
     sample_size: Optional[int] = None,
     plot: bool = False,
     return_kind: Literal["pos", "label", "name"] = "pos",
@@ -85,165 +91,157 @@ def simi_sampler(
     """
     Select a subset of rows from `data` for the specified `class_label`,
     spreading selections across the chosen similarity range, and
-    **RETURN THE INDICES TO DROP** for that class.
+    RETURN THE INDICES TO DROP for that class.
 
-    Returns (by default) POSitional indices (0..n-1) to DROP (suitable for `.iloc`).
-    Set `return_kind` to "label" to get original index labels to DROP,
-    or "name" to get names to DROP.
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Must contain 'class' column and numeric feature columns.
+    class_label : str | int
+        The class whose samples will be downsampled.
+    compare_with : {"self", class_name}, default="self"
+        Which similarity axis to use.
+        - "self" → similarity to own class centroid.
+        - class_name → similarity to another class centroid.
+    sample_size : int, optional
+        Number of samples to KEEP. Defaults to min(class counts).
+    plot : bool, default=False
+        If True, scatter plots before/after selection.
+    return_kind : {"pos","label","name"}
+        Format of indices to return:
+        - "pos": positional indices (0..n-1, for .iloc)
+        - "label": original DataFrame index values
+        - "name": molecule names (or fallback strings)
 
-    Notes:
-      - Similarity to own class is in 'sim_self'
-      - Similarity to each class c is in column str(c)
+    Returns
+    -------
+    List
+        Indices (according to `return_kind`) to DROP.
     """
-    if 'class' not in data.columns:
+    if "class" not in data.columns:
         raise KeyError("data must contain a 'class' column.")
 
-    # keep original labels then switch to positional index
+    # keep original index and pos
     df = data.copy()
-    df['_orig_index_'] = df.index
+    df["_orig_index_"] = df.index
     df.reset_index(drop=True, inplace=True)
-    df['_pos_'] = np.arange(len(df), dtype=int)
+    df["_pos_"] = np.arange(len(df), dtype=int)
 
-    # choose a human-readable label column
-    if 'Name' in df.columns:
-        label_col = 'Name'
-    elif 'molecule' in df.columns:
-        label_col = 'molecule'
-    else:
-        df['Name'] = df['_orig_index_'].astype(str)
-        label_col = 'Name'
+    # choose a label column
+    label_col = None
+    for cand in ("Name", "molecule"):
+        if cand in df.columns:
+            label_col = cand
+            break
+    if label_col is None:
+        df["Name"] = df["_orig_index_"].astype(str)
+        label_col = "Name"
 
-    # feature columns (exclude meta)
-    meta_cols = {'class', 'flag', 'Sample', '_orig_index_', '_pos_', 'Name'}
+    # feature columns
+    meta_cols = {"class", "flag", "Sample", "_orig_index_", "_pos_", "Name"}
     var_cols = [c for c in df.columns if c not in meta_cols]
 
-    # coerce to numeric, drop all-NaN cols
-    sampler_data = df[var_cols].apply(pd.to_numeric, errors='coerce')
-    all_nan_cols = sampler_data.columns[sampler_data.isna().all()]
-    if len(all_nan_cols):
-        print(f"[simi_sampler] Dropping all-NaN columns: {list(all_nan_cols)}")
-        sampler_data = sampler_data.drop(columns=list(all_nan_cols))
-    var_cols = list(sampler_data.columns)
-    if not var_cols:
-        raise ValueError("No usable numeric feature columns after coercion.")
-
-    # fill NaNs & drop zero-variance
+    # numeric features only
+    sampler_data = df[var_cols].apply(pd.to_numeric, errors="coerce")
+    sampler_data = sampler_data.dropna(axis=1, how="all")
     sampler_data = sampler_data.fillna(sampler_data.mean())
-    zero_var_cols = sampler_data.columns[sampler_data.nunique(dropna=False) <= 1]
-    if len(zero_var_cols) > 0:
-        print(f"[simi_sampler] Dropping zero-variance columns: {list(zero_var_cols)}")
-        sampler_data = sampler_data.drop(columns=list(zero_var_cols))
-        var_cols = list(sampler_data.columns)
+
+    # drop zero-variance cols
+    sampler_data = sampler_data.loc[:, sampler_data.nunique(dropna=False) > 1]
+    if sampler_data.empty:
+        raise ValueError("No usable numeric feature columns after preprocessing.")
 
     # scale
     scaler = StandardScaler()
     sampler_scaled = pd.DataFrame(
         scaler.fit_transform(sampler_data),
         columns=sampler_data.columns,
-        index=df.index
+        index=df.index,
     )
 
-    # class mean vectors & magnitudes
-    unique_classes = df['class'].unique()
+    # compute class centroids
+    unique_classes = df["class"].unique()
     class_vec, class_mag = {}, {}
     for cls in unique_classes:
-        m = sampler_scaled[df['class'] == cls].mean(axis=0).values
+        m = sampler_scaled[df["class"] == cls].mean(axis=0).values
         class_vec[cls] = m
-        class_mag[cls] = float(np.linalg.norm(m))
+        class_mag[cls] = np.linalg.norm(m)
 
-    # similarity to own class
-    sim_self = np.zeros(len(df), dtype=float)
-    for idx in sampler_scaled.index:
-        row = sampler_scaled.loc[idx, var_cols].values
-        c = df.at[idx, 'class']
-        v, m = class_vec[c], class_mag[c]
-        rn = float(np.linalg.norm(row))
-        sim_self[idx] = 0.0 if (m == 0.0 or rn == 0.0) else float(np.dot(v, row) / (m * rn))
+    # similarity column
+    if compare_with == "self":
+        # similarity to own centroid
+        sim = []
+        for idx, row in sampler_scaled.iterrows():
+            c = df.at[idx, "class"]
+            v, m = class_vec[c], class_mag[c]
+            rn = np.linalg.norm(row.values)
+            sim.append(0.0 if (m == 0.0 or rn == 0.0) else float(np.dot(v, row) / (m * rn)))
+        df["_sim_"] = sim
+    else:
+        # similarity to another class centroid
+        if compare_with not in class_vec:
+            raise KeyError(f"compare_with={compare_with} not in {list(class_vec.keys())}")
+        v, m = class_vec[compare_with], class_mag[compare_with]
+        sim = []
+        for _, row in sampler_scaled.iterrows():
+            rn = np.linalg.norm(row.values)
+            sim.append(0.0 if (m == 0.0 or rn == 0.0) else float(np.dot(v, row) / (m * rn)))
+        df["_sim_"] = sim
 
-    # similarity to each class
-    sim_all = {}
-    for cls in unique_classes:
-        v, m = class_vec[cls], class_mag[cls]
-        vals = []
-        for idx in sampler_scaled.index:
-            row = sampler_scaled.loc[idx, var_cols].values
-            rn = float(np.linalg.norm(row))
-            vals.append(0.0 if (m == 0.0 or rn == 0.0) else float(np.dot(v, row) / (m * rn)))
-        sim_all[str(cls)] = vals
-
-    # similarity table
-    simi_table = pd.DataFrame(sim_all, index=df.index)
-    simi_table['sim_self'] = sim_self
-    simi_table['class'] = df['class'].values
-    simi_table['Label'] = df[label_col].astype(str).values
-    simi_table['_pos_'] = df['_pos_'].values
-    simi_table['_orig_index_'] = df['_orig_index_'].values
-
-    # choose similarity column
-    x_col = 'sim_self' if compare_with == 0 else str(compare_with)
-    if x_col not in simi_table.columns:
-        raise KeyError(
-            f"compare_with='{compare_with}' not available; "
-            f"valid are 'sim_self' or one of {list(sim_all.keys())}"
-        )
-
-    # target class series on the chosen axis
-    simi_class = simi_table.loc[simi_table['class'] == class_label, x_col]
+    # target class only
+    simi_class = df.loc[df["class"] == class_label, "_sim_"]
     if simi_class.empty:
-        return []
+        raise ValueError(f"No rows found for class_label={class_label}")
 
-    # how many to KEEP; everything else in the class will be DROPPED
     n_class = len(simi_class)
     k = min(sample_size if sample_size is not None else n_class, n_class)
 
-    # positions of ALL rows in the target class (in current order)
-    all_pos_in_class = simi_table.loc[simi_table['class'] == class_label, '_pos_'].astype(int).tolist()
+    # positions of all rows in class
+    all_pos_in_class = df.loc[df["class"] == class_label, "_pos_"].tolist()
 
-    # pick k evenly across similarity range → keep_pos
+    # pick k evenly spaced along similarity axis
     if k >= n_class:
-        keep_pos = all_pos_in_class[:]   # keep all → drop none
+        keep_pos = all_pos_in_class
     else:
         steps = np.linspace(simi_class.min(), simi_class.max(), num=k)
-        dis_mat = np.abs(np.subtract.outer(simi_class.to_numpy(), steps))
         sim_series = simi_class.copy()
         keep_pos = []
-        for i in range(k):
-            drop_row = int(np.argmin(dis_mat[:, i]))
-            idx = sim_series.index[drop_row]
-            keep_pos.append(int(simi_table.at[idx, '_pos_']))
-            dis_mat = np.delete(dis_mat, drop_row, axis=0)
+        for step in steps:
+            idx = (sim_series - step).abs().idxmin()
+            keep_pos.append(int(df.at[idx, "_pos_"]))
             sim_series = sim_series.drop(idx)
 
-    # figure out which POSITIONS to DROP (order preserved)
-    keep_set = set(keep_pos)
-    drop_pos = [p for p in all_pos_in_class if p not in keep_set]
+    drop_pos = [p for p in all_pos_in_class if p not in set(keep_pos)]
 
-    # plotting (unchanged semantics: "dropped" means not in keep_pos)
+    # optionally plot (only if plotting helpers exist)
     if plot:
-        before_df = _add_drop_status(simi_table, class_label, keep_pos, label_col_hint="Label")
-        plot_similarity_scatter_with_status(
-            before_df, x_col,
-            title=f"Similarity ({x_col}) BEFORE truncation (class={class_label}, compare_with={compare_with})",
-            annotate_dropped=True, annotate_kept=False
-        )
+        try:
+            import matplotlib.pyplot as plt
 
-        after_df = before_df[before_df["status"] != "dropped"].copy()
-        plot_similarity_scatter_with_status(
-            after_df, x_col,
-            title=f"Similarity ({x_col}) AFTER truncation (class={class_label}, kept={len(keep_pos)}, dropped={len(drop_pos)})",
-            annotate_dropped=False, annotate_kept=False
-        )
+            plt.scatter(df["_sim_"], df["class"], c="gray", alpha=0.5)
+            plt.scatter(
+                df.loc[df["_pos_"].isin(keep_pos), "_sim_"],
+                df.loc[df["_pos_"].isin(keep_pos), "class"],
+                c="green",
+                label="kept",
+            )
+            plt.scatter(
+                df.loc[df["_pos_"].isin(drop_pos), "_sim_"],
+                df.loc[df["_pos_"].isin(drop_pos), "class"],
+                c="red",
+                label="dropped",
+            )
+            plt.title(f"Similarity distribution for class {class_label}")
+            plt.legend()
+            plt.show()
+        except Exception:
+            print("[simi_sampler] Plotting skipped (matplotlib not available).")
 
-        dropped_list = before_df.loc[before_df["status"] == "dropped", ["Label", x_col, "class"]]
-        if not dropped_list.empty:
-            print("\nDropped samples:")
-            print(dropped_list.sort_values(by=x_col).to_string(index=False))
-
-    # return DROP indices in the requested form
+    # return DROP indices
     if return_kind == "pos":
         return drop_pos
     elif return_kind == "label":
-        return df.loc[drop_pos, '_orig_index_'].tolist()
+        return df.loc[drop_pos, "_orig_index_"].tolist()
     elif return_kind == "name":
         return df.loc[drop_pos, label_col].astype(str).tolist()
     else:
@@ -802,34 +800,66 @@ class RunPaths:
     logs: Path
 
 def prepare_run_dirs(
-    base_dir = "runs",
-    dataset_name = "dataset",
-    y_value = None,
-    tag= None,
-    timestamp = True,
+    base_dir="runs",
+    dataset_name="dataset",
+    y_value=None,
+    tag=None,
+    with_date=True,
 ) -> RunPaths:
+    """
+    Prepare (or reuse) run directories for storing results.
+
+    Parameters
+    ----------
+    base_dir : str
+        Root directory for all runs.
+    dataset_name : str
+        Dataset identifier.
+    y_value : str or None
+        Target variable name (optional).
+    tag : str or None
+        Extra tag for distinguishing runs (optional).
+    with_date : bool
+        If True, append today's date (YYYYMMDD).
+
+    Returns
+    -------
+    RunPaths
+        A namedtuple containing paths for root, db, pdf, figs, tables, exports, logs.
+    """
     base_dir = Path(base_dir)
     parts = [dataset_name]
-    if y_value: parts.append(y_value)
-    if tag: parts.append(tag)
-    if timestamp: parts.append(datetime.now().strftime("%Y%m%d-%H%M%S"))
-    run_name = "_".join(map(str, parts))
+    if y_value:
+        parts.append(str(y_value))
+    if tag:
+        parts.append(str(tag))
+    if with_date:
+        parts.append(datetime.now().strftime("%Y%m%d"))  # date only
+
+    run_name = "_".join(parts)
     root = base_dir / run_name
 
-    # Make subdirs
+    # Subdirectories
     db     = root / "db"
     pdf    = root / "pdf"
-    figs   = root / "figs"      # PNGs/SVGs etc.
-    tables = root / "tables"    # CSV/Parquet tables
-    exports= root / "exports"   # any final exports
+    figs   = root / "figs"
+    tables = root / "tables"
+    exports= root / "exports"
     logs   = root / "logs"
 
-    for p in [db, pdf, figs, tables, exports, logs]:
-        p.mkdir(parents=True, exist_ok=True)
+    # If directory already exists, reuse paths
+    if root.exists():
+        print(f"Reusing existing run directory: {root}")
+    else:
+        print(f"Creating new run directory: {root}")
+        for p in [db, pdf, figs, tables, exports, logs]:
+            p.mkdir(parents=True, exist_ok=True)
 
-    # Ensure headless plotting (safe no-op if already set by your code)
+    # Ensure headless plotting
     os.environ.setdefault("MPLBACKEND", "Agg")
+
     return RunPaths(root, db, pdf, figs, tables, exports, logs)
+
 
 def resolve_db_path(db_path_arg: Union[str, Path],
                     dataset_name: str,
@@ -849,3 +879,4 @@ def resolve_db_path(db_path_arg: Union[str, Path],
     if db_dir is not None:
         return str((db_dir / dbfile).resolve())
     return str(Path(dbfile).resolve())
+

@@ -10,7 +10,6 @@ import tkinter as tk
 import traceback
 from matplotlib.colors import ListedColormap
 from matplotlib.gridspec import GridSpec
-import shap
 from matplotlib.patches import Patch
 from adjustText import adjust_text
 from tkinter import ttk
@@ -21,9 +20,13 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from typing import Optional, List
-
+from matplotlib.colors import ListedColormap
+from sklearn import metrics
+from sklearn.metrics import confusion_matrix,f1_score
+from sklearn.tree import DecisionTreeClassifier
 import textwrap
 from matplotlib.table import Table
+from datetime import datetime
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from .modeling import fit_and_evaluate_single_combination_regression , fit_and_evaluate_single_combination_classification
@@ -102,14 +105,23 @@ def build_regression_equation(formula, coefficients, r_squared):
     """
     Build a regression equation string with proper LaTeX formatting.
     """
+    import re
+
     intercept = getattr(coefficients, "iloc", coefficients)[0]  # Intercept
     feature_coeffs = coefficients[1:]
 
-    # Escape underscores in feature names
-    safe_formula = [str(name).replace("_", r"\_") for name in formula]
+    def escape_latex(name: str) -> str:
+        """Escape special LaTeX characters in feature names."""
+        name = str(name)
+        name = name.replace("_", r"\_")
+        name = name.replace("%", r"\%")
+        name = name.replace("Δ", r"\Delta ")
+        # Wrap in \mathrm{} so text stays readable
+        return r"\mathrm{" + name + "}"
+
+    safe_formula = [escape_latex(name) for name in formula]
 
     equation_terms = []
-
     for i, coef in enumerate(feature_coeffs):
         sign = "+" if coef >= 0 else "-"
         equation_terms.append(f" {sign} {abs(coef):.2f}·{safe_formula[i]}")
@@ -118,10 +130,14 @@ def build_regression_equation(formula, coefficients, r_squared):
     sign_intercept = "+" if intercept >= 0 else "-"
     equation_terms.append(f" {sign_intercept} {abs(intercept):.2f}")
 
-    # Build the LaTeX equation
-    equation = f'$y = {"".join(equation_terms).strip()}$\n$R^2 = {r_squared:.2f}$'
+    # Build LaTeX equation
+    equation = (
+        r"$y =" + "".join(equation_terms).strip() + r"$" + "\n" +
+        rf"$R^2 = {r_squared:.2f}$"
+    )
 
     return equation
+
 
 ## might change in the future to plot confidence intervals as dotted lines calculated from the covariance matrix
 import pandas as pd
@@ -136,7 +152,6 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from adjustText import adjust_text
  
-
 def generate_q2_scatter_plot(
     y,
     y_pred,
@@ -156,6 +171,7 @@ def generate_q2_scatter_plot(
     dpi=300,
     plot=True,
     dir=None,
+    margin_frac=0.05  # add ±5% margin around plot limits
 ):
     """
     Plots Predicted vs Measured with a smooth 90% confidence/prediction band
@@ -167,28 +183,27 @@ def generate_q2_scatter_plot(
     labels = np.asarray(labels)
 
     data = pd.DataFrame({
-    'Measured':  np.asarray(y, dtype=float).ravel(),
-    'Predicted': np.asarray(y_pred, dtype=float).ravel(),
-    'Labels':    np.asarray(labels, dtype=str).ravel()
-})
+        'Measured':  np.asarray(y, dtype=float).ravel(),
+        'Predicted': np.asarray(y_pred, dtype=float).ravel(),
+        'Labels':    np.asarray(labels, dtype=str).ravel()
+    })
 
     sns.set_theme(style='whitegrid', palette=palette)
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
-    # Scatter plot
+    # Scatter plot (all points same color, no hue by label)
     sns.scatterplot(
         data=data,
         x='Measured',
         y='Predicted',
-        hue='Labels',
-        palette=palette,
+        color=scatter_color,
         edgecolor='w',
-        s=100,
+        s=80,
         ax=ax,
         legend=False
     )
 
-    # Plot CI band only, no line (regplot)
+    # Confidence interval band only
     sns.regplot(
         data=data,
         x='Measured',
@@ -202,21 +217,24 @@ def generate_q2_scatter_plot(
     # Range for plotting regression line
     mn = min(data['Measured'].min(), data['Predicted'].min())
     mx = max(data['Measured'].max(), data['Predicted'].max())
+    margin = (mx - mn) * margin_frac
+    mn -= margin
+    mx += margin
     x_ideal = np.linspace(mn, mx, 100)
 
-    # Plot your regression line, dotted and clearly visible
+    # Plot regression line
     if coefficients is not None and len(coefficients) == 2:
         a, b = coefficients
         y_reg = a * x_ideal + b
         ax.plot(
             x_ideal, y_reg,
-            linestyle='-',      # solid for visibility (change to ':' if you prefer)
-            color='black',      # stands out
+            linestyle='-',
+            color='black',
             linewidth=2.5,
             label='Regression Line'
         )
 
-    # Set plot limits so the line is always visible
+    # Apply limits with margin
     ax.set_xlim(mn, mx)
     ax.set_ylim(mn, mx)
 
@@ -225,7 +243,7 @@ def generate_q2_scatter_plot(
     eqn = build_regression_equation(formula, coefficients, corr)
     ax.text(
         0.05, 0.95,
-        f"{eqn}\nPearson r = {corr:.2f}",
+        f"{eqn}",
         transform=ax.transAxes,
         fontsize=fontsize,
         va='top',
@@ -247,37 +265,47 @@ def generate_q2_scatter_plot(
             bbox=dict(facecolor='white', alpha=0.8)
         )
 
-    # Add point labels (optional, but can clutter if many points)
+    # Point labels (keep close with minimal offset)
     texts = []
     for _, row in data.iterrows():
         texts.append(
             ax.text(row['Measured'], row['Predicted'], row['Labels'],
                     fontsize=fontsize-2, ha='center', va='bottom', color='gray')
         )
-    adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle='-', color='gray', lw=0.5))
+    adjust_text(
+        texts,
+        ax=ax,
+        arrowprops=dict(arrowstyle='-', color='gray', lw=0.5),
+        expand_points=(1.05, 1.05),  # small expansion
+        expand_text=(1.05, 1.05),
+        force_text=(0.5, 0.5),
+        only_move={'points': 'xy', 'texts': 'xy'},
+        autoalign=True
+    )
 
     ax.set_xlabel('Measured', fontsize=fontsize+2)
     ax.set_ylabel('Predicted', fontsize=fontsize+2)
     ax.set_title('Predicted vs Measured', fontsize=fontsize+4)
-    # Show only your regression line in the legend
+
+    # Legend handling
     handles, labels_ = ax.get_legend_handles_labels()
     reg_handles = [h for h, l in zip(handles, labels_) if l == 'Regression Line']
     reg_labels = [l for l in labels_ if l == 'Regression Line']
-    valid = [lbl for lbl in labels if lbl and not lbl.startswith('_')]
     if reg_handles:
         ax.legend(reg_handles, reg_labels, loc='lower right', frameon=True)
-    elif handles and valid:
-        ax.legend().remove()  # Hide legend if only points
     else:
         leg = ax.get_legend()
-    if leg:
-        leg.remove()
+        if leg:
+            leg.remove()
 
     # Save the plot
     if dir:
         plt.savefig(os.path.join(dir, f"model_plot_{formula}.png"), dpi=dpi)
 
-    return fig
+    if plot:
+        plt.show()
+
+    return fig, ax
 
 
 
@@ -466,7 +494,7 @@ def plot_enhanced_confusion_matrix(cm, classes, precision, recall, accuracy, fig
                        Patch(facecolor='blue', edgecolor='black', label='Overall Total and Accuracy')]
     
     plt.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.35, 1), title='Legend')
-
+    
     plt.title('Enhanced Confusion Matrix with Totals, Precision, and Accuracy', fontsize=16)
     plt.xlabel('Predicted Class')
     plt.ylabel('True Class')
@@ -898,7 +926,7 @@ def _try(func, default=None, note: Optional[str] = None):
             print(f"[PDF] Error occurred on line {e.__traceback__.tb_lineno}")
         return default
 
-def _save_top5_pdf_regression(results: pd.DataFrame, model, pdf_path: str = "top_models_report.pdf", k: int = 5):
+def _save_top5_pdf_regression(results: pd.DataFrame, model, pdf_path: str = "top_models_regression_report.pdf", k: int = 5):
     """
     Build a multi-page PDF summarizing the top-k models by R² (default 5).
     Structure:
@@ -991,11 +1019,11 @@ def _save_top5_pdf_regression(results: pd.DataFrame, model, pdf_path: str = "top
             vif_df = _try(lambda: model._compute_vif(X_df), default=None, note="_compute_vif failed")
 
             # CV metrics
-            Q2_3, MAE_3, RMSD_3 = _try(lambda: model.calculate_q2_and_mae(X, y, n_splits=3),
+            Q2_3, MAE_3, RMSD_3 = _try(lambda: model.calculate_q2_and_mae(X, y, n_splits=3,plot=False),
                                        default=(np.nan, np.nan, np.nan), note="Q2/MAE/RMSD (3-fold) failed")
-            Q2_5, MAE_5, RMSD_5 = _try(lambda: model.calculate_q2_and_mae(X, y, n_splits=5),
+            Q2_5, MAE_5, RMSD_5 = _try(lambda: model.calculate_q2_and_mae(X, y, n_splits=5,plot=False),
                                        default=(np.nan, np.nan, np.nan), note="Q2/MAE/RMSD (5-fold) failed")
-            Q2_loo, MAE_loo, RMSD_loo = _try(lambda: model.calculate_q2_and_mae(X, y, n_splits=1),
+            Q2_loo, MAE_loo, RMSD_loo = _try(lambda: model.calculate_q2_and_mae(X, y, n_splits=1,plot=False),
                                              default=(np.nan, np.nan, np.nan), note="Q2/MAE/RMSD (LOOCV) failed")
 
             folds_df = pd.DataFrame({
@@ -1086,7 +1114,7 @@ def _save_top5_pdf_regression(results: pd.DataFrame, model, pdf_path: str = "top
                     else:
                         num_cols = coef_df.select_dtypes(include="number").columns
                         if len(num_cols): coef_col = coef_df[num_cols[0]]
-                _ = generate_q2_scatter_plot(
+                fig_q, _ = generate_q2_scatter_plot(
                     y=y, y_pred=pred, labels=getattr(model, "molecule_names", None),
                     folds_df=folds_df, formula=feats, coefficients=coef_col if coef_col is not None else pd.Series(dtype=float),
                     r=r2_val, plot=False
@@ -1252,19 +1280,40 @@ def print_models_regression_table(results, app=None ,model=None):
             print("\nLOOCV\n")
             print(pd.DataFrame({'Q2_LOOCV':[Q2_loo], 'MAE': [MAE_loo]}).to_markdown(tablefmt="pipe", index=False))
         
-        # Create a text file with the results
         txt_path = model.paths.logs / 'regression_results.txt'
         with open(txt_path, 'a') as f:
-            f.write(f"Models list {df.to_markdown(index=False, tablefmt='pipe')} \n\n Model Coefficients\n\n{coef_df.to_markdown(tablefmt='pipe')}\n\n3-fold CV\n\n{pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt='pipe', index=False)}\n\n5-fold CV\n\n{pd.DataFrame({'Q2':[Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt='pipe', index=False)}\n\n")
+            f.write(
+                f"Models list {df.to_markdown(index=False, tablefmt='pipe')} \n\n"
+                f"Model Coefficients\n\n{coef_df.to_markdown(tablefmt='pipe')}\n\n"
+                f"3-fold CV\n\n{pd.DataFrame({'Q2': [Q2_3], 'MAE': [MAE_3]}).to_markdown(tablefmt='pipe', index=False)}\n\n"
+                f"5-fold CV\n\n{pd.DataFrame({'Q2':[Q2_5], 'MAE': [MAE_5]}).to_markdown(tablefmt='pipe', index=False)}\n\n"
+            )
             print('Results saved to regression_results.txt in {}'.format(os.getcwd()))
-        ## make a 3 5 loocv table to plot
-        folds_df=pd.DataFrame({'Q2_3_Fold': [Q2_3], 'MAE': [MAE_3],'RMSD':[rmsd_3],'Q2_5_Fold':[Q2_5], 'MAE': [MAE_5],'RMSD':[rmsd_5],'Q2_LOOCV':[Q2_loo], 'MAE': [MAE_loo],'RMSD':[rmsd_loo]})
-        r=r_squared[selected_model]
-        # Generate and display the Q2 scatter plot
 
-        _ = generate_q2_scatter_plot(y, pred, model.molecule_names,folds_df ,features,coef_df['Estimate'] ,r,X, lwr, upr, plot=True, dir=model.paths.figs)
-        # _ = plot_feature_vs_target(X, y, features, dir=model.paths.figs)
-        # Ask the user if they want to select another model or exit
+            # ✅ Build folds_df with unique column names
+            folds_df = pd.DataFrame({
+                'Q2_3_Fold': [Q2_3], 'MAE_3': [MAE_3], 'RMSD_3': [rmsd_3],
+                'Q2_5_Fold': [Q2_5], 'MAE_5': [MAE_5], 'RMSD_5': [rmsd_5],
+                'Q2_LOOCV': [Q2_loo], 'MAE_LOO': [MAE_loo], 'RMSD_LOO': [rmsd_loo]
+            })
+
+            r = r_squared[selected_model]
+
+        
+        fig_q, _ = generate_q2_scatter_plot(
+                    y=y, y_pred=pred, labels=getattr(model, "molecule_names", None),
+                    folds_df=folds_df, formula=features, coefficients=coef_df['Estimate'] if coef_df['Estimate'] is not None else pd.Series(dtype=float),
+                    r=r, plot=False
+                )
+
+        # fig_q2.set_size_inches(8, 6)
+        # fig_q2.set_dpi(120)
+        
+        if "ipykernel" in sys.modules:  # running in Jupyter
+            fig_q
+        else:  # running in terminal script
+            plt.show()
+
         if not app:
             cont = input("Do you want to select another model? (y/n): ").strip().lower()
             if cont != 'y':
@@ -1277,194 +1326,481 @@ def print_models_regression_table(results, app=None ,model=None):
 
 
 
-def generate_and_display_single_combination_plot(model, features, app=None):
+def run_model_sanity_checks(
+    model, X, y, features, Q2_loo=None, folds_df=None, n_runs=100, random_state=42,
+    pdf=None, show=True
+):
     """
-    Computes extra calculations (fitting, predictions, CV metrics, coefficient estimates, 
-    and axis bounds) and then generates the Q2 scatter plot.
+    Run Y-randomization, one-hot test, global/per-feature shuffling,
+    and Cook’s distance vs leverage. Reports MAE and RMSD (lower is better).
+    If `pdf` is a PdfPages handle, figures are appended to that PDF. Set `show=False` to avoid GUI popups.
 
-    Parameters:
-        model: The regression model instance.
-        features (list): List of feature names (columns in model.features_df) to use.
-        app (optional): An application interface to display results (if provided).
-
-    Returns:
-        The return value of generate_q2_scatter_plot.
+    Notes:
+      - `Q2_loo` is ignored (kept only for API compatibility).
+      - Baseline (real) MAE/RMSD are computed with 5-fold CV for consistency.
     """
+    try:
+        rng = np.random.default_rng(random_state)
+        if folds_df is None:
+            folds_df = pd.DataFrame()
+
+        # --- Baseline (real) metrics on the given X,y (5-fold CV) ---
+        _, MAE_real, RMSD_real = model.calculate_q2_and_mae(X, y, n_splits=5)
+
+        # --- Y-randomization (distributions of MAE/RMSD) ---
+        random_mae, random_rmsd = [], []
+        for _ in range(n_runs):
+            y_perm = rng.permutation(y)
+            _, mae_p, rmsd_p = model.calculate_q2_and_mae(X, y_perm, n_splits=5)
+            random_mae.append(mae_p)
+            random_rmsd.append(rmsd_p)
+
+        folds_df["MAE_random_mean"]  = [float(np.mean(random_mae))]
+        folds_df["MAE_random_std"]   = [float(np.std(random_mae))]
+        folds_df["RMSD_random_mean"] = [float(np.mean(random_rmsd))]
+        folds_df["RMSD_random_std"]  = [float(np.std(random_rmsd))]
+
+        # --- One-hot encoding test ---
+        onehot_df = pd.get_dummies(model.molecule_names, prefix="mol")
+        X_onehot  = onehot_df.to_numpy()
+        y_true    = model.target_vector.to_numpy()
+        _, MAE_oh, RMSD_oh = model.calculate_q2_and_mae(X_onehot, y_true, n_splits=5)
+        folds_df["MAE_onehot"]  = [MAE_oh]
+        folds_df["RMSD_onehot"] = [RMSD_oh]
+
+        # --- Global X-shuffling ---
+        X_shuffled = np.apply_along_axis(rng.permutation, 0, X.copy())
+        _, MAE_xshuf, RMSD_xshuf = model.calculate_q2_and_mae(X_shuffled, y, n_splits=5)
+        folds_df["MAE_global_shuffle"]  = [MAE_xshuf]
+        folds_df["RMSD_global_shuffle"] = [RMSD_xshuf]
+
+        # --- Per-feature shuffling ---
+        mae_per_feat, rmsd_per_feat = [], []
+        for j in range(X.shape[1]):
+            X_tmp = X.copy()
+            rng.shuffle(X_tmp[:, j])
+            _, mae_j, rmsd_j = model.calculate_q2_and_mae(X_tmp, y, n_splits=5)
+            mae_per_feat.append(mae_j)
+            rmsd_per_feat.append(rmsd_j)
+
+        # =======================
+        # Figures
+        # =======================
+
+        # Figure 1: Y-randomization MAE histogram
+        plt.figure(figsize=(8, 5))
+        plt.hist(random_mae, bins=12, color="lightblue", edgecolor="black", alpha=0.7, label="Y-random MAE")
+        plt.axvline(MAE_real,   color="red",   lw=2, label=f"Real MAE = {MAE_real:.3f}")
+        plt.axvline(np.mean(random_mae), color="blue",  lw=2, ls="--", label=f"Mean Y-rand MAE = {np.mean(random_mae):.3f}")
+        plt.axvline(MAE_oh,     color="green", lw=2, ls="--", label=f"One-hot MAE = {MAE_oh:.3f}")
+        plt.axvline(MAE_xshuf,  color="purple",lw=2, ls="--", label=f"Global X-shuffle MAE = {MAE_xshuf:.3f}")
+        plt.xlabel("MAE (5-fold CV)"); plt.ylabel("Count"); plt.title("Validation (lower is better): MAE"); plt.legend(); plt.tight_layout()
+        if pdf is not None: pdf.savefig(plt.gcf())
+        if show: plt.show()
+        if hasattr(model, 'paths') and hasattr(model.paths, 'figs'):
+            fig_path = model.paths.figs / f"{_slugify(model.name)}_sanity_checks_validation_MAE.png"
+            plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+            print(f"[FIG] Saved MAE validation plot to: {fig_path}")
+        else: plt.close()
+
+        # Figure 2: Y-randomization RMSD histogram
+        plt.figure(figsize=(8, 5))
+        plt.hist(random_rmsd, bins=12, color="lightblue", edgecolor="black", alpha=0.7, label="Y-random RMSD")
+        plt.axvline(RMSD_real,   color="red",   lw=2, label=f"Real RMSD = {RMSD_real:.3f}")
+        plt.axvline(np.mean(random_rmsd), color="blue",  lw=2, ls="--", label=f"Mean Y-rand RMSD = {np.mean(random_rmsd):.3f}")
+        plt.axvline(RMSD_oh,     color="green", lw=2, ls="--", label=f"One-hot RMSD = {RMSD_oh:.3f}")
+        plt.axvline(RMSD_xshuf,  color="purple",lw=2, ls="--", label=f"Global X-shuffle RMSD = {RMSD_xshuf:.3f}")
+        plt.xlabel("RMSD (5-fold CV)"); plt.ylabel("Count"); plt.title("Validation (lower is better): RMSD"); plt.legend(); plt.tight_layout()
+        if pdf is not None: pdf.savefig(plt.gcf())
+        if show: plt.show()
+        if hasattr(model, 'paths') and hasattr(model.paths, 'figs'):
+            fig_path = model.paths.figs / f"{_slugify(model.name)}_sanity_checks_validation_RMSD.png"
+            plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+            print(f"[FIG] Saved RMSD validation plot to: {fig_path}")
+        else: plt.close()
+
+        # Figure 3: per-feature shuffle bar (MAE)
+        plt.figure(figsize=(1.5*X.shape[1], 5))
+        plt.bar(range(len(features)), mae_per_feat, color="orange", edgecolor="black", alpha=0.8)
+        plt.axhline(MAE_real, color="red", ls="--", label=f"Real MAE = {MAE_real:.3f}")
+        plt.xticks(range(len(features)), features, rotation=30, ha="right")
+        plt.ylabel("MAE (5-fold CV)"); plt.title("Per-feature shuffle test: MAE (lower is better)"); plt.legend(); plt.tight_layout()
+        if pdf is not None: pdf.savefig(plt.gcf())
+        if show: plt.show()
+        if hasattr(model, 'paths') and hasattr(model.paths, 'figs'):
+            fig_path = model.paths.figs / f"{_slugify(model.name)}_sanity_checks_per_feature_shuffle_MAE.png"
+            plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+            print(f"[FIG] Saved per-feature MAE shuffle plot to: {fig_path}")
+        else: plt.close()
+
+        # Figure 4: per-feature shuffle bar (RMSD)
+        plt.figure(figsize=(1.5*X.shape[1], 5))
+        plt.bar(range(len(features)), rmsd_per_feat, color="orange", edgecolor="black", alpha=0.8)
+        plt.axhline(RMSD_real, color="red", ls="--", label=f"Real RMSD = {RMSD_real:.3f}")
+        plt.xticks(range(len(features)), features, rotation=30, ha="right")
+        plt.ylabel("RMSD (5-fold CV)"); plt.title("Per-feature shuffle test: RMSD (lower is better)"); plt.legend(); plt.tight_layout()
+        if pdf is not None: pdf.savefig(plt.gcf())
+        if show: plt.show()
+        if hasattr(model, 'paths') and hasattr(model.paths, 'figs'):
+            fig_path = model.paths.figs / f"{_slugify(model.name)}_sanity_checks_per_feature_shuffle_RMSD.png"
+            plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+            print(f"[FIG] Saved per-feature RMSD shuffle plot to: {fig_path}")
+        else: plt.close()
+
+        # Package per-feature metrics
+        per_feature_metrics = pd.DataFrame({
+            "feature": list(features),
+            "MAE_permute": mae_per_feat,
+            "RMSD_permute": rmsd_per_feat
+        })
+
+        # Store real metrics too
+        folds_df["MAE_real"]  = [MAE_real]
+        folds_df["RMSD_real"] = [RMSD_real]
+
+        return {"folds_df": folds_df, "per_feature_metrics": per_feature_metrics}
+
+    except Exception as e:
+        print("Error during sanity checks:", e)
+        return {"folds_df": folds_df if folds_df is not None else pd.DataFrame(),
+                "per_feature_metrics": pd.DataFrame()}
 
     
-    # Extract features and target values
+
+def _slugify(name: str, maxlen: int = 60) -> str:
+    s = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in name)
+    return (s[:maxlen]).strip("_")
+
+def draw_table_on_ax(ax, df, title, max_rows=12, fontsize=8, round_digits=None):
+    """Draw a compact table (head of df) on a given axes."""
+    ax.axis("off")
+    ax.set_title(title, fontsize=12, pad=6)
+    if df is None or df.empty:
+        ax.text(0.5, 0.5, "(no data)", ha="center", va="center", fontsize=fontsize+1)
+        return
+
+    df_show = df.copy()
+    if round_digits is not None:
+        with np.errstate(all='ignore'):
+            df_show = df_show.round(round_digits)
+    df_show = df_show.head(max_rows)
+
+    tbl = ax.table(
+        cellText=df_show.values,
+        colLabels=[str(c) for c in df_show.columns],
+        loc="center",
+        cellLoc="left",
+        rowLoc="center",
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(fontsize)
+    tbl.scale(1.0, 1.15)
+
+    # Style header row
+    cells = tbl.get_celld()
+    max_row = max(r for (r, c) in cells.keys())
+    max_col = max(c for (r, c) in cells.keys())
+    for c in range(0, max_col+1):
+        cell = cells.get((0, c))
+        if cell:
+            cell.set_facecolor("#E8EEF6")
+            cell.set_edgecolor("#CCCCCC")
+            cell.set_text_props(weight="bold")
+    # Zebra stripes
+    for r in range(1, max_row+1):
+        color = "#F8F9FB" if (r % 2 == 0) else "white"
+        for c in range(0, max_col+1):
+            cell = cells.get((r, c))
+            if cell:
+                cell.set_facecolor(color)
+
+
+            
+
+
+# --- Helper: capture current figure safely into pdf (no need to know return values)
+def save_fig_both(fig, pdf: PdfPages, outdir: str, stem: str, dpi: int = 300):
+    """
+    Save a matplotlib Figure both into a PdfPages handle and as a PNG on disk.
+    """
+    os.makedirs(outdir, exist_ok=True)
+    if pdf is not None:
+        pdf.savefig(fig)
+    png_path = os.path.join(outdir, f"{stem}.png")
+    fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+
+def save_current_fig_both(pdf: PdfPages, outdir: str, stem: str, dpi: int = 300):
+    """
+    Save the current matplotlib figure both into PDF and as PNG.
+    """
+    fig = plt.gcf()
+    save_fig_both(fig, pdf, outdir, stem, dpi=dpi)
+
+
+def generate_and_display_single_combination_plot(model, features, app=None, pdf_name=None):
+    """
+    Computes extra calculations (fitting, predictions, CV metrics, coefficient estimates,
+    plots, diagnostics) and saves all figures + key tables into a single PDF report,
+    and ALSO saves each figure as a standalone PNG in model.paths.figs.
+    """
     try:
-        
         print("Extracting features from model.features_df...")
         X = model.features_df[features].to_numpy()
         y = model.target_vector.to_numpy()
-       
     except Exception as e:
         print("Error extracting features:", e)
         return
+
+    # Fit & predict for the chosen combination
     try:
         result = fit_and_evaluate_single_combination_regression(model, features)
         pred = result['predictions']
-       
     except Exception as e:
         print("Error during model fitting/prediction:", e)
         return
-    # Retrieve coefficient estimates
-    # Compute cross-validation metrics
+
+    # Cross-validation metrics
     try:
         print("Calculating cross-validation metrics for 3-fold CV...")
-        Q2_3, MAE_3, rmsd_3 = model.calculate_q2_and_mae(X, y, n_splits=3)
-        print("3-fold CV metrics: Q2: {}, MAE: {}, RMSD: {}".format(Q2_3, MAE_3, rmsd_3))
-        
-        print("Calculating cross-validation metrics for 5-fold CV...")
-        Q2_5, MAE_5, rmsd_5 = model.calculate_q2_and_mae(X, y, n_splits=5)
-        print("5-fold CV metrics: Q2: {}, MAE: {}, RMSD: {}".format(Q2_5, MAE_5, rmsd_5))
-        
-        print("Calculating cross-validation metrics for LOOCV...")
-        Q2_loo, MAE_loo, rmsd_loo = model.calculate_q2_and_mae(X, y, n_splits=1)
-        print("LOOCV metrics: Q2: {}, MAE: {}, RMSD: {}".format(Q2_loo, MAE_loo, rmsd_loo))
+        Q2_3, MAE_3, rmsd_3 = model.calculate_q2_and_mae(X, y, n_splits=3,plot=False)
+        # print(f"3-fold CV metrics: Q2={Q2_3}, MAE={MAE_3}, RMSD={rmsd_3}")
 
+        # print("Calculating cross-validation metrics for 5-fold CV...")
+        Q2_5, MAE_5, rmsd_5 = model.calculate_q2_and_mae(X, y, n_splits=5,plot=False)
+        # print(f"5-fold CV metrics: Q2={Q2_5}, MAE={MAE_5}, RMSD={rmsd_5}")
 
-        leftout_pred = None
-        # print models attributes and params
-        
-        try:
-          
-            if model.leftout_samples is not None and len(model.leftout_samples) > 0:
-                print("Calculating left-out samples prediction and metrics...")
-                X_left = model.leftout_samples[features]  # DataFrame shape (n_leftout, 4)
-                X_left = X_left.reindex()
-                y_left = model.leftout_target_vector  # Series shape (n_leftout,)
-                # 3) call your predictor; let it add constant & reorder itself
-                try:
-                    leftout_pred = model.predict_for_leftout(X_left, y=y_left, calc_interval=False)
-                    print("Left-out samples prediction completed.", leftout_pred)
-                    if isinstance(leftout_pred, tuple):
-                        y_pred = np.array(leftout_pred[0]).ravel()  # Use only predictions, not errors
-                    else:
-                        y_pred = np.array(leftout_pred).ravel()
-                        
-                    print(f"Successfully predicted left-out samples: {leftout_pred}")
-                except Exception as e:
-                    print("Error predicting left-out samples:", e)
-                    leftout_pred = None  # Ensure variable exists if exception occurs
+        # print("Calculating cross-validation metrics for LOOCV...")
+        Q2_loo, MAE_loo, rmsd_loo = model.calculate_q2_and_mae(X, y, n_splits=1,plot=False)
+        # print(f"LOOCV metrics: Q2={Q2_loo}, MAE={MAE_loo}, RMSD={rmsd_loo}")
 
-                if leftout_pred is not None:
-                    y_true = np.array(model.leftout_target_vector).ravel()
-                    names  = list(model.molecule_names_predict)
-
-                    # 2) build DataFrame
-                    prediction_df = pd.DataFrame({
-                        'Molecule':   names,
-                        'Actual':     y_true,
-                        'Predicted':  y_pred
-                    })
-
-                    # 3) compute absolute percent error (always positive, avoids division by zero)
-                    prediction_df['Error in %'] = np.where(
-                        prediction_df['Actual'] != 0,
-                        np.abs(prediction_df['Actual'] - prediction_df['Predicted']) / np.abs(prediction_df['Actual']) * 100,
-                        np.nan
-                    )
-
-                    print(prediction_df)
-                    # Calculate and print R2 as well
-                    r2_leftout = r2_score(y_true, y_pred)
-                    mae_leftout = mean_absolute_error(y_true, y_pred)
-                    print(f"R² for left-out predictions: {r2_leftout:.4f}")
-                    print(f"MAE for left-out predictions: {mae_leftout:.4f}")
-
-                        
-                else:
-                    print("No left-out predictions available; skipping result table.")
-        except Exception as e:
-            print("Error:", e)
-            print("No left-out samples available; skipping result table.")
-            pass
-
-        # Prepare a folds DataFrame with CV results
         folds_df = pd.DataFrame({
-            'Q2_3_Fold': [Q2_3],
-            'MAE_3': [MAE_3],
-            'RMSD_3': [rmsd_3],
-            'Q2_5_Fold': [Q2_5],
-            'MAE_5': [MAE_5],
-            'RMSD_5': [rmsd_5],
-            'Q2_LOOCV': [Q2_loo],
-            'MAE_LOOCV': [MAE_loo],
-            'RMSD_LOOCV': [rmsd_loo]
+            'Q2_3_Fold': [Q2_3], 'MAE_3': [MAE_3], 'RMSD_3': [rmsd_3],
+            'Q2_5_Fold': [Q2_5], 'MAE_5': [MAE_5], 'RMSD_5': [rmsd_5],
+            'Q2_LOOCV': [Q2_loo], 'MAE_LOOCV': [MAE_loo], 'RMSD_LOOCV': [rmsd_loo]
         })
-        print("Folds DataFrame prepared:")
-        # print(folds_df)
+
+        print("Cross-validation metrics:\n", folds_df.round(4))
+
+        leftout_pred_df = None
+        # Left-out predictions (if present)
+        try:
+            if getattr(model, "leftout_samples", None) is not None and len(model.leftout_samples) > 0:
+                print("Calculating left-out samples prediction and metrics...")
+                X_left = model.leftout_samples[features].reindex()
+                y_left = np.array(model.leftout_target_vector).ravel()
+
+                leftout_pred = model.predict_for_leftout(X_left, y=y_left, calc_interval=False)
+                y_pred_left = np.array(leftout_pred[0]).ravel() if isinstance(leftout_pred, tuple) else np.array(leftout_pred).ravel()
+
+                names = list(model.molecule_names_predict)
+                leftout_pred_df = pd.DataFrame({
+                    'Molecule': names,
+                    'Actual':   y_left,
+                    'Predicted': y_pred_left
+                })
+                leftout_pred_df['Error in %'] = np.where(
+                    leftout_pred_df['Actual'] != 0,
+                    np.abs(leftout_pred_df['Actual'] - leftout_pred_df['Predicted']) / np.abs(leftout_pred_df['Actual']) * 100,
+                    np.nan
+                )
+                from sklearn.metrics import r2_score, mean_absolute_error
+                r2_leftout = r2_score(y_left, y_pred_left)
+                mae_leftout = mean_absolute_error(y_left, y_pred_left)
+                print(f"R² (left-out): {r2_leftout:.4f} | MAE (left-out): {mae_leftout:.4f}")
+                print(leftout_pred_df)
+        except Exception as e:
+            print("Error in left-out prediction:", e)
+
     except Exception as e:
-        
-        print(traceback.format_exc())
+        import traceback; print(traceback.format_exc())
         print("Error calculating cross-validation metrics:", e)
         return
 
-    # Compute axis bounds for plotting
+    # Fixed plotting bounds (if you need them later)
     try:
         print("Calculating fixed margin lines and axis bounds…")
-        # Set axis bounds
         plot_scale_start = -3.0
-        plot_scale_end = 0.6
+        plot_scale_end   = 0.6
         x_ideal = np.linspace(plot_scale_start, plot_scale_end, 100)
-
-        # Fixed margin lines (identity ±0.25, ±0.50)
         margin_lines = {
-            "identity":     x_ideal,                           # y = x
-            "+0.25":        x_ideal + 0.25,                    # y = x + 0.25
-            "-0.25":        x_ideal - 0.25,                    # y = x - 0.25
-            "+0.50":        x_ideal + 0.50,                    # y = x + 0.50
-            "-0.50":        x_ideal - 0.50                     # y = x - 0.50
+            "identity": x_ideal,
+            "+0.25":    x_ideal + 0.25,
+            "-0.25":    x_ideal - 0.25,
+            "+0.50":    x_ideal + 0.50,
+            "-0.50":    x_ideal - 0.50
         }
-
     except Exception as e:
         print("Error calculating margin lines:", e)
         return
 
+    # VIF
     try:
         vif_df = model._compute_vif(model.features_df[features])
-        print_models_vif_table(vif_df)
+        print("VIF DataFrame:\n", vif_df)
     except Exception as e:
         print("Error calculating VIF:", e)
+        vif_df = pd.DataFrame()
+
+    # In-sample R^2 and MAE
+    try:
+        r = np.corrcoef(y, pred)[0, 1]**2
+        from sklearn.metrics import mean_absolute_error
+        mae = mean_absolute_error(y, pred)
+        print(f"In-sample R^2: {r:.4f} | MAE: {mae:.4f}")
+    except Exception as e:
+        print("Error calculating R^2 / MAE:", e)
         return
 
-    # Compute R^2 (or r-squared) as a measure of correlation
+    # Coefficients & prediction intervals
     try:
-        print("Calculating R^2 value...")
-        r = np.corrcoef(y, pred)[0, 1]**2
-        mae = mean_absolute_error(y, pred)
-        print(f"R^2 value: {r:.4f}, MAE: {mae:.4f}")
-      
-    except Exception as e:
-        print("Error calculating R^2:", e)
-        return
-    
-    try:
-        y_i,upr,lwr = model.predict(X, return_interval=True)
-        print("Retrieving coefficient estimates...")
+        y_i, upr, lwr = model.predict(X, return_interval=True)
         coef_df = model.get_covariance_matrix(features)
-        print("Coefficient estimates retrieved:")
-        print(coef_df.head())
     except Exception as e:
         print("Error retrieving coefficient estimates:", e)
-        return
-    
-    try:
-        print("Calling generate_q2_scatter_plot with computed values...")
-        # Remove pi_lower and pi_upper if you are not calculating prediction intervals
-        plot_output = generate_q2_scatter_plot(
-            y, pred, model.molecule_names, folds_df, features, coef_df['Estimate'], r, plot=True, dir=model.paths.figs
-        )
-        X=model.features_df[features]
-        shap_plot = model.plot_shap_values(X, plot=True, dir=model.paths.figs)
-        print("Plot generated successfully.")
-    except Exception as e:
-        print("Error in generate_q2_scatter_plot:", e)
-        return
+        coef_df = pd.DataFrame()
 
-    return
+    # Output paths
+    outdir = getattr(getattr(model, "paths", None), "figs", ".")
+    feat_slug = _slugify("_".join(features)) or "model"
+    base_name = pdf_name or f"report_{feat_slug}"
+    pdf_path = os.path.join(outdir, f"{base_name}.pdf")
+    os.makedirs(outdir, exist_ok=True)
+
+    from datetime import datetime
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    with PdfPages(pdf_path) as pdf:
+        
+        # 1) Cover / summary page
+        try:
+            print("Calling generate_q2_scatter_plot...")
+            fig_q2, ax_q2 = generate_q2_scatter_plot(
+                y, pred, model.molecule_names, folds_df,
+                features,  # (your function’s signature uses `formula`; keeping as-is)
+                coef_df['Estimate'] if 'Estimate' in coef_df.columns else None,
+                r, plot=True, dir=None
+            )
+            
+            save_fig_both(fig_q2, pdf, outdir, f"{base_name}__03_pred_vs_meas")
+        except Exception as e:
+            print("Error in generate_q2_scatter_plot:", e)
+       
+        # --- Separate CV results into three DataFrames ---
+        cv3_df = folds_df[["Q2_3_Fold", "MAE_3", "RMSD_3"]].copy()
+        cv5_df = folds_df[["Q2_5_Fold", "MAE_5", "RMSD_5"]].copy()
+        loo_df = folds_df[["Q2_LOOCV", "MAE_LOOCV", "RMSD_LOOCV"]].copy()
+
+       
+        fig = plt.figure(figsize=(11.0, 8.5))
+        gs = fig.add_gridspec(nrows=3, ncols=3, height_ratios=[1.0, 1.0, 0.8], hspace=0.6, wspace=0.4)
+
+        # Row 0: CV metrics (3 cols)
+        ax_cv3 = fig.add_subplot(gs[0, 0])
+        draw_table_on_ax(ax_cv3, cv3_df, "3-fold CV Metrics", max_rows=12, round_digits=3)
+
+        ax_cv5 = fig.add_subplot(gs[0, 1])
+        draw_table_on_ax(ax_cv5, cv5_df, "5-fold CV Metrics", max_rows=12, round_digits=3)
+
+        ax_loo = fig.add_subplot(gs[0, 2])
+        draw_table_on_ax(ax_loo, loo_df, "LOOCV Metrics", max_rows=12, round_digits=3)
+
+        # Row 1: VIF (span 2 cols) + Coefficients (span 1 col)
+        ax_vif = fig.add_subplot(gs[1, 0:2])
+        vif_for_pdf = vif_df.copy()
+        if not vif_for_pdf.empty and "VIF" in vif_for_pdf.columns:
+            vif_for_pdf = vif_for_pdf.sort_values("VIF", ascending=False)
+        draw_table_on_ax(ax_vif, vif_for_pdf, "Variance Inflation Factors", max_rows=12, round_digits=2)
+
+        ax_coef = fig.add_subplot(gs[1, 2])
+        coef_for_pdf = coef_df.copy()
+        preferred_cols = [c for c in ["Estimate", "Std. Error", "t value", "Pr(>|t|)", "p-value"] if c in coef_for_pdf.columns]
+        if preferred_cols:
+            rest = [c for c in coef_for_pdf.columns if c not in preferred_cols]
+            coef_for_pdf = coef_for_pdf[preferred_cols + rest]
+        draw_table_on_ax(ax_coef, coef_for_pdf, "Coefficient Estimates", max_rows=12, round_digits=3)
+
+        # Row 2: Left-out Predictions (span all 3 cols)
+        ax_leftout = fig.add_subplot(gs[2, :])
+        if leftout_pred_df is not None:
+            draw_table_on_ax(ax_leftout, leftout_pred_df, "Left-out Predictions", max_rows=12, round_digits=3)
+        else:
+            ax_leftout.axis("off")
+            ax_leftout.set_title("Left-out Predictions (none)", fontsize=12, pad=6)
+
+        plt.tight_layout()
+        save_fig_both(fig, pdf, outdir, f"{base_name}__tables_summary")
+
+      
+
+        # 2) Sanity checks FIRST so they go in PDF and PNGs
+        sanity_out = run_model_sanity_checks(
+            model, X, y, features, Q2_loo,
+            folds_df=folds_df, n_runs=30, random_state=42,
+            pdf=pdf, show=False  # ensures no GUI popups
+        )
+        folds_df = sanity_out.get("folds_df", folds_df)
+
+        
+
+        # 3) Violin plot of selected features
+        try:
+            print("Generating violin plots for selected features...")
+            fig, ax = plt.subplots(figsize=(1.5 * len(features), 6))
+            sns.violinplot(
+                data=model.features_df[features],
+                inner="point", cut=0, linewidth=1, ax=ax
+            )
+            ax.set_title("Distribution of Selected Features", fontsize=14)
+            ax.set_ylabel("Feature Value", fontsize=12)
+            ax.set_xlabel("Feature", fontsize=12)
+            plt.xticks(rotation=30, ha="right")
+            plt.tight_layout()
+            save_fig_both(fig, pdf, outdir, f"{base_name}__01_violin")
+        except Exception as e:
+            print("Error generating violin plots:", e)
+
+        try:
+            X_df = model.features_df[features]
+            shap_fig = model.plot_shap_values(X_df, plot=True, dir=None)
+            plt.show()
+            if shap_fig is None:
+                save_current_fig_both(pdf, outdir, f"{base_name}__04_shap")
+            else:
+                save_fig_both(shap_fig, pdf, outdir, f"{base_name}__04_shap")
+        except Exception as e:
+            print("Error generating SHAP plot:", e)
+            
+        # 4) Threshold analysis plot
+        try:
+            _,figs = threshold_analysis_plot(
+                model.target_vector, model.features_df[features],
+                cutoff=("percentile", 20, "low_is_positive"),
+                data_labels=model.molecule_names
+            )
+            for i, fig in enumerate(figs):
+                save_fig_both(fig, pdf, outdir, f"{base_name}__02_threshold_analysis_{i+1}")
+                plt.close(fig)
+        except Exception as e:
+            print("Error generating threshold analysis plot:", e)
+
+        # 5) Predicted vs Measured (Q2 scatter)
+        
+
+        # 6) SHAP plot
+        
+
+        # # 7) Tables → PDF pages (no PNGs here; they’re tables)
+        # dataframe_to_pdf_pages(folds_df, pdf, "Cross-validation Metrics", max_rows=25)
+        # dataframe_to_pdf_pages(vif_df,    pdf, "Variance Inflation Factors (VIF)", max_rows=25)
+        # dataframe_to_pdf_pages(coef_df,   pdf, "Coefficient Estimates / Covariance", max_rows=25)
+        # if leftout_pred_df is not None:
+        #     dataframe_to_pdf_pages(leftout_pred_df, pdf, "Left-out Predictions", max_rows=25)
+
+    print(f"[PDF] Report saved: {pdf_path}")
+
+
 
 
 def plot_feature_vs_target(feature_values, y_values, feature_name, y_name="Target", point_labels=None, figsize=(10, 6), dir=None):
@@ -1558,7 +1894,7 @@ def plot_all_features_vs_target(features_df, target_vector, molecule_names=None,
 
 
 def analyze_shap_values(model, X, feature_names=None, target_name="output",
-                        n_top_features=10, plot=False):
+                        n_top_features=10, plot=False, dir=None):
     """
     Compute SHAP analysis and RETURN results (figures optional).
     Guaranteed to return explicit Matplotlib Figure handles when plot=True.
@@ -1567,6 +1903,7 @@ def analyze_shap_values(model, X, feature_names=None, target_name="output",
     import pandas as pd
     import shap
     import matplotlib.pyplot as plt
+    import os
 
     # ---- feature names
     if hasattr(X, "columns"):  # DataFrame
@@ -1621,22 +1958,44 @@ def analyze_shap_values(model, X, feature_names=None, target_name="output",
     results['fig_summary'] = None
 
     if plot:
-        # Create a NEW figure explicitly and draw into it
         fig = plt.figure(figsize=(9, 6))
-        ax = fig.add_subplot(111)
 
-        # shap.summary_plot draws on the current figure; show=False prevents blocking
-        # Use the raw matrix (values) if X is a DataFrame
-        X_mat = X.values if isinstance(X, pd.DataFrame) else X
+        # shap.summary_plot draws on the current figure
         shap.summary_plot(
             results['shap_values'],
-            X_mat,
+            X,
             feature_names=feature_names,
             show=False,
             max_display=n_top_features
         )
 
-        # Tighten and hand back the figure
+        # ---- add molecule names (if available)
+        if hasattr(model, "molecule_names"):
+            names = getattr(model, "molecule_names")
+            ax = plt.gca()
+            texts = []
+
+            for coll, mol_name in zip(ax.collections, names):
+                try:
+                    offsets = coll.get_offsets()
+                    if len(offsets) > 0:
+                        x, y = offsets[0]
+                        txt = ax.text(
+                            x, y, str(mol_name),
+                            fontsize=7, color="black", ha="left", va="center"
+                        )
+                        texts.append(txt)
+                except Exception:
+                    pass
+
+            # Adjust labels to reduce overlap
+            adjust_text(
+                texts,
+                ax=ax,
+                only_move={'points': 'y', 'texts': 'y'},
+                arrowprops=dict(arrowstyle="-", color='gray', lw=0.5)
+            )
+
         try:
             fig.tight_layout()
         except Exception:
@@ -1644,7 +2003,11 @@ def analyze_shap_values(model, X, feature_names=None, target_name="output",
 
         results['fig_summary'] = fig
         results['figures'].append(fig)
-        
+
+        if dir is not None:
+            fig.savefig(os.path.join(dir, f'shap_summary_{target_name}.png'),
+                        dpi=300, bbox_inches='tight')
+
     return results
 
 
@@ -1974,3 +2337,240 @@ def interactive_corr_heatmap_with_highlights(df, initial_threshold=0.9, highligh
         fig.show()
 
     interact(plot, threshold=FloatSlider(min=0, max=1, step=0.01, value=initial_threshold, description='Threshold'))
+
+    
+def threshold_analysis_plot(
+    y_value,
+    X_dict,
+    types=None,
+    feature_units=None,
+    marker_shapes=None,
+    target_names=None,
+    cutoff="median",   # "median", "mean", float threshold, percentile 0–100, or tuple ("percentile", p, direction)
+    data_labels=None,
+    plot=True
+):
+    """
+    Perform threshold-based classification analysis for selected features and optionally plot results.
+
+    Parameters
+    ----------
+    y_value : pd.Series or np.ndarray
+        Output values (e.g., yield, ΔΔG).
+    X_dict : dict[str, array-like]
+        Mapping {feature_name: values} of selected features.
+    types : array-like or None
+        Optional ligand types for plotting.
+    feature_units : list[str] or None
+        Units for axis labels.
+    marker_shapes : dict or None
+        Mapping from ligand_type to marker symbols.
+    target_names : list or None
+        Names for binary classes. Defaults to ["0","1"].
+    cutoff : str | float | int | tuple
+        Cutoff specification:
+          - "median" → median of y
+          - "mean" → mean of y
+          - int/float 0–100 → percentile (high_is_positive)
+          - float > 1 → absolute cutoff
+          - tuple ("percentile", p, "low_is_positive"|"high_is_positive")
+    plot : bool
+        If True, generate contour + scatter plots.
+
+    Returns
+    -------
+    results : list of dict
+        Metrics and thresholds per feature.
+    """
+
+    # --- Compute cutoff ---
+    direction = "high_is_positive"
+    if isinstance(cutoff, tuple):
+        if cutoff[0] != "percentile":
+            raise ValueError("tuple cutoff must be ('percentile', p, direction)")
+        p, direction = cutoff[1], cutoff[2]
+        y_cut = np.percentile(y_value, p)
+    elif cutoff == "median":
+        y_cut = np.median(y_value)
+    elif cutoff == "mean":
+        y_cut = np.mean(y_value)
+    elif isinstance(cutoff, (int, float)) and 0 <= cutoff <= 100:
+        y_cut = np.percentile(y_value, cutoff)
+    elif isinstance(cutoff, (int, float)):
+        y_cut = float(cutoff)
+    else:
+        raise ValueError("cutoff must be 'median','mean', percentile, numeric, or tuple form")
+
+    print(f"Using cutoff value = {y_cut:.3f}")
+
+    # --- Default values ---
+    if target_names is None:
+        target_names = ["0", "1"]
+    if feature_units is None:
+        feature_units = ["" for _ in X_dict]
+
+    results = []
+    figs = []
+    for i, (feature, X_all) in enumerate(X_dict.items()):
+        y_all = np.asarray(y_value)
+
+        # Optional ligand_type
+        ligand_types = types if types is not None and len(types) == len(y_all) else None
+
+        # Binarize by cutoff
+        if direction == "low_is_positive":
+            y_class = np.array([1 if v <= y_cut else 0 for v in y_all])
+        else:  # high_is_positive
+            y_class = np.array([1 if v >= y_cut else 0 for v in y_all])
+
+        print(f"\nFeature: {feature}")
+        print(f"Min={np.min(X_all):.2f}, Max={np.max(X_all):.2f}, Unique={len(np.unique(X_all))}")
+        print(f"Class balance: {np.bincount(y_class)}")
+
+        if len(np.unique(y_class)) < 2 or len(np.unique(X_all)) < 2:
+            print("Not enough variation for classification.")
+            continue
+
+        # Fit decision stump
+        dt = DecisionTreeClassifier(max_depth=1, class_weight="balanced", random_state=0)
+        dt.fit(np.array(X_all).reshape(-1, 1), y_class)
+
+        thr = dt.tree_.threshold[0]
+        y_pred = dt.predict(np.array(X_all).reshape(-1, 1))
+
+        acc = metrics.accuracy_score(y_class, y_pred)
+        f1 = f1_score(y_class, y_pred)
+        rec = metrics.recall_score(y_class, y_pred)
+
+        print(f"Decision threshold on feature {feature}: {thr:.2f}")
+        print(f"Accuracy={acc:.2f}, F1={f1:.2f}, Recall={rec:.2f}")
+        print(metrics.classification_report(y_class, y_pred, target_names=target_names))
+
+        results.append({
+            "feature": feature,
+            "decision_threshold": thr,
+            "y_cut": y_cut,
+            "direction": direction,
+            "accuracy": acc,
+            "f1": f1,
+            "recall": rec
+        })
+
+        # Plot if requested
+        if plot:
+            x_min, x_max = np.min(X_all), np.max(X_all)
+            y_min, y_max = np.min(y_all), np.max(y_all)
+            dx, dy = x_max - x_min, y_max - y_min
+            xx, yy = np.meshgrid(
+                np.linspace(x_min - 0.05*dx, x_max + 0.05*dx, 200),
+                np.linspace(y_min - 0.05*dy, y_max + 0.05*dy, 200)
+            )
+            Z = dt.predict(xx.ravel().reshape(-1, 1)).reshape(xx.shape)
+
+            cMap_background = ListedColormap(["white", "#dfe0e0"])
+            cMap_points = ListedColormap(["#c00", "#4caf50"])
+
+            fig, ax = plt.subplots(figsize=(7, 6))   # <-- own the figure
+            ax.contourf(xx, yy, Z, cmap=cMap_background, alpha=0.8)
+            ax.axhline(y=y_cut, color="black", linestyle="--", lw=1)
+
+            # Scatter points
+            if ligand_types is not None:
+                for lt in np.unique(ligand_types):
+                    mask = ligand_types == lt
+                    ax.scatter(
+                        np.array(X_all)[mask], np.array(y_all)[mask],
+                        c=y_class[mask], cmap=cMap_points, alpha=0.9, edgecolor="black", s=100,
+                        marker=marker_shapes.get(lt, "o") if marker_shapes else "o", label=str(lt)
+                    )
+                ax.legend(title="Ligand Type", fontsize=12)
+            else:
+                ax.scatter(
+                    X_all, y_all,
+                    c=y_class, cmap=cMap_points, alpha=0.9, edgecolor="black", s=100, marker="o"
+                )
+
+            if data_labels is not None and len(data_labels) == len(y_all):
+                texts = []
+                for xi, yi, label in zip(X_all, y_all, data_labels):
+                    texts.append(
+                        ax.text(
+                            xi, yi, str(label),
+                            fontsize=8, color="black", ha="right", va="bottom"
+                        )
+                    )
+                adjust_text(texts, arrowprops=dict(arrowstyle="->", color='gray', lw=0.5))
+
+            ax.set_xlabel(f"{feature} {f'({feature_units[i]})' if feature_units[i] else ''}", fontsize=14)
+            ax.set_ylabel("Y value", fontsize=14)
+            ax.set_title(f"Threshold analysis: {feature}", fontsize=15)
+            plt.show()
+             # Prevent display in non-interactive environments
+            figs.append(fig)   # <-- keep the open figure
+            
+    return results, figs
+
+
+def y_randomization_check(model_class, X, y, n_runs=50, cv=5, random_state=42, **model_kwargs):
+    """
+    Perform Y-randomization (response permutation) test on a regression/classification model.
+
+    Parameters
+    ----------
+    model_class : sklearn-like estimator class (e.g., LinearRegression, DecisionTreeClassifier)
+    X : array-like, shape (n_samples, n_features)
+        Feature matrix
+    y : array-like, shape (n_samples,)
+        Target values
+    n_runs : int
+        Number of randomization runs
+    cv : int
+        Cross-validation folds
+    random_state : int
+        Reproducibility
+    model_kwargs : dict
+        Extra keyword args passed to the model_class constructor
+
+    Returns
+    -------
+    dict
+        {
+          "real_scores": [Q², MAE, RMSD],
+          "random_scores": list of dicts for each run
+        }
+    """
+    from sklearn.model_selection import cross_validate
+    rng = np.random.default_rng(random_state)
+
+    # --- Train with real y ---
+    model = model_class(**model_kwargs)
+    cv_results = cross_validate(
+        model, X, y,
+        cv=cv,
+        scoring=("r2", "neg_mean_absolute_error", "neg_root_mean_squared_error"),
+        return_train_score=False
+    )
+    real_scores = {
+        "Q2": np.mean(cv_results["test_r2"]),
+        "MAE": -np.mean(cv_results["test_neg_mean_absolute_error"]),
+        "RMSD": -np.mean(cv_results["test_neg_root_mean_squared_error"])
+    }
+
+    # --- Y-randomization ---
+    random_scores = []
+    for run in range(n_runs):
+        y_perm = rng.permutation(y)
+        model = model_class(**model_kwargs)
+        cv_results = cross_validate(
+            model, X, y_perm,
+            cv=cv,
+            scoring=("r2", "neg_mean_absolute_error", "neg_root_mean_squared_error"),
+            return_train_score=False
+        )
+        random_scores.append({
+            "Q2": np.mean(cv_results["test_r2"]),
+            "MAE": -np.mean(cv_results["test_neg_mean_absolute_error"]),
+            "RMSD": -np.mean(cv_results["test_neg_root_mean_squared_error"])
+        })
+
+    return {"real_scores": real_scores, "random_scores": random_scores}
