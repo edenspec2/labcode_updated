@@ -248,9 +248,11 @@ def filter_atoms_for_sterimol(bonded_atoms_df,coordinates_df):
 
     allowed_bonds_indices= pd.concat([bonded_atoms_df['index_1'],bonded_atoms_df['index_2']],axis=1).reset_index(drop=True)
     atom_filter=adjust_indices(np.unique([atom for sublist in allowed_bonds_indices.values.tolist() for atom in sublist]))
+    # save current index as a list
+    index_list=coordinates_df.loc[atom_filter].index.tolist()
     edited_coordinates_df=coordinates_df.loc[atom_filter].reset_index(drop=True)
 
-    return edited_coordinates_df
+    return edited_coordinates_df, index_list
 
 
 def get_extended_df_for_sterimol(coordinates_df, bonds_df, radii='CPK'):
@@ -263,7 +265,7 @@ def get_extended_df_for_sterimol(coordinates_df, bonds_df, radii='CPK'):
     bond_type : str
         The bond type of the molecule
     radii : str, optional
-        The type of radii to use ('bondi' or 'CPK'), by default 'bondi'
+        The type of F to use ('bondi' or 'CPK'), by default 'bondi'
 
     Returns
     -------
@@ -717,7 +719,7 @@ def get_b1s_list(extended_df, scans=90//5,plot_result=False):
 
 
 def calc_sterimol(bonded_atoms_df,extended_df,visualize_bool=False):
-    edited_coordinates_df=filter_atoms_for_sterimol(bonded_atoms_df,extended_df)
+    edited_coordinates_df,index_list=filter_atoms_for_sterimol(bonded_atoms_df,extended_df)
     b1s,b1_b5_angle,plane=get_b1s_list(edited_coordinates_df)
     valid_indices = np.where(b1s >= 0)[0]
     best_idx = valid_indices[np.argmin(b1s[valid_indices])]
@@ -742,6 +744,8 @@ def calc_sterimol(bonded_atoms_df,extended_df,visualize_bool=False):
     
     sterimol_df = pd.DataFrame([B1, b5_value, L ,loc_B5,angle], index=XYZConstants.STERIMOL_INDEX.value)
     if visualize_bool:
+        # change edit coordinates_df index to original index
+        edited_coordinates_df.index = [index_list[i] + 1 for i in range(len(index_list))]
         plot_b1_visualization(best_b1_plane, edited_coordinates_df=edited_coordinates_df)
         plt.show()    
         print('B1 B5 Plane')

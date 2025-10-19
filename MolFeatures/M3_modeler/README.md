@@ -258,6 +258,8 @@ A scikit‑learn‑style wrapper around `statsmodels`’ `OrderedModel` that sup
 
   > Exhaustive search over feature combinations with caching, pruning via threshold, and optional parallelism.
 
+* `run_single_combo_report(regression_model,['x','y'])` (method on both classes)
+  > runs a single model regression with added statistics plots.
 ---
 
 ## Utility Functions

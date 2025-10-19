@@ -16,20 +16,24 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     # Now you can import from the parent directory
     from gaussian_handler import feather_file_handler, save_to_feather
+    from MolAlign.renumbering import batch_renumbering
     from utils import visualize
     from utils.help_functions import *
     from extractor_utils.sterimol_utils import *
     from extractor_utils.bond_angle_length_utils import *
     from extractor_utils.dipole_utils import *
     from extractor_utils.vibrations_utils import *
+    
 except:
     from .gaussian_handler import feather_file_handler, save_to_feather
+    from ..MolAlign.renumbering import batch_renumbering
     from ..utils import visualize
     from ..utils.help_functions import *
     from .extractor_utils.sterimol_utils import *
     from .extractor_utils.bond_angle_length_utils import *
     from .extractor_utils.dipole_utils import *
     from .extractor_utils.vibrations_utils import *
+    
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -63,53 +67,127 @@ def show_highly_correlated_pairs(df, corr_thresh=0.8):
 
 from typing import Dict, Iterable, Optional, Union, Literal
 
+
 import numpy as np
-import pandas as pd
+from typing import Dict, Tuple
 
-def _validate_and_build_maps(n: int, renumbering_dict: Dict[int, int]) -> tuple[np.ndarray, np.ndarray]:
+def _validate_and_build_maps(n: int, renumbering_dict: Dict[int, int]) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Validate 1-based renumbering and build:
-    - old_to_new (0-based): index i (old) -> new index
-    - new_to_old (0-based): index j (new) -> old index (a permutation/order vector)
-    """
-    if not renumbering_dict:
-        # Identity
-        old_to_new = np.arange(n, dtype=int)
-        new_to_old = np.arange(n, dtype=int)
-        return old_to_new, new_to_old
+    Validate a 1-based renumbering dictionary and build:
+      - old_to_new (0-based): index i (old) → new index
+      - new_to_old (0-based): index j (new) → old index
 
-    # Basic checks
+    Key improvements:
+      • Removes self-maps.
+      • Automatically detects and closes open renumbering chains.
+      • Prevents duplicate targets (enforces bijection).
+      • Fills missing indices as identity.
+    """
+    import numpy as np
+
+    # --- unwrap nested dicts (if {mol_name: {..}}) ---
+    if len(renumbering_dict) == 1 and isinstance(next(iter(renumbering_dict.values())), dict):
+        mol_name, inner = next(iter(renumbering_dict.items()))
+        print(f"[DEBUG] Nested renumbering detected for molecule: {mol_name}")
+        renumbering_dict = inner
+
+    print(f"\n[DEBUG] Raw renumbering_dict (1-based): {renumbering_dict}")
+
+    # --- remove self-maps ---
+    renumbering_dict = {k: v for k, v in renumbering_dict.items() if k != v}
+    print(f"[DEBUG] Removed self-maps: {renumbering_dict}")
+
+    # --- validate numeric range ---
+    valid = {}
     for k, v in renumbering_dict.items():
         if not (isinstance(k, int) and isinstance(v, int)):
-            raise ValueError("renumbering_dict must map int→int (1-based).")
+            print(f"[WARN] Skipping non-int map {k}->{v}")
+            continue
         if not (1 <= k <= n and 1 <= v <= n):
-            raise ValueError(f"Mapping out of range: {k}->{v} for n={n}.")
+            print(f"[WARN] Out-of-range map {k}->{v} (n={n})")
+            continue
+        valid[k] = v
+    renumbering_dict = valid
 
-    # Ensure no duplicate targets
-    new_targets = list(renumbering_dict.values())
-    if len(set(new_targets)) != len(new_targets):
-        raise ValueError("renumbering_dict has duplicate target indices (non-bijective).")
+    # --- detect and close open chains ---
+    visited = set()
+    closed_pairs = {}
+    for start in list(renumbering_dict.keys()):
+        if start in visited:
+            continue
+        chain = [start]
+        current = start
+        while current in renumbering_dict and renumbering_dict[current] not in chain:
+            nxt = renumbering_dict[current]
+            chain.append(nxt)
+            current = nxt
+        for node in chain:
+            visited.add(node)
+        if len(chain) > 1:
+            head, tail = chain[0], chain[-1]
+            if tail not in renumbering_dict and head != tail:
+                print(f"[FIX] Closing open chain {chain} with {tail}->{head}")
+                renumbering_dict[tail] = head
+            # pairwise connect the chain symmetrically
+            for i in range(len(chain) - 1):
+                closed_pairs[chain[i]] = chain[i + 1]
+            if chain[-1] not in closed_pairs:
+                closed_pairs[chain[-1]] = chain[0]
+    renumbering_dict = closed_pairs or renumbering_dict
+    print(f"[DEBUG] After chain closure: {renumbering_dict}")
 
-    # Build maps (0-based)
-    old_to_new = np.arange(n, dtype=int)          # default identity
+    # --- enforce bijection (unique targets) ---
+    seen = set()
+    clean = {}
+    for k, v in renumbering_dict.items():
+        if v in seen:
+            print(f"[WARN] Duplicate target {v}, skipping {k}->{v}")
+            continue
+        seen.add(v)
+        clean[k] = v
+    renumbering_dict = clean
+    print(f"[DEBUG] Cleaned to unique targets: {renumbering_dict}")
+
+    # --- fill missing indices as identity ---
+    for i in range(1, n + 1):
+        if i not in renumbering_dict and i not in renumbering_dict.values():
+            renumbering_dict[i] = i
+    print(f"[DEBUG] Added identity for unused indices")
+
+    # --- build arrays ---
+    old_to_new = np.arange(n, dtype=int)
     for old1, new1 in renumbering_dict.items():
         old_to_new[old1 - 1] = new1 - 1
 
-    # Invert map to get the permutation "order" (new_to_old)
-    # For positions not explicitly moved, identity holds.
-    new_to_old = np.empty(n, dtype=int)
-    new_to_old.fill(-1)
+    # --- ensure bijection (no missing/duplicate targets) ---
+    unique, counts = np.unique(old_to_new, return_counts=True)
+    dupes = unique[counts > 1]
+    missing = np.setdiff1d(np.arange(n), unique)
+    if len(dupes) or len(missing):
+        print(f"[WARN] Fixing non-bijective mapping → duplicates={dupes.tolist()} missing={missing.tolist()}")
+        free = list(missing)
+        for i, val in enumerate(old_to_new):
+            if val in dupes and free:
+                replacement = free.pop(0)
+                print(f"[FIX] old_to_new[{i}]={val} replaced by {replacement}")
+                old_to_new[i] = replacement
+
+    # --- build inverse safely ---
+    new_to_old = np.full(n, -1, dtype=int)
     for old0, new0 in enumerate(old_to_new):
         if new_to_old[new0] != -1:
-            # Should never happen after duplicate-target check
-            raise ValueError(f"Non-bijective mapping detected for new index {new0+1}.")
+            print(f"[WARN] Two atoms map to same new index {new0+1}; keeping first")
+            continue
         new_to_old[new0] = old0
+    mask = new_to_old < 0
+    if np.any(mask):
+        new_to_old[mask] = np.arange(n)[mask]
 
-    # Safety: all filled?
-    if (new_to_old < 0).any():
-        raise ValueError("Incomplete inversion of mapping. Check renumbering_dict.")
+    print(f"[DEBUG] old_to_new (0-based): {old_to_new}")
+    print(f"[DEBUG] new_to_old (0-based): {new_to_old}\n")
 
     return old_to_new, new_to_old
+
 
 
 def _reindex_like(obj: Union[pd.Series, pd.DataFrame], order: np.ndarray) -> Union[pd.Series, pd.DataFrame]:
@@ -239,9 +317,9 @@ class Molecule:
         renumbering_dict: Dict[int, int],
         *,
         rebuild_connectivity: bool = False,
-        bonds_are_0_based: bool = False,
+        bonds_are_0_based: bool = True,
         verbose: bool = True,
-        save_feather: bool = False, out_file: Optional[str] = None
+        save_feather: bool = True, out_file: Optional[str] = None
     ) -> None:
         """
         Renumber atoms according to a 1-based mapping and update relevant data.
@@ -275,8 +353,14 @@ class Molecule:
             raise AttributeError("self.xyz_df is required before renumbering.")
 
         n = len(self.xyz_df)
-        old_to_new, new_to_old = _validate_and_build_maps(n, renumbering_dict)
-
+        print(f"\n[DEBUG] Starting renumbering for molecule '{self.molecule_name}' with {n} atoms. {renumbering_dict}")
+        try:
+            print('debug renumbering_dict:', renumbering_dict)
+            old_to_new, new_to_old = _validate_and_build_maps(n, renumbering_dict)
+        except Exception as e:
+            # print error and return without making changes so it continues to work in batch mode
+            print(f"[ERROR] Renumbering validation failed for molecule '{self.molecule_name}': {e}")
+            return
         # Save maps for downstream use
         self.old_to_new = old_to_new              # old idx -> new idx (0-based)
         self.new_to_old = new_to_old              # new idx -> old idx (0-based)
@@ -284,8 +368,9 @@ class Molecule:
 
         # --- Reorder XYZ (vectorized) ---
         old_xyz_df = self.xyz_df.copy()
+        print(f"[DEBUG] old_xyz_df before renumbering:\n{old_xyz_df}")
         self.xyz_df = old_xyz_df.iloc[new_to_old].reset_index(drop=True)
-
+        print(f"[DEBUG] new_xyz_df after renumbering:\n{self.xyz_df}")
         # Ensure numeric coordinate dtypes
         for c in ("x", "y", "z"):
             if c in self.xyz_df.columns:
@@ -295,7 +380,7 @@ class Molecule:
         # --- Connectivity & atom types ---
         if hasattr(self, "bonds_df") and isinstance(self.bonds_df, pd.DataFrame) and not rebuild_connectivity:
             # Preserve original bonds by remapping indices
-            self.bonds_df = _remap_bonds_df(self.bonds_df, old_to_new=self.old_to_new, assume_0_based=bonds_are_0_based)
+            self.bonds_df = _remap_bonds_df(self.bonds_df, old_to_new=self.old_to_new, assume_0_based=False)
         else:
             # Recompute from geometry (may differ from original)
             if "extract_connectivity" not in globals() and not hasattr(self, "extract_connectivity"):
@@ -332,27 +417,52 @@ class Molecule:
 
         # --- Renumber vibration dict keys like 'vibration_atom_{i}' ---
         if hasattr(self, "vibration_dict") and self.vibration_dict:
+            print(f"[DEBUG] Starting vibration_dict renumbering with {len(self.vibration_dict)} entries")
+            print(f"[DEBUG] Number of atoms (n): {n}")
+            print(f"[DEBUG] old_to_new : {list(old_to_new) if hasattr(old_to_new, '__len__') else old_to_new}")
+
             new_vib_dict: Dict[str, Any] = {}
             for key, val in self.vibration_dict.items():
                 if key.startswith("vibration_atom_"):
                     try:
                         old_atom_1b = int(key.split("_")[-1])
+                        print(f"[DEBUG] Key '{key}' parsed old_atom_1b={old_atom_1b}")
                     except ValueError:
-                        new_vib_dict[key] = val  # leave untouched if unexpected format
-                        continue
-                    # Map 1-based old -> 0-based -> 1-based new
-                    if not (1 <= old_atom_1b <= n):
-                        # out of range, keep as-is
+                        print(f"[WARN] Key '{key}' has unexpected format, keeping as-is")
                         new_vib_dict[key] = val
                         continue
-                    new_atom_1b = int(old_to_new[old_atom_1b - 1] + 1)
+
+                    # Range check
+                    if not (1 <= old_atom_1b <= n):
+                        print(f"[WARN] old_atom_1b={old_atom_1b} out of valid range 1–{n}, keeping as-is")
+                        new_vib_dict[key] = val
+                        continue
+
+                    # Map 1-based old → 0-based → 1-based new
+                    try:
+                        new_atom_1b = int(old_to_new[old_atom_1b - 1] + 1)
+                    except Exception as e:
+                        print(f"[ERROR] Failed mapping old_atom_1b={old_atom_1b}: {e}")
+                        new_vib_dict[key] = val
+                        continue
+
                     new_key = f"vibration_atom_{new_atom_1b}"
+                    print(f"[DEBUG] Mapping {key} → {new_key}")
+
                     if new_key in new_vib_dict:
+                        print(f"[ERROR] Collision detected! {key} and another map to {new_key}")
                         raise ValueError(f"Collision in vibration_dict keys after renumbering: {new_key}")
+
                     new_vib_dict[new_key] = val
                 else:
+                    # Non-vibration_atom_ keys copied as-is
                     new_vib_dict[key] = val
+                    print(f"[DEBUG] Key '{key}' copied as-is (not vibration_atom_)")
+
+            print(f"[DEBUG] Renumbering finished: {len(new_vib_dict)} keys total "
+                f"({len(self.vibration_dict)} before)")
             self.vibration_dict = new_vib_dict
+
         # Note: self.vibration_mode_dict may need similar treatment if it uses atom indices in keys
         if hasattr(self, "vibration_mode_dict") and self.vibration_mode_dict:
             new_mode_dict: Dict[str, Any] = {}
@@ -375,8 +485,9 @@ class Molecule:
         
         if save_feather:
             if out_file is None:
-                out_file = os.path.join(self.molecule_path, f"{self.molecule_name}_renumbered.feather")
-
+                ren_dir = os.path.join(self.molecule_path, 'renumbered')
+                os.makedirs(ren_dir,  exist_ok=True)  # just os.makedirs(ren_dir, exist_ok=True) is fine
+                out_file = os.path.join(ren_dir, f"{self.molecule_name}_renumbered.feather")
             save_to_feather(
                 df_dict={
                     "xyz": self.xyz_df,
@@ -787,48 +898,85 @@ class Molecule:
             npa_df = self.get_npa_df_single(base_atoms_indices, sub_atoms=sub_atoms, type=type)
         return npa_df
     
-    # def get_dipole_gaussian_df_single(self, atoms,origin=None ,visualize_bool=False) -> pd.DataFrame:
-  
-    #     dipole_df = calc_dipole_gaussian(self.coordinates_array, np.array(self.gauss_dipole_df), atoms,origin=origin)
+   
+    # def get_dipole_gaussian_df_single(self, atoms, visualize_bool: bool = False) -> pd.DataFrame:
+    #     """
+    #     atoms can be any of:
+    #     - [o, y, p]                         # single-origin, single-plane atom
+    #     - [o, y, [p1, p2, ...]]             # single-origin, multi-plane set
+    #     - [[o1, o2, ...], y, p]             # multi-origin set, single-plane atom
+    #     - [[o1, o2, ...], y, [p1, p2, ...]] # multi-origin set, multi-plane set
+
+    #     All indices may be 1-based or 0-based (auto-detected per array).
+    #     Origin point used for viz is the centroid of the origin set.
+    #     """
+
+    #     # --- helpers (local) ---
+    #     def _as_int_list(x):
+    #         if isinstance(x, (list, tuple, set)):
+    #             return [int(i) for i in x]
+    #         return [int(x)]
+
+    #     def _parse_origin_y_plane(group):
+    #         # group: [origin, y, plane]
+    #         if len(group) < 3:
+    #             raise ValueError("atoms must be [origin, y, plane] where origin/plane can be scalars or lists")
+    #         origin_set = _as_int_list(group[0])
+    #         y_idx      = int(group[1])
+    #         plane_set  = _as_int_list(group[2])
+    #         return origin_set, y_idx, plane_set
+
+    #     def _to0(idx_list):
+    #         arr = np.asarray(idx_list, dtype=int)
+    #         # If any are 0, assume already 0-based
+    #         return arr if (arr == 0).any() else (arr - 1)
+
+    #     # ---- parse input ----
+    #     origin_set, y_idx, plane_set = _parse_origin_y_plane(atoms)
+
+    #     # ---- compute dipole ----
+    #     # Normalize the atoms spec we pass to the calculator: [origin_set, y, plane_set]
+    #     atoms_norm = [origin_set, y_idx, plane_set]
+    #     dipole_df = calc_dipole_gaussian(
+    #         self.coordinates_array,
+    #         np.array(self.gauss_dipole_df),
+    #         atoms_norm
+    #     )
+
+    #     # ---- build a descriptive label ----
+    #     def _fmt_set(xs):
+    #         return f"{{{','.join(map(str, xs))}}}" if len(xs) > 1 else f"{xs[0]}"
+    #     label = f"dipole_{_fmt_set(origin_set)}-{y_idx}-{_fmt_set(plane_set)}"
     #     try:
-    #         dipole_df = dipole_df.rename(index={0: f'dipole_{atoms[0]}-{atoms[1]}-{atoms[2]}'})
-    #     except Exception as e:
-    #         dipole_df = dipole_df.rename(index={0: f'dipole_gaussian_base'})
+    #         dipole_df = dipole_df.rename(index={0: label})
+    #     except Exception:
+    #         dipole_df = dipole_df.rename(index={0: "dipole_gaussian_base"})
+
+    #     # ---- optional visualization ----
     #     if visualize_bool:
-    #         if atoms or atoms ==[]:   
-    #             atoms = adjust_indices(atoms)
-    #             # get the coordinates of the atoms used for the dipole calculation
+    #         try:
+    #             coords = np.asarray(self.coordinates_array, dtype=float)
+    #             origin0 = _to0(origin_set)
+    #             origin_point = coords[origin0].mean(axis=0)
+
+    #             # If your transformer expects a flat list [origin..., y, plane...], provide that
+    #             flat_spec = [*origin_set, y_idx, *plane_set]
     #             try:
-    #                 xyz_df = self.get_coordination_transformation_df(atoms)
-    #                 origin = xyz_df[['x', 'y', 'z']].iloc[atoms[0]].values
-                  
-    #             except Exception as e:
-    #                 xyz_df=self.xyz_df
-    #                 print(f'Error in get_dipole_gaussian_df_single: {e}')
-                
-    #             visualize.show_single_molecule(molecule_name=self.molecule_name, xyz_df=xyz_df, dipole_df=dipole_df,origin=origin)
+    #                 xyz_df = self.get_coordination_transformation_df(flat_spec)
+    #             except Exception:
+    #                 xyz_df = getattr(self, "xyz_df", None)
+
+    #             visualize.show_single_molecule(
+    #                 molecule_name=self.molecule_name,
+    #                 xyz_df=xyz_df,
+    #                 dipole_df=dipole_df,
+    #                 origin=origin_point
+    #             )
+    #         except Exception as e:
+    #             print(f"[visualize] Skipping visualization due to: {e}")
+
     #     return dipole_df
 
-    # def get_dipole_gaussian_df(self, base_atoms_indices: List[int], origin=None, visualize_bool=False) -> pd.DataFrame:
-    #     """
-    #     Returns a DataFrame with the dipole moments calculated based on the specified base atoms.
-
-    #     Args:
-    #         base_atoms_indices (List[int]): The indices of the base atoms to use for the dipole moment calculation.
-
-    #     Returns:
-    #         pd.DataFrame: A DataFrame with the dipole moments.
-    #     """
-     
-    #     if isinstance(base_atoms_indices[1], list):
-    #        # If base_atoms_indices is a list of lists, process each group individually and concatenate the results
-    #         dipole_list = [self.get_dipole_gaussian_df_single(atoms,origin=origin,visualize_bool=visualize_bool) for atoms in base_atoms_indices]
-    #         dipole_df = pd.concat(dipole_list, axis=0)
-    #     else:
-    #         # If base_atoms_indices is a single group, just process that group
-    #         dipole_df = self.get_dipole_gaussian_df_single(base_atoms_indices,origin=origin,visualize_bool=visualize_bool)
-    #     return dipole_df
-    
     def get_dipole_gaussian_df_single(self, atoms, visualize_bool: bool = False) -> pd.DataFrame:
         """
         atoms can be:
@@ -1296,9 +1444,9 @@ class Molecules():
                    
         print(f'Molecules Loaded: {self.success_molecules}',f'Failed Molecules: {self.failed_molecules}')
 
-        self.molecules_names=[molecule.molecule_name for molecule in self.molecules]
+        self.molecule_names=[molecule.molecule_name for molecule in self.molecules]
         self.old_molecules=self.molecules
-        self.old_molecules_names=self.molecules_names
+        self.old_molecule_names=self.molecule_names
         os.chdir('../')
 
     def export_all_xyz(self):
@@ -1310,22 +1458,33 @@ class Molecules():
             data_to_xyz(xyz_df, f'{mol_name}.xyz')
         os.chdir('../')
     
-    def renumber_all_molecules(self,indices=None):
-        if indices:
-            self.filter_molecules(indices)
-            
-        for i, molecule in enumerate(self.molecules):
-            try:
-                molecule.renumber_atoms()
-                print(f'Molecule {molecule.molecule_name} renumbered successfully.')
-            except Exception as e:
-                print(f'Error renumbering molecule {molecule.molecule_name}: {e}')
-                log_exception("renumber_all_molecules")
+    def renumber_all_molecules(self,renumbering_list, target_idx=None):
+        import copy
+        # if len(renumbering_list) != len(self.molecules):
+        #     raise ValueError("Renumbering list length must match the number of molecules.")
+        # if target_idx is -1 translate to 0
+        if target_idx is not None and target_idx == -1:
+            target_idx = 0
+        
+        for i, (renumbering_dict, molecule) in enumerate(zip(renumbering_list, self.molecules)):
+            if target_idx == i:
+                if i + 1 < len(renumbering_list):
+                    merged = copy.deepcopy(renumbering_list[i])
+                    merged.update(copy.deepcopy(renumbering_dict))  # current has priority
+                    renumbering_list[i + 1] = merged
+                print(f'Skipping renumbering for molecule {molecule.molecule_name} at index {i}. dict : {renumbering_dict}')
+                continue
+            # try:
+            molecule.renumber_atoms(renumbering_dict, bonds_are_0_based=True)
+            print(f'Molecule {molecule.molecule_name} renumbered successfully.')
+            # except Exception as e:
+            #     print(f'Error renumbering molecule {molecule.molecule_name}: {e}')
+            #     log_exception("renumber_all_molecules")
         print('All molecules renumbered.')
     
     def filter_molecules(self, indices):
         self.molecules = [self.molecules[i] for i in indices]
-        self.molecules_names = [self.molecules_names[i] for i in indices]
+        self.molecule_names = [self.molecule_names[i] for i in indices]
 
     def get_sterimol_dict(self,atom_indices, radii='CPK',sub_structure=True, drop_atoms=None,visualize_bool=None,mode='all'):
         """
@@ -1531,7 +1690,7 @@ class Molecules():
                 pass
         return dict_to_horizontal_df(bond_length_dict)
     
-    def get_stretch_vibration_dict(self,atom_pairs,threshold=1600,upper_threshold=3500):
+    def get_stretch_vibration_dict(self,atom_pairs,threshold=1400,upper_threshold=3500):
         """
         Returns a dictionary with the stretch vibrations calculated for the specified atom pairs.
 
@@ -1821,27 +1980,44 @@ class Molecules():
         # 8. Interactive analysis
         interactive_corr_heatmap_with_highlights(res_df)
         correlation_table = show_highly_correlated_pairs(res_df, corr_thresh=0.8)
-
-        res_df=res_df.sort_index(ascending=False,inplace=False)
-        
+        res_df=res_df.sort_index(ascending=False)
         if save_as:
             # organize res_df by the in in index if possible
-
-            print(res_df.head(5))
-            res_df = res_df.sort_index(
-            key=lambda idx: idx.map(
-                lambda x: int(re.search(r"\d+", x).group()) if re.search(r"\d+", x) else x
+            try:
+                res_df = res_df.sort_index(
+                key=lambda idx: idx.map(
+                    lambda x: int(re.search(r"\d+", x).group()) if re.search(r"\d+", x) else x
+                )
             )
-        )
+            except Exception as e:
+                pass
             res_df.to_csv(f"{csv_file_name}.csv", index=True)
             correlation_table.to_csv(f"{csv_file_name}_correlation_table.csv", index=True)
             print(f"Features saved to {csv_file_name}.csv and correlation table to {csv_file_name}_correlation_table.csv in {os.getcwd()}")
 
         return res_df
 
+    def get_renumbering_dict(self):
+        
+        self.export_all_xyz()
+        os.chdir('xyz_files')
+        self.renumbering_list, target_idx = batch_renumbering(os.getcwd())
+      
+        # self.renumbering_list = [
+        # {
+        #     mol_name: {
+        #         **inner, 
+        #         **{v: k for k, v in inner.items() if v != k}
+        #     }
+        #     for mol_name, inner in d.items()
+        # }
+        # for d in renumbering_list
+    # ]
+    
+        self.renumber_all_molecules(self.renumbering_list, target_idx)
+        os.chdir('../')
 
-
-            
+        
     def extract_all_dfs(self):
         os.chdir(self.molecules_path)
         for molecule in self.molecules:

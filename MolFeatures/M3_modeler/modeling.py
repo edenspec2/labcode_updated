@@ -361,46 +361,48 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
 
 
 
-def check_linear_regression_assumptions(X,y,dir=None):
+def check_linear_regression_assumptions(X,y,dir=None,plot=False):
     # Load data
     # Fit linear regression model
     model = sm.OLS(y, sm.add_constant(X)).fit()
     residuals = model.resid
     predictions = model.predict(sm.add_constant(X))
 
+    if plot:
+        print("\n----- Independence of Errors (Durbin-Watson) -----")
+        dw_stat = durbin_watson(residuals)
+        print(f"Durbin-Watson statistic: {dw_stat:.3f}")
+        if 1.5 < dw_stat < 2.5:
+            print("✅ No autocorrelation detected.")
+        else:
+            print("⚠️ Possible autocorrelation in residuals.")
 
-    print("\n----- Independence of Errors (Durbin-Watson) -----")
-    dw_stat = durbin_watson(residuals)
-    print(f"Durbin-Watson statistic: {dw_stat:.3f}")
-    if 1.5 < dw_stat < 2.5:
-        print("✅ No autocorrelation detected.")
+        print("\n----- Homoscedasticity (Breusch-Pagan Test) -----")
+        bp_test = het_breuschpagan(residuals, model.model.exog)
+        p_value_bp = bp_test[1]
+        print(f"Breusch-Pagan p-value: {p_value_bp:.3f}")
+        if p_value_bp > 0.05:
+            print("✅ Homoscedasticity assumed (good).")
+        else:
+            print("⚠️ Heteroscedasticity detected (bad).")
+
+        print("\n----- Normality of Errors (Shapiro-Wilk Test) -----")
+        shapiro_stat, shapiro_p = shapiro(residuals)
+        print(f"Shapiro-Wilk p-value: {shapiro_p:.3f}")
+        if shapiro_p > 0.05:
+            print("✅ Residuals appear normally distributed.")
+        else:
+            print("⚠️ Residuals may not be normally distributed.")
+
+        print("\n----- Normality of Errors (Q-Q Plot) -----")
+        plt.figure()
+        probplot(residuals, dist="norm", plot=plt)
+        plt.title('Q-Q plot of residuals')
+        plt.show()
+        if dir:
+            plt.savefig(os.path.join(dir, 'qq_plot_residuals.png'))
     else:
-        print("⚠️ Possible autocorrelation in residuals.")
-
-    print("\n----- Homoscedasticity (Breusch-Pagan Test) -----")
-    bp_test = het_breuschpagan(residuals, model.model.exog)
-    p_value_bp = bp_test[1]
-    print(f"Breusch-Pagan p-value: {p_value_bp:.3f}")
-    if p_value_bp > 0.05:
-        print("✅ Homoscedasticity assumed (good).")
-    else:
-        print("⚠️ Heteroscedasticity detected (bad).")
-
-    print("\n----- Normality of Errors (Shapiro-Wilk Test) -----")
-    shapiro_stat, shapiro_p = shapiro(residuals)
-    print(f"Shapiro-Wilk p-value: {shapiro_p:.3f}")
-    if shapiro_p > 0.05:
-        print("✅ Residuals appear normally distributed.")
-    else:
-        print("⚠️ Residuals may not be normally distributed.")
-
-    print("\n----- Normality of Errors (Q-Q Plot) -----")
-    plt.figure()
-    probplot(residuals, dist="norm", plot=plt)
-    plt.title('Q-Q plot of residuals')
-    plt.show()
-    if dir:
-        plt.savefig(os.path.join(dir, 'qq_plot_residuals.png'))
+        return
 
 class PlotModel:
     def __init__(self, model):
@@ -429,11 +431,12 @@ class LinearRegressionModel:
             db_path='results', 
             scale=True ,
             seed = 42 ,           # <--- If lasso, this is the regularization strength
+            drop_columns = 'id',
     ):
 
         self.random_state = seed
         self.setup_random_seeds()
-
+        self.drop_columns=drop_columns
         self.csv_filepaths = csv_filepaths
         self.process_method = process_method
         self.y_value = y_value
@@ -448,7 +451,10 @@ class LinearRegressionModel:
         self.app = app
         self.n_splits = n_splits
         self.scale=scale
-        self.name=os.path.splitext(os.path.basename(self.csv_filepaths.get('features_csv_filepath')))[0]
+        try:
+            self.name=os.path.splitext(os.path.basename(self.csv_filepaths.get('features_csv_filepath')))[0]
+        except:
+            self.name='in_memory_dataset'
 
         self.paths = prepare_run_dirs(
             base_dir="runs",
@@ -469,16 +475,19 @@ class LinearRegressionModel:
         else:
             raise ValueError("Invalid model_type. Please specify 'linear' or 'lasso'.")
 
-        if csv_filepaths:
-            if process_method == 'one csv':
-                self.process_features_csv()
-            elif process_method == 'two csvs':
-                self.process_features_csv()
-                self.process_target_csv(csv_filepaths.get('target_csv_filepath'))
+        try:
+            if csv_filepaths:
+                if process_method == 'one csv':
+                    self.process_features_csv(drop_columns=drop_columns)
+                elif process_method == 'two csvs':
+                    self.process_features_csv(drop_columns=drop_columns)
+                    self.process_target_csv(csv_filepaths.get('target_csv_filepath'))
+        except Exception as e:
+            self.process_features_csv(drop_columns=drop_columns)
 
             self.scaler = StandardScaler()
             self.original_features_df = self.features_df.copy()
-            self.features_df = pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+            self.features_df = self.features_df # pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
             self.feature_names=self.features_df.columns.tolist()
             
             self.compute_correlation()
@@ -494,6 +503,48 @@ class LinearRegressionModel:
         
         self.check_linear_regression_assumptions()
     
+
+    from pathlib import Path
+
+
+    def load_results(self, sort_key: str = "r2", ascending: bool = False):
+        """
+        Load all CSV results from the run's db directory into DataFrames,
+        optionally sorting them by a metric (default: R²).
+
+        Parameters
+        ----------
+        sort_key : str
+            Column name to sort by (default 'r2').
+        ascending : bool
+            Sort order. Default False = best (highest values first).
+
+        Returns
+        -------
+        results_dict : dict[str, pd.DataFrame]
+            Mapping {filename (no extension): DataFrame}.
+        """
+        results_dict = {}
+
+        # Use Path.glob so csv_file is a Path, not a str
+        for csv_file in Path(self.paths.db).glob("*.csv"):
+            try:
+                df = pd.read_csv(csv_file)
+
+                if sort_key in df.columns:
+                    df = df.sort_values(by=sort_key, ascending=ascending).reset_index(drop=True)
+                else:
+                    print(f"⚠️ Column '{sort_key}' not found in {csv_file.name}, returning unsorted.")
+
+                results_dict[csv_file.stem] = df
+            except Exception as e:
+                print(f"❌ Failed to load {csv_file.name}: {e}")
+        # remove threshold, model, predictions columns
+        for df in results_dict.values():
+            df.drop(columns=['threshold', 'model', 'predictions'], errors='ignore', inplace=True)
+        return results_dict
+
+
 
     def setup_random_seeds(self) -> None:
         """
@@ -513,6 +564,12 @@ class LinearRegressionModel:
     
 
     def check_linear_regression_assumptions(self):
+        """
+        Check linear regression assumptions (linearity, homoscedasticity, normality).
+        """
+        # check if indices align , if not change features_df index to target_vector index
+        if not self.features_df.index.equals(self.target_vector.index):
+            self.features_df.index = self.target_vector.index
         return check_linear_regression_assumptions(self.features_df, self.target_vector)
 
     
@@ -529,81 +586,82 @@ class LinearRegressionModel:
     
 
     def process_features_csv(
-        self,
-        drop_columns: Optional[Union[str, List[str]]] = None,
-        drop_smiles: bool = True,
+    self,
+    drop_columns: Optional[Union[str, List[str]]] = None,
+    drop_smiles: bool = True,
     ) -> dict:
         """
-        Load a features CSV and robustly initialize:
-        - self.molecule_names : list[str]
-        - self.target_vector  : pd.Series
-        - self.features_df    : pd.DataFrame (numeric-only, deduplicated)
-        - self.features_list  : list[str]
+        Load and process a features dataset from:
+        - a CSV file path (string),
+        - a dict with key 'features_csv_filepath',
+        - or an in-memory pandas DataFrame.
 
-        Extras
-        ------
-        - drop_smiles: if True, drop common SMILES-like columns (e.g., 'smiles',
-        'canonical_smiles', 'random_smiles') if present.
-        - drop_columns: column name or list of names to drop (case-insensitive).
-        If None, will also look for `self.drop_columns` attribute.
+        Initializes:
+            - self.molecule_names : list[str]
+            - self.target_vector  : pd.Series
+            - self.features_df    : pd.DataFrame (numeric-only, deduplicated)
+            - self.features_list  : list[str]
 
-        Assumptions
-        -----------
-        - self.csv_filepaths['features_csv_filepath'] points to a readable CSV.
-        - self.y_value is the target column name (case-insensitive allowed).
-        - If self.names_column is provided, it is used as the ID/name column; otherwise
-        the function will try common name columns, or fall back to the first column.
+        Parameters
+        ----------
+        drop_columns : str or list[str], optional
+            Additional columns to drop (case-insensitive).
+        drop_smiles : bool, default=True
+            Drop SMILES-like columns if found.
 
         Returns
         -------
         dict
-            {
-                "path": str,
-                "names_column": str,
-                "target_column": str,
-                "n_rows": int,
-                "n_features_total": int,
-                "n_features_kept_numeric": int,
-                "dropped_non_numeric_cols": list[str],
-                "dropped_all_nan_cols": list[str],
-                "dropped_smiles_like_cols": list[str],
-                "dropped_user_columns": list[str],
-            }
+            Summary of processing steps.
         """
         import os
         import pandas as pd
         import numpy as np
 
-        # --- Validate inputs ---
-        if not hasattr(self, "csv_filepaths") or not isinstance(self.csv_filepaths, dict):
-            raise AttributeError("`self.csv_filepaths` must be a dict containing 'features_csv_filepath'.")
+        # --- Load from file path OR from existing DataFrame ---
+        csv_source = getattr(self, "csv_filepaths", None)
 
-        csv_path = self.csv_filepaths.get("features_csv_filepath")
-        if not csv_path or not os.path.exists(csv_path):
-            raise FileNotFoundError(f"CSV not found at: {csv_path!r}")
+        if csv_source is None:
+            raise AttributeError(
+                "`self.csv_filepaths` must be set to a CSV path, a dict, or a pandas DataFrame."
+            )
+        names_from_index = False
+        if isinstance(csv_source, pd.DataFrame):
+            df = csv_source.copy()
+            path_used = None
+            names_from_index = True
+        elif isinstance(csv_source, dict):
+            csv_path = csv_source.get("features_csv_filepath")
+            if not csv_path or not os.path.exists(csv_path):
+                raise FileNotFoundError(f"CSV not found at: {csv_path!r}")
+            df = pd.read_csv(csv_path)
+            path_used = os.path.abspath(csv_path)
+        elif isinstance(csv_source, str):
+            if not os.path.exists(csv_source):
+                raise FileNotFoundError(f"CSV not found at: {csv_source!r}")
+            df = pd.read_csv(csv_source)
+            path_used = os.path.abspath(csv_source)
+        else:
+            raise TypeError("`self.csv_filepaths` must be a str, dict, or DataFrame.")
 
+        if df.empty:
+            raise ValueError("The provided dataset is empty.")
+
+        # --- Target and drop setup ---
         y_value = getattr(self, "y_value", None)
         if y_value is None:
             raise AttributeError("`self.y_value` must be set to the target column name.")
 
-        # Allow passing drop list via attribute if not provided
         if drop_columns is None and hasattr(self, "drop_columns"):
             drop_columns = getattr(self, "drop_columns")
 
-        # Normalize drop_columns to list[str]
         if isinstance(drop_columns, str):
             drop_columns = [drop_columns]
         elif drop_columns is None:
             drop_columns = []
 
-        # --- Read CSV ---
-        df = pd.read_csv(csv_path)
-        if df.empty:
-            raise ValueError(f"CSV at {csv_path!r} is empty.")
-
-        # --- Helpers ---
+        # --- Helper functions ---
         def _case_insensitive_find(col_name: str, columns: pd.Index):
-            """Return the actual column name matching col_name (case-insensitive), or None."""
             lc = str(col_name).lower()
             for c in columns:
                 if str(c).lower() == lc:
@@ -611,13 +669,12 @@ class LinearRegressionModel:
             return None
 
         def _resolve_many(names: List[str], columns: pd.Index) -> List[str]:
-            """Resolve a list of desired names to actual column names present (case-insensitive)."""
             resolved = []
             for n in names:
                 hit = _case_insensitive_find(n, columns)
                 if hit is not None:
                     resolved.append(hit)
-            return list(dict.fromkeys(resolved))  # dedupe, keep order
+            return list(dict.fromkeys(resolved))  # dedupe
 
         def _first_match(candidates: List[str], columns: pd.Index):
             for c in candidates:
@@ -626,38 +683,36 @@ class LinearRegressionModel:
                     return hit
             return None
 
-        # --- Resolve names (ID) column ---
+        # --- Resolve name and target columns ---
         provided_names_col = getattr(self, "names_column", None)
         name_candidates = ["name", "names", "molecule", "molecule_name", "mol", "compound", "sample", "id"]
 
-        if provided_names_col:
-            names_col = _case_insensitive_find(provided_names_col, df.columns)
-            if names_col is None:
-                raise KeyError(
-                    f"names_column {provided_names_col!r} not found (case-insensitive). "
-                    f"Available: {list(df.columns)}"
-                )
+        if names_from_index:
+            names_col = None
         else:
-            names_col = _first_match(name_candidates, df.columns)
-            if names_col is None:
-                # Fall back to the first column
-                names_col = df.columns[0]
+            if provided_names_col:
+                names_col = _case_insensitive_find(provided_names_col, df.columns)
+                if names_col is None:
+                    raise KeyError(
+                        f"names_column {provided_names_col!r} not found. Available: {list(df.columns)}"
+                    )
+            else:
+                names_col = _first_match(name_candidates, df.columns) or df.columns[0]
 
-        # --- Resolve target column (case-insensitive) ---
         target_col = _case_insensitive_find(y_value, df.columns)
         if target_col is None:
             raise KeyError(
-                f"Target column {y_value!r} not found (case-insensitive). "
-                f"Available: {list(df.columns)}"
+                f"Target column {y_value!r} not found. Available: {list(df.columns)}"
             )
 
-        # --- Build initial features dataframe (drop ID + target) ---
+        # --- Build features DataFrame ---
         cols_to_drop = {names_col, target_col}
         features_df_raw = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
         n_features_total = features_df_raw.shape[1]
 
-        # --- Drop SMILES-like columns if requested ---
-        dropped_smiles_like_cols: List[str] = []
+        dropped_smiles_like_cols, dropped_user_columns = [], []
+
+        # Drop SMILES-like columns
         if drop_smiles:
             smiles_candidates = ["smiles", "canonical_smiles", "random_smiles"]
             smiles_to_drop = _resolve_many(smiles_candidates, features_df_raw.columns)
@@ -665,76 +720,73 @@ class LinearRegressionModel:
                 features_df_raw = features_df_raw.drop(columns=smiles_to_drop)
                 dropped_smiles_like_cols.extend(smiles_to_drop)
 
-        # --- Drop user-specified columns (case-insensitive) ---
-        dropped_user_columns: List[str] = []
+        # Drop user-specified columns
         if drop_columns:
             resolved_user_cols = _resolve_many(drop_columns, features_df_raw.columns)
             if resolved_user_cols:
                 features_df_raw = features_df_raw.drop(columns=resolved_user_cols)
                 dropped_user_columns.extend(resolved_user_cols)
 
-        # Deduplicate identical column names (keep first occurrence)
+        # Deduplicate columns
         features_df_raw = features_df_raw.loc[:, ~features_df_raw.columns.duplicated()]
 
-        # --- Coerce to numeric (keep only numeric columns) ---
+        # --- Coerce to numeric ---
         coerced = features_df_raw.apply(pd.to_numeric, errors="coerce")
-        # Columns that became all-NaN after coercion (likely non-numeric)
         all_nan_cols = [c for c in coerced.columns if coerced[c].isna().all()]
-        # Keep only numeric columns with at least one non-NaN value
         numeric_df = coerced.drop(columns=all_nan_cols, errors="ignore").select_dtypes(include=[np.number])
+        dropped_non_numeric = [
+            c for c in features_df_raw.columns if c not in numeric_df.columns and c not in all_nan_cols
+        ]
 
-        # Prepare diagnostics for "non-numeric" drop:
-        dropped_non_numeric = [c for c in features_df_raw.columns if c not in numeric_df.columns and c not in all_nan_cols]
-
-        # --- Assign outputs to self ---
-        self.molecule_names = df[names_col].astype(str).tolist()
-
-        # Try numeric target coercion; if it fully fails, keep original (for classification labels)
+        # --- Assign outputs ---
+        if names_from_index:
+            self.molecule_names = df.index.astype(str).tolist()
+            names_label = "<index>"
+        else:
+            self.molecule_names = df[names_col].astype(str).tolist()
+            names_label = names_col
         target_series_numeric = pd.to_numeric(df[target_col], errors="coerce")
         self.target_vector = target_series_numeric if not target_series_numeric.isna().all() else df[target_col]
-
         self.features_df = numeric_df
-        self.features_list = self.features_df.columns.tolist()
+        self.features_list = numeric_df.columns.tolist()
 
         # --- Summary ---
         summary = {
-            "path": os.path.abspath(csv_path),
-            "names_column": names_col,
+            "path": path_used,
+            "names_column": names_label,
             "target_column": target_col,
             "n_rows": df.shape[0],
             "n_features_total": n_features_total,
-            "n_features_kept_numeric": self.features_df.shape[1],
+            "n_features_kept_numeric": numeric_df.shape[1],
             "dropped_non_numeric_cols": dropped_non_numeric,
             "dropped_all_nan_cols": all_nan_cols,
             "dropped_smiles_like_cols": dropped_smiles_like_cols,
             "dropped_user_columns": dropped_user_columns,
         }
 
-        # Optional: log to GUI if available
-        app = getattr(self, "app", None)
-        msg_lines = [
-            f"Loaded CSV: {summary['path']}",
-            f"Names column: {summary['names_column']}  |  Target column: {summary['target_column']}",
-            f"Rows: {summary['n_rows']}",
-            f"Features (total → kept numeric): {summary['n_features_total']} → {summary['n_features_kept_numeric']}",
-        ]
-        if dropped_smiles_like_cols:
-            msg_lines.append(f"Dropped SMILES-like columns: {dropped_smiles_like_cols}")
-        if dropped_user_columns:
-            msg_lines.append(f"Dropped user-specified columns: {dropped_user_columns}")
-        if dropped_non_numeric:
-            msg_lines.append(f"Dropped non-numeric columns: {dropped_non_numeric}")
-        if all_nan_cols:
-            msg_lines.append(f"Dropped all-NaN columns after coercion: {all_nan_cols}")
+        # --- Output/log ---
+        msg = (
+            f"Processed {'DataFrame' if path_used is None else os.path.basename(path_used)}\n"
+            f"Names column: {names_label} | Target: {target_col}\n"
+            f"Rows: {df.shape[0]} | Features: {n_features_total} → {numeric_df.shape[1]}"
+        )
+        for key, lst in {
+            "SMILES-like": dropped_smiles_like_cols,
+            "User-specified": dropped_user_columns,
+            "Non-numeric": dropped_non_numeric,
+            "All-NaN": all_nan_cols,
+        }.items():
+            if lst:
+                msg += f"\nDropped {key} cols: {lst}"
 
-        final_msg = "\n".join(msg_lines)
+        app = getattr(self, "app", None)
         if app:
             try:
-                app.show_result(final_msg)
+                app.show_result(msg)
             except Exception:
-                print(final_msg)
+                print(msg)
         else:
-            print(final_msg)
+            print(msg)
 
         return summary
 
@@ -880,7 +932,7 @@ class LinearRegressionModel:
             )
 
             # 3) Visualization decision
-            visualize = True  # default if no app
+            visualize = False  # default if no app
             if app is not None:
                 visualize = messagebox.askyesno(
                     title="Visualize Correlated Features?",
@@ -1159,8 +1211,11 @@ class LinearRegressionModel:
             n_top_features (int, optional): Number of top features to display.
         """
         model= self.model
-
-        analyze_shap_values(model, X, feature_names=feature_names, target_name=target_name, n_top_features=n_top_features, plot=plot, dir=dir)
+        
+        sample_names = self.molecule_names if hasattr(model, 'molecule_names') else None
+        save_dir =self.paths.png_dir if hasattr(model, 'paths') and hasattr(self.paths, 'png_dir') else dir
+        print(f"Saving SHAP plots to: {save_dir}, sample names: {sample_names}")
+        analyze_shap_values(model, X, feature_names=feature_names, sample_names=sample_names, target_name=target_name, n_top_features=n_top_features, plot=plot, dir=save_dir)
 
     def calculate_q2_and_mae(
         self,
@@ -1576,6 +1631,7 @@ class LinearRegressionModel:
         if not results.empty:
             print_models_regression_table(results, app, self)
 
+        self.results=results
 
         return results
 
@@ -1671,7 +1727,8 @@ class ClassificationModel:
         self.ordinal = ordinal
         self.app=app
         name=name = os.path.splitext(os.path.basename(self.csv_filepaths.get('features_csv_filepath')))[0]
-
+        
+        self.setup_random_seeds()
         self.paths = prepare_run_dirs(
             base_dir="runs",
             dataset_name=name,
@@ -1730,6 +1787,66 @@ class ClassificationModel:
             self.model = OrdinalLogisticRegression()
         else:    
             self.model = LogisticRegression(solver='lbfgs', random_state=42)
+
+
+    def setup_random_seeds(self) -> None:
+        """
+        Set random seeds across Python, NumPy, and optionally PyTorch 
+        to ensure reproducible results. Also stores a `self.random_state`
+        attribute for use in other methods.
+        """
+        self.random_state = 42
+        # Python built-in
+        random.seed(self.random_state)
+
+        # NumPy
+        np.random.seed(self.random_state)
+
+        # Make Python hash-based operations deterministic
+        os.environ["PYTHONHASHSEED"] = str(self.random_state)
+
+    def load_results(self, sort_key: str = "mcfadden_r2", ascending: bool = False):
+        """
+        Load all CSV results from the run's tables directory into DataFrames,
+        optionally sorting them by a metric (default: McFadden's R²).
+
+        Parameters
+        ----------
+        sort_key : str
+            Column name to sort by (default 'mcfadden_r2').
+        ascending : bool
+            Sort order. Default False = best (highest values first).
+
+        Returns
+        -------
+        results_dict : dict[str, pd.DataFrame]
+            Mapping {filename (no extension): DataFrame}.
+        """
+        results_dict = {}
+        for csv_file in os.listdir(self.paths.db):
+            if not csv_file.endswith(".csv"):
+             
+                continue
+            print(f"Loading results from {csv_file}...")
+            try:
+                full_path = self.paths.db / csv_file
+                print(f"  Full path: {full_path}")
+                df = pd.read_csv(full_path)
+                print(f"  {len(df)} rows, columns: {list(df.columns)}, head:\n{df.head(2)}")
+                if sort_key in df.columns:
+                    df = df.sort_values(by=sort_key, ascending=ascending).reset_index(drop=True)
+                else:
+                    print(f"⚠️ Column '{sort_key}' not found in {csv_file.name}, returning unsorted.")
+                results_dict[csv_file.stem] = df
+            except Exception as e:
+                print(f"❌ Failed to load {csv_file}: {e}")
+
+        for df in results_dict.values():
+            df.drop(columns=['threshold', 'model', 'predictions'], errors='ignore', inplace=True)
+
+        return results_dict
+
+
 
     def compute_correlation(self, correlation_threshold=0.8, vif_threshold=None):
         app = self.app
@@ -1943,81 +2060,81 @@ class ClassificationModel:
         print(f"Remaining samples:  {self.molecule_names}")
         
     def process_features_csv(
-        self,
-        drop_columns: Optional[Union[str, List[str]]] = None,
-        drop_smiles: bool = True,
+    self,
+    drop_columns: Optional[Union[str, List[str]]] = None,
+    drop_smiles: bool = True,
     ) -> dict:
         """
-        Load a features CSV and robustly initialize:
-        - self.molecule_names : list[str]
-        - self.target_vector  : pd.Series
-        - self.features_df    : pd.DataFrame (numeric-only, deduplicated)
-        - self.features_list  : list[str]
+        Load and process a features dataset from:
+        - a CSV file path (string),
+        - a dict with key 'features_csv_filepath',
+        - or an in-memory pandas DataFrame.
 
-        Extras
-        ------
-        - drop_smiles: if True, drop common SMILES-like columns (e.g., 'smiles',
-        'canonical_smiles', 'random_smiles') if present.
-        - drop_columns: column name or list of names to drop (case-insensitive).
-        If None, will also look for `self.drop_columns` attribute.
+        Initializes:
+            - self.molecule_names : list[str]
+            - self.target_vector  : pd.Series
+            - self.features_df    : pd.DataFrame (numeric-only, deduplicated)
+            - self.features_list  : list[str]
 
-        Assumptions
-        -----------
-        - self.csv_filepaths['features_csv_filepath'] points to a readable CSV.
-        - self.y_value is the target column name (case-insensitive allowed).
-        - If self.names_column is provided, it is used as the ID/name column; otherwise
-        the function will try common name columns, or fall back to the first column.
+        Parameters
+        ----------
+        drop_columns : str or list[str], optional
+            Additional columns to drop (case-insensitive).
+        drop_smiles : bool, default=True
+            Drop SMILES-like columns if found.
 
         Returns
         -------
         dict
-            {
-                "path": str,
-                "names_column": str,
-                "target_column": str,
-                "n_rows": int,
-                "n_features_total": int,
-                "n_features_kept_numeric": int,
-                "dropped_non_numeric_cols": list[str],
-                "dropped_all_nan_cols": list[str],
-                "dropped_smiles_like_cols": list[str],
-                "dropped_user_columns": list[str],
-            }
+            Summary of processing steps.
         """
         import os
         import pandas as pd
         import numpy as np
 
-        # --- Validate inputs ---
-        if not hasattr(self, "csv_filepaths") or not isinstance(self.csv_filepaths, dict):
-            raise AttributeError("`self.csv_filepaths` must be a dict containing 'features_csv_filepath'.")
+        # --- Load from file path OR from existing DataFrame ---
+        csv_source = getattr(self, "csv_filepaths", None)
 
-        csv_path = self.csv_filepaths.get("features_csv_filepath")
-        if not csv_path or not os.path.exists(csv_path):
-            raise FileNotFoundError(f"CSV not found at: {csv_path!r}")
+        if csv_source is None:
+            raise AttributeError(
+                "`self.csv_filepaths` must be set to a CSV path, a dict, or a pandas DataFrame."
+            )
 
+        if isinstance(csv_source, pd.DataFrame):
+            df = csv_source.copy()
+            path_used = None
+        elif isinstance(csv_source, dict):
+            csv_path = csv_source.get("features_csv_filepath")
+            if not csv_path or not os.path.exists(csv_path):
+                raise FileNotFoundError(f"CSV not found at: {csv_path!r}")
+            df = pd.read_csv(csv_path)
+            path_used = os.path.abspath(csv_path)
+        elif isinstance(csv_source, str):
+            if not os.path.exists(csv_source):
+                raise FileNotFoundError(f"CSV not found at: {csv_source!r}")
+            df = pd.read_csv(csv_source)
+            path_used = os.path.abspath(csv_source)
+        else:
+            raise TypeError("`self.csv_filepaths` must be a str, dict, or DataFrame.")
+
+        if df.empty:
+            raise ValueError("The provided dataset is empty.")
+
+        # --- Target and drop setup ---
         y_value = getattr(self, "y_value", None)
         if y_value is None:
             raise AttributeError("`self.y_value` must be set to the target column name.")
 
-        # Allow passing drop list via attribute if not provided
         if drop_columns is None and hasattr(self, "drop_columns"):
             drop_columns = getattr(self, "drop_columns")
 
-        # Normalize drop_columns to list[str]
         if isinstance(drop_columns, str):
             drop_columns = [drop_columns]
         elif drop_columns is None:
             drop_columns = []
 
-        # --- Read CSV ---
-        df = pd.read_csv(csv_path)
-        if df.empty:
-            raise ValueError(f"CSV at {csv_path!r} is empty.")
-
-        # --- Helpers ---
+        # --- Helper functions ---
         def _case_insensitive_find(col_name: str, columns: pd.Index):
-            """Return the actual column name matching col_name (case-insensitive), or None."""
             lc = str(col_name).lower()
             for c in columns:
                 if str(c).lower() == lc:
@@ -2025,13 +2142,12 @@ class ClassificationModel:
             return None
 
         def _resolve_many(names: List[str], columns: pd.Index) -> List[str]:
-            """Resolve a list of desired names to actual column names present (case-insensitive)."""
             resolved = []
             for n in names:
                 hit = _case_insensitive_find(n, columns)
                 if hit is not None:
                     resolved.append(hit)
-            return list(dict.fromkeys(resolved))  # dedupe, keep order
+            return list(dict.fromkeys(resolved))  # dedupe
 
         def _first_match(candidates: List[str], columns: pd.Index):
             for c in candidates:
@@ -2040,7 +2156,7 @@ class ClassificationModel:
                     return hit
             return None
 
-        # --- Resolve names (ID) column ---
+        # --- Resolve name and target columns ---
         provided_names_col = getattr(self, "names_column", None)
         name_candidates = ["name", "names", "molecule", "molecule_name", "mol", "compound", "sample", "id"]
 
@@ -2048,30 +2164,25 @@ class ClassificationModel:
             names_col = _case_insensitive_find(provided_names_col, df.columns)
             if names_col is None:
                 raise KeyError(
-                    f"names_column {provided_names_col!r} not found (case-insensitive). "
-                    f"Available: {list(df.columns)}"
+                    f"names_column {provided_names_col!r} not found. Available: {list(df.columns)}"
                 )
         else:
-            names_col = _first_match(name_candidates, df.columns)
-            if names_col is None:
-                # Fall back to the first column
-                names_col = df.columns[0]
+            names_col = _first_match(name_candidates, df.columns) or df.columns[0]
 
-        # --- Resolve target column (case-insensitive) ---
         target_col = _case_insensitive_find(y_value, df.columns)
         if target_col is None:
             raise KeyError(
-                f"Target column {y_value!r} not found (case-insensitive). "
-                f"Available: {list(df.columns)}"
+                f"Target column {y_value!r} not found. Available: {list(df.columns)}"
             )
 
-        # --- Build initial features dataframe (drop ID + target) ---
+        # --- Build features DataFrame ---
         cols_to_drop = {names_col, target_col}
         features_df_raw = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
         n_features_total = features_df_raw.shape[1]
 
-        # --- Drop SMILES-like columns if requested ---
-        dropped_smiles_like_cols: List[str] = []
+        dropped_smiles_like_cols, dropped_user_columns = [], []
+
+        # Drop SMILES-like columns
         if drop_smiles:
             smiles_candidates = ["smiles", "canonical_smiles", "random_smiles"]
             smiles_to_drop = _resolve_many(smiles_candidates, features_df_raw.columns)
@@ -2079,76 +2190,68 @@ class ClassificationModel:
                 features_df_raw = features_df_raw.drop(columns=smiles_to_drop)
                 dropped_smiles_like_cols.extend(smiles_to_drop)
 
-        # --- Drop user-specified columns (case-insensitive) ---
-        dropped_user_columns: List[str] = []
+        # Drop user-specified columns
         if drop_columns:
             resolved_user_cols = _resolve_many(drop_columns, features_df_raw.columns)
             if resolved_user_cols:
                 features_df_raw = features_df_raw.drop(columns=resolved_user_cols)
                 dropped_user_columns.extend(resolved_user_cols)
 
-        # Deduplicate identical column names (keep first occurrence)
+        # Deduplicate columns
         features_df_raw = features_df_raw.loc[:, ~features_df_raw.columns.duplicated()]
 
-        # --- Coerce to numeric (keep only numeric columns) ---
+        # --- Coerce to numeric ---
         coerced = features_df_raw.apply(pd.to_numeric, errors="coerce")
-        # Columns that became all-NaN after coercion (likely non-numeric)
         all_nan_cols = [c for c in coerced.columns if coerced[c].isna().all()]
-        # Keep only numeric columns with at least one non-NaN value
         numeric_df = coerced.drop(columns=all_nan_cols, errors="ignore").select_dtypes(include=[np.number])
+        dropped_non_numeric = [
+            c for c in features_df_raw.columns if c not in numeric_df.columns and c not in all_nan_cols
+        ]
 
-        # Prepare diagnostics for "non-numeric" drop:
-        dropped_non_numeric = [c for c in features_df_raw.columns if c not in numeric_df.columns and c not in all_nan_cols]
-
-        # --- Assign outputs to self ---
+        # --- Assign outputs ---
         self.molecule_names = df[names_col].astype(str).tolist()
-
-        # Try numeric target coercion; if it fully fails, keep original (for classification labels)
         target_series_numeric = pd.to_numeric(df[target_col], errors="coerce")
         self.target_vector = target_series_numeric if not target_series_numeric.isna().all() else df[target_col]
-
         self.features_df = numeric_df
-        self.features_list = self.features_df.columns.tolist()
+        self.features_list = numeric_df.columns.tolist()
 
         # --- Summary ---
         summary = {
-            "path": os.path.abspath(csv_path),
+            "path": path_used,
             "names_column": names_col,
             "target_column": target_col,
             "n_rows": df.shape[0],
             "n_features_total": n_features_total,
-            "n_features_kept_numeric": self.features_df.shape[1],
+            "n_features_kept_numeric": numeric_df.shape[1],
             "dropped_non_numeric_cols": dropped_non_numeric,
             "dropped_all_nan_cols": all_nan_cols,
             "dropped_smiles_like_cols": dropped_smiles_like_cols,
             "dropped_user_columns": dropped_user_columns,
         }
 
-        # Optional: log to GUI if available
-        app = getattr(self, "app", None)
-        msg_lines = [
-            f"Loaded CSV: {summary['path']}",
-            f"Names column: {summary['names_column']}  |  Target column: {summary['target_column']}",
-            f"Rows: {summary['n_rows']}",
-            f"Features (total → kept numeric): {summary['n_features_total']} → {summary['n_features_kept_numeric']}",
-        ]
-        if dropped_smiles_like_cols:
-            msg_lines.append(f"Dropped SMILES-like columns: {dropped_smiles_like_cols}")
-        if dropped_user_columns:
-            msg_lines.append(f"Dropped user-specified columns: {dropped_user_columns}")
-        if dropped_non_numeric:
-            msg_lines.append(f"Dropped non-numeric columns: {dropped_non_numeric}")
-        if all_nan_cols:
-            msg_lines.append(f"Dropped all-NaN columns after coercion: {all_nan_cols}")
+        # --- Output/log ---
+        msg = (
+            f"Processed {'DataFrame' if path_used is None else os.path.basename(path_used)}\n"
+            f"Names column: {names_col} | Target: {target_col}\n"
+            f"Rows: {df.shape[0]} | Features: {n_features_total} → {numeric_df.shape[1]}"
+        )
+        for key, lst in {
+            "SMILES-like": dropped_smiles_like_cols,
+            "User-specified": dropped_user_columns,
+            "Non-numeric": dropped_non_numeric,
+            "All-NaN": all_nan_cols,
+        }.items():
+            if lst:
+                msg += f"\nDropped {key} cols: {lst}"
 
-        final_msg = "\n".join(msg_lines)
+        app = getattr(self, "app", None)
         if app:
             try:
-                app.show_result(final_msg)
+                app.show_result(msg)
             except Exception:
-                print(final_msg)
+                print(msg)
         else:
-            print(final_msg)
+            print(msg)
 
         return summary
 
@@ -2684,6 +2787,7 @@ class ClassificationModel:
                 app.show_result(df_lo.to_markdown(tablefmt="pipe", index=False))
             else:
                 print(df_lo.to_markdown(tablefmt="pipe", index=False))
+        self.results=results
 
         return results
 

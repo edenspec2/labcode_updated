@@ -879,4 +879,3 @@ def resolve_db_path(db_path_arg: Union[str, Path],
     if db_dir is not None:
         return str((db_dir / dbfile).resolve())
     return str(Path(dbfile).resolve())
-

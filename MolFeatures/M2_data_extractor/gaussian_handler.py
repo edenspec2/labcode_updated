@@ -51,7 +51,7 @@ def feather_file_handler(feather_file: str) -> List[Any]:
         try:
             ev = pd.DataFrame({'energy': [float(data.get('energy', [None])[0])]})
         except Exception as e:
-            print(f"Error extracting energy value: {e}")
+            # print(f"Error extracting energy value: {e}")
             ev = pd.DataFrame({'energy': [None]})
 
         # Charges
@@ -109,7 +109,7 @@ def feather_file_handler(feather_file: str) -> List[Any]:
         try:
             ev = pd.DataFrame({'energy': [float(data.iloc[1, 1])]})
         except Exception as e:
-            print(f"Error extracting energy value: {e}")
+            # print(f"Error extracting energy value: {e}")
             ev = pd.DataFrame({'energy': [None]})
 
         # Extract charge DataFrames
@@ -192,10 +192,13 @@ def save_to_feather(
 
     # Energy
     ev_val = None
+    print(ev_df)
     if ev_df is not None and not ev_df.empty:
         try:
             ev_val = float(ev_df.iloc[0, 0])
-        except Exception:
+            # check if
+        except Exception as e:
+            # print(f"Error extracting energy value: {e}")
             ev_val = None
     ev_col = pd.Series([ev_val] * len(xyz), name="energy")
 

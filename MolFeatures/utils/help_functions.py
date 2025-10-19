@@ -1226,3 +1226,295 @@ def add_output_column_csv(csv_filepath, output_column_name, output_values):
     
     # Save the updated DataFrame back to the CSV file
     df.to_csv(csv_filepath)
+
+
+
+from typing import Dict, Iterable, Optional, Union, Literal
+
+import numpy as np
+import pandas as pd
+import json
+
+def save_input_json(entry_widgets, json_path):
+    data = {}
+    for question, entry in entry_widgets.items():
+        # Allow both Tkinter widgets and normal values
+        if hasattr(entry, "get"):  # Tkinter Entry, Combobox, etc.
+            value = entry.get()
+        else:
+            value = entry  # plain str, int, float, list, etc.
+
+        # Try to convert to int or float if possible
+        try:
+            if isinstance(value, str) and value.strip() != "":
+                if "." in value:
+                    value = float(value)
+                else:
+                    value = int(value)
+        except ValueError:
+            pass
+
+        data[question] = value
+
+    with open(json_path, "w") as f:
+        json.dump(data, f, indent=4)
+
+    print(f"Input saved to {json_path}")
+
+def _validate_and_build_maps(n: int, renumbering_dict: Dict[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Validate 1-based renumbering and build:
+    - old_to_new (0-based): index i (old) -> new index
+    - new_to_old (0-based): index j (new) -> old index (a permutation/order vector)
+    """
+    if not renumbering_dict:
+        # Identity
+        old_to_new = np.arange(n, dtype=int)
+        new_to_old = np.arange(n, dtype=int)
+        return old_to_new, new_to_old
+
+    # Basic checks
+    for k, v in renumbering_dict.items():
+        if not (isinstance(k, int) and isinstance(v, int)):
+            raise ValueError("renumbering_dict must map int→int (1-based).")
+        if not (1 <= k <= n and 1 <= v <= n):
+            raise ValueError(f"Mapping out of range: {k}->{v} for n={n}.")
+
+    # Ensure no duplicate targets
+    new_targets = list(renumbering_dict.values())
+    if len(set(new_targets)) != len(new_targets):
+        raise ValueError("renumbering_dict has duplicate target indices (non-bijective).")
+
+    # Build maps (0-based)
+    old_to_new = np.arange(n, dtype=int)          # default identity
+    for old1, new1 in renumbering_dict.items():
+        old_to_new[old1 - 1] = new1 - 1
+
+    # Invert map to get the permutation "order" (new_to_old)
+    # For positions not explicitly moved, identity holds.
+    new_to_old = np.empty(n, dtype=int)
+    new_to_old.fill(-1)
+    for old0, new0 in enumerate(old_to_new):
+        if new_to_old[new0] != -1:
+            # Should never happen after duplicate-target check
+            raise ValueError(f"Non-bijective mapping detected for new index {new0+1}.")
+        new_to_old[new0] = old0
+
+    # Safety: all filled?
+    if (new_to_old < 0).any():
+        raise ValueError("Incomplete inversion of mapping. Check renumbering_dict.")
+
+    return old_to_new, new_to_old
+
+
+def _reindex_like(obj: Union[pd.Series, pd.DataFrame], order: np.ndarray) -> Union[pd.Series, pd.DataFrame]:
+    """Reindex a Series/DataFrame (row-wise) by an integer order vector (0-based)."""
+    if hasattr(obj, "iloc"):
+        out = obj.iloc[order].copy()
+        out.index = range(len(out))  # normalize to 0..n-1
+        return out
+    raise TypeError(f"Unsupported type for reindexing: {type(obj)}")
+
+
+def _remap_bonds_df(bonds_df: pd.DataFrame, old_to_new: np.ndarray, assume_0_based: bool = True) -> pd.DataFrame:
+    """
+    Remap bonds (two integer columns) using old_to_new (0-based map).
+    If your bonds are 1-based, set assume_0_based=False.
+    """
+    out = bonds_df.copy()
+    cols = out.columns[:2]
+    if not assume_0_based:
+        # convert 1-based to 0-based, map, then back to 1-based
+        out[cols] = out[cols].astype(int) - 1
+        out[cols] = out[cols].applymap(lambda idx: int(old_to_new[idx]))
+        out[cols] = out[cols] + 1
+    else:
+        out[cols] = out[cols].astype(int)
+        out[cols] = out[cols].applymap(lambda idx: int(old_to_new[idx]))
+    return out
+
+
+
+
+MappingFormat = Literal[
+    "old_to_new_1b",  # dict/array maps old (1-based) -> new (1-based)
+    "old_to_new_0b",  # dict/array maps old (0-based) -> new (0-based)
+    "new_to_old_1b",  # dict/array maps new (1-based) -> old (1-based)
+    "new_to_old_0b",  # dict/array maps new (0-based) -> old (0-based)
+]
+
+def check_renumbering(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
+    mapping: Union[Dict[int, int], Iterable[int], np.ndarray],
+    *,
+    mapping_format: MappingFormat = "old_to_new_1b",
+    cols: Optional[Iterable[str]] = None,
+    atol: float = 1e-8,
+    rtol: float = 1e-5,
+    return_details: bool = True,
+) -> Union[bool, dict]:
+    """
+    Check that df_after is df_before permuted according to `mapping`.
+
+    Parameters
+    ----------
+    df_before, df_after : pd.DataFrame
+        Original and renumbered DataFrames (same number of rows).
+    mapping : dict or 1D array-like
+        A permutation mapping in one of the supported formats (see `mapping_format`).
+        Dict keys/values must be ints. Arrays must be length n and contain a permutation.
+    mapping_format : {'old_to_new_1b','old_to_new_0b','new_to_old_1b','new_to_old_0b'}
+        How to interpret `mapping`.
+    cols : iterable of str, optional
+        Columns to compare. Defaults to the intersection of columns in both DataFrames.
+    atol, rtol : float
+        Absolute/relative tolerances for float comparisons (np.allclose).
+    return_details : bool
+        If True, return a dict report. If False, return a boolean pass/fail.
+
+    Returns
+    -------
+    bool or dict
+        If return_details=False, True only if all chosen columns match under the permutation.
+        If return_details=True, returns a report with per-column mismatch stats.
+    """
+    # --- Basic shape checks ---
+    n_before = len(df_before)
+    n_after  = len(df_after)
+    if n_before != n_after:
+        out = {
+            "passed": False,
+            "reason": f"Row count mismatch: before={n_before}, after={n_after}",
+        }
+        return out if return_details else False
+    n = n_before
+
+    # --- Normalize mapping to arrays: old_to_new and new_to_old (0-based) ---
+    # Convert mapping to np.ndarray
+    if isinstance(mapping, dict):
+        # Build dense array
+        arr = np.full(n, -1, dtype=int)
+        for k, v in mapping.items():
+            if not (isinstance(k, int) and isinstance(v, int)):
+                raise ValueError("mapping dict must be int -> int")
+            arr_index = k - 1 if mapping_format.endswith("_1b") else k
+            arr_value = v - 1 if mapping_format.endswith("_1b") else v
+            if not (0 <= arr_index < n and 0 <= arr_value < n):
+                raise ValueError(f"Mapping out of range for n={n}: {k}->{v}")
+            arr[arr_index] = arr_value
+        # Fill unspecified entries with identity (if dict was partial)
+        mask = arr < 0
+        arr[mask] = np.arange(n, dtype=int)[mask]
+    else:
+        arr = np.asarray(mapping, dtype=int)
+        if arr.ndim != 1 or arr.size != n:
+            raise ValueError("mapping array must be 1D with length equal to number of rows")
+
+        # Convert to 0-based if needed
+        if mapping_format.endswith("_1b"):
+            if arr.min() < 1 or arr.max() > n:
+                raise ValueError("1-based mapping has values out of range")
+            arr = arr - 1
+
+    # Validate permutation property
+    # Determine whether `arr` is old_to_new or new_to_old based on mapping_format
+    if mapping_format.startswith("old_to_new"):
+        old_to_new = arr.copy()
+        # Invert
+        if len(np.unique(old_to_new)) != n:
+            raise ValueError("Mapping is not a bijection (duplicate targets in old_to_new).")
+        new_to_old = np.empty(n, dtype=int)
+        new_to_old[old_to_new] = np.arange(n, dtype=int)
+    else:
+        new_to_old = arr.copy()
+        if len(np.unique(new_to_old)) != n:
+            raise ValueError("Mapping is not a bijection (duplicate sources in new_to_old).")
+        old_to_new = np.empty(n, dtype=int)
+        old_to_new[new_to_old] = np.arange(n, dtype=int)
+
+    # Sanity: verify ranges
+    if not (np.array_equal(np.sort(old_to_new), np.arange(n)) and
+            np.array_equal(np.sort(new_to_old), np.arange(n))):
+        raise ValueError("Mapping must be a permutation of [0..n-1].")
+
+    # --- Reorder df_before to the order of df_after using new_to_old ---
+    # new_to_old[j] = i  means: row j in df_after equals row i in df_before
+    # so df_before.iloc[new_to_old] should line up with df_after (row-wise).
+    aligned_before = df_before.iloc[new_to_old].reset_index(drop=True)
+    aligned_after  = df_after.reset_index(drop=True)
+
+    # Choose columns to compare
+    if cols is None:
+        cols = [c for c in aligned_before.columns.intersection(aligned_after.columns)]
+    else:
+        cols = [c for c in cols if c in aligned_before.columns and c in aligned_after.columns]
+    if not cols:
+        out = {"passed": False, "reason": "No overlapping columns to compare."}
+        return out if return_details else False
+
+    # --- Compare column by column ---
+    per_col = {}
+    all_ok = True
+    for c in cols:
+        s1 = aligned_before[c]
+        s2 = aligned_after[c]
+
+        # Align dtypes where possible
+        # If both numeric → use allclose for floats, equality for ints
+        if pd.api.types.is_numeric_dtype(s1) and pd.api.types.is_numeric_dtype(s2):
+            # Promote to float for tolerance if any is float-like
+            if pd.api.types.is_float_dtype(s1) or pd.api.types.is_float_dtype(s2):
+                a = pd.to_numeric(s1, errors="coerce").to_numpy(dtype=float)
+                b = pd.to_numeric(s2, errors="coerce").to_numpy(dtype=float)
+                mask_nan = np.isnan(a) | np.isnan(b)
+                close = np.allclose(a[~mask_nan], b[~mask_nan], rtol=rtol, atol=atol)
+                stat = {
+                    "type": "float",
+                    "equal": bool(close and np.all(mask_nan == np.isnan(b))),
+                    "max_abs_diff": float(np.nanmax(np.abs(a - b))) if a.size else 0.0,
+                    "n_nan_mismatch": int(np.sum(np.isnan(a) ^ np.isnan(b))),
+                }
+                ok = stat["equal"]
+            else:
+                a = s1.to_numpy()
+                b = s2.to_numpy()
+                eq = (a == b)
+                stat = {
+                    "type": "int",
+                    "equal": bool(np.all(eq)),
+                    "n_mismatch": int((~eq).sum()),
+                }
+                ok = stat["equal"]
+        else:
+            # Fallback exact match for non-numeric/string/categorical
+            a = s1.astype("object").to_numpy()
+            b = s2.astype("object").to_numpy()
+            eq = (a == b)
+            # Treat NaNs as equal
+            nanmask = pd.isna(a) & pd.isna(b)
+            eq = np.where(nanmask, True, eq)
+            stat = {
+                "type": "object",
+                "equal": bool(np.all(eq)),
+                "n_mismatch": int((~eq).sum()),
+            }
+            ok = stat["equal"]
+
+        per_col[c] = stat
+        all_ok &= ok
+
+    if not return_details:
+        return bool(all_ok)
+
+    return {
+        "passed": bool(all_ok),
+        "n_rows": n,
+        "mapping_ok": True,
+        "mapping_summary": {
+            "format_interpreted": mapping_format,
+            "old_to_new_example": old_to_new[:min(10, n)].tolist(),
+        },
+        "columns_checked": list(cols),
+        "per_column": per_col,
+    }

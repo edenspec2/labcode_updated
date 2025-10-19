@@ -579,118 +579,128 @@ atom_colors = {
 }
 
 
-def plot_b1_visualization(rotated_plane, edited_coordinates_df, n_points=100, title="Rotated Plane Visualization"):
+from matplotlib.patches import ConnectionPatch
+
+def plot_b1_visualization(rotated_plane, edited_coordinates_df,
+                          n_points=100, title="Rotated Plane Visualization"):
     """
-    Visualize the rotated plane by plotting:
-      - Complete circles (each generated from a substituent),
-      - Dashed lines at extreme x and y values,
-      - Arrows for the four extreme directions (with the B1 arrow highlighted),
-      - A B5 arrow (the farthest point from the origin),
-      - An arc indicating the angle between the B1 and B5 arrows.
-    
-    Parameters
-    ----------
-    rotated_plane : np.array
-        Rotated plane points (stacked complete circles; shape: [n_total_points, 2]).
-    extended_df : pd.DataFrame
-        DataFrame with columns 'radius' and 'L' (used for annotations).
-    n_points : int, optional
-        Number of points per circle (default is 20).
-    title : str, optional
-        Title for the plot.
+    Improved visualization of B1/B5 analysis:
+      • Thin, crisp circles colored by atom identity
+      • Non-overlapping numeric labels with leader lines
+      • Highlighted B1/B5 arrows and angle arc
     """
-    # Compute extreme values from all points
-    max_x = np.max(rotated_plane[:, 0])
-    min_x = np.min(rotated_plane[:, 0])
-    max_y = np.max(rotated_plane[:, 1])
-    min_y = np.min(rotated_plane[:, 1])
+    atom_colors = {
+    'C': 'black', 'H': 'gray', 'O': 'red', 'N': 'blue', 'S': 'yellow',
+    'Cl': 'green', 'F': 'green', 'Br': 'brown', 'I': 'purple', 'P': 'orange'
+    }
+    # ------------------ Compute extremes ------------------
+    max_x, min_x = np.max(rotated_plane[:, 0]), np.min(rotated_plane[:, 0])
+    max_y, min_y = np.max(rotated_plane[:, 1]), np.min(rotated_plane[:, 1])
     avs = np.abs([max_x, min_x, max_y, min_y])
-    min_val = np.min(avs)
-    min_index = np.argmin(avs)
-    
-    # Determine B1 arrow coordinates based on the minimum extreme
-    if min_index == 0:
-        b1_coords = np.array([max_x, 0])
-    elif min_index == 1:
-        b1_coords = np.array([min_x, 0])
-    elif min_index == 2:
-        b1_coords = np.array([0, max_y])
-    else:
-        b1_coords = np.array([0, min_y])
-    
-    # Determine B5 as the farthest point from the origin
+    min_val, min_index = np.min(avs), np.argmin(avs)
+
+    # B1 arrow (the minimal extreme)
+    b1_coords = np.array([
+        (max_x, 0), (min_x, 0), (0, max_y), (0, min_y)
+    ][min_index])
+
+    # B5 arrow (farthest point)
     norms_sq = np.sum(rotated_plane**2, axis=1)
-    b5_index = np.argmax(norms_sq)
-    b5_point = rotated_plane[b5_index]
+    b5_idx = np.argmax(norms_sq)
+    b5_point = rotated_plane[b5_idx]
     b5_value = np.linalg.norm(b5_point)
-  
-    # Calculate angles for the arrows
-    angle_b1 = np.arctan2(b1_coords[1], b1_coords[0]) % (2 * np.pi)
-    angle_b5 = np.arctan2(b5_point[1], b5_point[0]) % (2 * np.pi)
+
+    # Angles
+    angle_b1 = np.arctan2(b1_coords[1], b1_coords[0]) % (2*np.pi)
+    angle_b5 = np.arctan2(b5_point[1], b5_point[0]) % (2*np.pi)
     angle_diff = abs(angle_b5 - angle_b1)
     if angle_diff > np.pi:
-        angle_diff = 2 * np.pi - angle_diff
+        angle_diff = 2*np.pi - angle_diff
     angle_diff_deg = np.degrees(angle_diff)
-    
-    plt.figure(figsize=(8, 8))
 
-    centers = [
-    (atom_idx, row['atom'], row['y'], row['z'], row['radius'])
-    for atom_idx, row in edited_coordinates_df.iterrows()
-]
-    # Plot complete circles.
+    # ------------------ Figure ------------------
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_aspect('equal')
+    ax.set_title(title, fontsize=13, fontweight='bold')
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+
+    # ------------------ Circles ------------------
     n_total = rotated_plane.shape[0]
     n_circles = n_total // n_points
+    centers = [
+        (idx, row['atom'], row['y'], row['z'], row['radius'])
+        for idx, row in edited_coordinates_df.iterrows()
+    ]
+
     for i in range(n_circles):
-        pts = rotated_plane[i * n_points:(i + 1) * n_points, :]
-        closed = np.vstack([pts, pts[0]])  # close circle
+        pts = rotated_plane[i*n_points:(i+1)*n_points, :]
+        closed = np.vstack([pts, pts[0]])
+
         atom_idx, atom_type, y0, z0, radius = centers[i]
         color = atom_colors.get(atom_type, 'black')
-        plt.plot(closed[:, 0], closed[:, 1], color=color, lw=2)
-        offset = 0  # no offset unless you want
-        mean_y, mean_z = pts.mean(axis=0)
-        plt.text(mean_y + offset, mean_z + offset, str(atom_idx),
-                 ha='center', va='center', fontsize=9, color='black')
-        
-    # Plot dashed extreme lines
-    plt.axvline(x=max_x, color='darkred', linestyle='dashed')
-    plt.axvline(x=min_x, color='darkred', linestyle='dashed')
-    plt.axhline(y=max_y, color='darkgreen', linestyle='dashed')
-    plt.axhline(y=min_y, color='darkgreen', linestyle='dashed')
-    
-    # Draw arrows for each extreme (all black except the B1 arrow highlighted)
-    arrow_colors = ['black'] * 4
-    arrow_colors[min_index] = '#8FBC8F'
-    plt.arrow(0, 0, max_x, 0, head_width=0.1, length_includes_head=True, color=arrow_colors[0])
-    plt.arrow(0, 0, min_x, 0, head_width=0.1, length_includes_head=True, color=arrow_colors[1])
-    plt.arrow(0, 0, 0, max_y, head_width=0.1, length_includes_head=True, color=arrow_colors[2])
-    plt.arrow(0, 0, 0, min_y, head_width=0.1, length_includes_head=True, color=arrow_colors[3])
-    
-    # Draw the B5 arrow in red
-    plt.arrow(0, 0, b5_point[0], b5_point[1], head_width=0.1, length_includes_head=True, color="#CD3333")
 
-    # Annotate B1 and B5 values
-    plt.text(b1_coords[0] * 0.5, b1_coords[1] * 0.5, f"B1\n{min_val:.2f}", 
-             fontsize=12, ha='center', va='bottom', fontweight='bold')
-    plt.text(b5_point[0] * 0.66, b5_point[1] * 0.66, f"B5\n{b5_value:.2f}", 
-             fontsize=12, ha='center', va='bottom', fontweight='bold')
-    
-    # Draw an arc between the B1 and B5 arrows to represent the angle difference.
-    arc_theta = np.linspace(min(angle_b1, angle_b5), max(angle_b1, angle_b5), 100)
-    arc_x = 0.5 * np.cos(arc_theta)
-    arc_y = 0.5 * np.sin(arc_theta)
-    plt.plot(arc_x, arc_y, color='gray', linewidth=1.5)
-    
-    # Annotate the angle in degrees at the midpoint of the arc.
+        # Thin circle outline
+        ax.plot(closed[:, 0], closed[:, 1],
+                color=color, lw=0.8, alpha=0.9, solid_joinstyle='round')
+
+        # Label slightly outside circle with connector line
+        mean_y, mean_z = pts.mean(axis=0)
+        vec = np.array([mean_y, mean_z])
+        norm = np.linalg.norm(vec)
+        if norm == 0: norm = 1e-5
+        offset = 0.25 * vec / norm
+        label_pos = vec + offset
+
+        ax.text(label_pos[0], label_pos[1], str(atom_idx),
+                ha='center', va='center', fontsize=8, fontweight='bold',
+                color='black', bbox=dict(boxstyle='circle,pad=0.2',
+                                         fc='white', ec='none', alpha=0.6))
+        # connector line
+        ax.add_patch(ConnectionPatch(xyA=(mean_y, mean_z),
+                                     xyB=(label_pos[0], label_pos[1]),
+                                     coordsA='data', coordsB='data',
+                                     arrowstyle='-',
+                                     lw=0.4, color=color, alpha=0.6))
+
+    # ------------------ Axes lines ------------------
+    ax.axvline(x=max_x, color='darkred', ls='dashed', lw=0.8, alpha=0.4)
+    ax.axvline(x=min_x, color='darkred', ls='dashed', lw=0.8, alpha=0.4)
+    ax.axhline(y=max_y, color='darkgreen', ls='dashed', lw=0.8, alpha=0.4)
+    ax.axhline(y=min_y, color='darkgreen', ls='dashed', lw=0.8, alpha=0.4)
+
+    # ------------------ B1 & B5 arrows ------------------
+    arrow_colors = ['black']*4
+    arrow_colors[min_index] = '#00A36C'   # highlight B1
+    # X extremes
+    ax.arrow(0, 0, max_x, 0, head_width=0.08, color=arrow_colors[0], length_includes_head=True)
+    ax.arrow(0, 0, min_x, 0, head_width=0.08, color=arrow_colors[1], length_includes_head=True)
+    # Y extremes
+    ax.arrow(0, 0, 0, max_y, head_width=0.08, color=arrow_colors[2], length_includes_head=True)
+    ax.arrow(0, 0, 0, min_y, head_width=0.08, color=arrow_colors[3], length_includes_head=True)
+
+    # B5 arrow
+    ax.arrow(0, 0, b5_point[0], b5_point[1],
+             head_width=0.08, color="#CD3333", length_includes_head=True, lw=1.2, alpha=0.9)
+
+    # Labels
+    ax.text(b1_coords[0]*0.55, b1_coords[1]*0.55, f"B1\n{min_val:.2f}",
+            fontsize=10, ha='center', va='bottom', fontweight='bold', color='#00A36C')
+    ax.text(b5_point[0]*0.65, b5_point[1]*0.65, f"B5\n{b5_value:.2f}",
+            fontsize=10, ha='center', va='bottom', fontweight='bold', color='#CD3333')
+
+    # ------------------ Angle arc ------------------
+    arc = np.linspace(min(angle_b1, angle_b5), max(angle_b1, angle_b5), 100)
+    arc_x, arc_y = 0.6*np.cos(arc), 0.6*np.sin(arc)
+    ax.plot(arc_x, arc_y, color='gray', lw=1.0, alpha=0.7)
     mid_angle = (min(angle_b1, angle_b5) + max(angle_b1, angle_b5)) / 2
-    plt.text(0.8 * np.cos(mid_angle), 0.8 * np.sin(mid_angle), f"{angle_diff_deg:.1f}°",
-             fontsize=12, ha='center', va='center', fontweight='bold')
-   
-    plt.title(title)
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.axis('equal')
+    ax.text(0.75*np.cos(mid_angle), 0.75*np.sin(mid_angle),
+            f"{angle_diff_deg:.1f}°", fontsize=9, color='gray',
+            ha='center', va='center', fontweight='bold')
+
+    ax.grid(alpha=0.15)
     plt.show()
+
 
 
 def generate_circle(center_x, center_y, radius, n_points=20):
