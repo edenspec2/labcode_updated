@@ -148,7 +148,7 @@ charge_diff = molset.get_charge_diff_df_dict([[1,2],[3,4]]) # type='all' by defa
 This convenience routine consumes text‑box‑like inputs (strings or widgets), parses them into lists of atom indices, runs the requested extractors, and returns a single **feature matrix** (`res_df`).
 
 ```python
-res = molset.get_molecules_features_set(entry_widgets={
+res = molset.get_molecules_features_set(entries={
     'Ring':        '[[8],[14]]',
     'Stretching':  '[[1,2],[3,4]]',
     'Bending':     '[[1,2],[3,4]]',
@@ -299,7 +299,7 @@ molset = Molecules("./mols", threshold=1.82)
 
 # Extract a compact, model‑ready feature set
 feat = molset.get_molecules_features_set(
-    entry_widgets={
+    entries={
         'Sterimol': '[[1,6],[3,4]]',
         'Stretching': '[[1,2],[3,4]]',
         'Bond-Angle': '[1,2,3]',
