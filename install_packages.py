@@ -90,9 +90,10 @@ def check_import(package_name):
         # Retry import
         try:
             __import__(mod_name)
-            print(f"✔ Imported successfully after install: {dist_name} (import as '{mod_name}')")
+            # print(f"✔ Imported successfully after install: {dist_name} (import as '{mod_name}')")
         except ImportError as e:
-            print(f"❌ Failed to import {dist_name} even after installation. Error: {e}")
+            # print(f"❌ Failed to import {dist_name} even after installation. Error: {e}")
+            pass
 
 def print_environment_info():
     """

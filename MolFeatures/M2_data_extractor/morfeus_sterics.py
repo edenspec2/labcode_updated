@@ -3,155 +3,167 @@ from typing import Iterable, Sequence, Optional, Dict, Any, Union
 import numpy as np
 
 
-def wrapper(mols):
-
-    results_list=[]
-    for mol in mols.molecules:
-        res=morfeus_sterics(
-            elements=mol.xyz_df['atom'].tolist(),
-            coordinates=mol.xyz_df[['x','y','z']].values,
-            metal_index=12,
-            cone_center_index=12,
-            excluded_atoms=None,
-            include_hs=True,
-            radius_first=3.5,
-            radius_second=5.5,
-            radii_type="crc",
-            radii_scale=1.17,
-            density=0.001,
-            z_axis_atoms=[12,5],
-            xz_plane_atoms=[11,4],
-            cone_method="libconeangle",
-        )
-        results_list.append(res)
-    return results_list
-
-def morfeus_sterics(
+def wrapper(
+    mols,
     *,
-    # geometry input (provide either `geometry_file` OR `elements`+`coordinates`)
-    geometry_file: Optional[str] = None,
-    elements: Optional[Iterable[Union[str, int]]] = None,
-    coordinates: Optional[Iterable[Iterable[float]]] = None,
-
-    # indices are 1-INDEXED per morfeus API
-    metal_index: int = 1,                  # center for buried volume
-    cone_center_index: Optional[int] = None,  # center for cone angle (e.g., donor atom). Defaults to `metal_index`.
-
-    # buried volume options
-    excluded_atoms: Optional[Sequence[int]] = None,  # atoms (1-indexed) to exclude besides metal
-    include_hs: bool = False,
-    radius_first: float = 3.5,             # “first-sphere” (Cavallo/SambVca default)
-    radius_second: float = 5.5,            # “second-sphere” (common choice; make it 5.0–5.5 as needed)
-    radii_type: str = "bondi",             # 'alvarez' | 'bondi' | 'crc' | 'truhlar'
+    # You can pass explicit 1-indexed atoms; if None, they’ll be inferred per molecule
+    metal_index: int | None = None,
+    cone_center_index: int | None = None,
+    z_axis_atoms: list[int] | None = None,   # [center, neighbor]
+    xz_plane_atoms: list[int] | None = None, # [center, second neighbor]
+    excluded_atoms=None,
+    include_hs: bool = True,
+    radius_first: float = 3.5,
+    radius_second: float = 5.5,
+    radii_type: str = "crc",
     radii_scale: float = 1.17,
-    density: float = 0.001,                # sphere point density (Å^3 per point)
-
-    # orientation (only needed if you want quadrants/octants & steric maps)
-    z_axis_atoms: Optional[Sequence[int]] = None,    # 1-indexed
-    xz_plane_atoms: Optional[Sequence[int]] = None,  # 1-indexed
-
-    # cone angle calc
-    cone_method: str = "libconeangle",     # 'libconeangle' (fast) or 'internal'
-) -> Dict[str, Any]:
+    density: float = 0.001,
+    cone_method: str = "libconeangle",
+):
     """
-    Returns a dict with:
-      - cone_angle_deg, cone_tangent_atoms (1-indexed)
-      - vbur_first_{fraction,percent,volume_A3,free_volume_A3}
-      - vbur_second_{fraction,percent,volume_A3,free_volume_A3}
-      - distal_volume_first_A3 (if computed), molecular_volume_first_A3
-      - (optional) quadrants_first, octants_first if orientation provided
+    Build morfeus steric descriptors for each molecule in `mols.molecules`.
+
+    Notes:
+    - morfeus expects 1-INDEXED atom indices.
+    - If any of metal_index / cone_center_index / z_axis_atoms / xz_plane_atoms are None
+      or out of range for a given molecule, they are inferred automatically:
+        - center = first heavy (non-H) atom, or atom #1 if all H
+        - z-axis neighbor = nearest heavy neighbor to center (by distance)
+        - xz-plane neighbor = second nearest heavy neighbor (distinct from z-axis neighbor)
     """
-    try:
-        from morfeus import read_xyz, BuriedVolume, ConeAngle
-    except Exception as e:
-        raise ImportError("morfeus must be installed and importable") from e
+    results_list = []
 
-    # Load geometry
-    if geometry_file is not None:
-        elements, coordinates = read_xyz(geometry_file)
-    if elements is None or coordinates is None:
-        raise ValueError("Provide `geometry_file` OR both `elements` and `coordinates`.")
+    for idx, mol in enumerate(mols.molecules, start=1):
+        try:
+            elements = mol.xyz_df["atom"].astype(str).tolist()
+            coords = mol.xyz_df[["x", "y", "z"]].to_numpy(dtype=float)
+            n_atoms = len(elements)
 
-    coordinates = np.asarray(coordinates, dtype=float)
-    if coordinates.ndim != 2 or coordinates.shape[1] != 3:
-        raise ValueError("`coordinates` must be (N, 3).")
+            def in_range(i: int | None) -> bool:
+                return i is not None and 1 <= int(i) <= n_atoms
 
-    # ---- Cone angle (center is usually the donor atom, *not* the metal) ----
-    if cone_center_index is None:
-        cone_center_index = metal_index
-    cone = ConeAngle(
-        elements, coordinates, cone_center_index,
-        radii_type="crc",   # CRC is ConeAngle default in morfeus
-        method=cone_method
-    )
-    cone_angle_deg = float(cone.cone_angle)
-    cone_tangent_atoms = list(cone.tangent_atoms)  # already 1-indexed
+            # --- auto-select center and neighbors when needed ---
+            # choose a center: first heavy atom (non-H), else atom 1
+            heavy = [i for i, a in enumerate(elements) if a.upper() != "H"]
+            center0 = heavy[0] if heavy else 0  # 0-based
+            auto_center = center0 + 1           # 1-based
 
-    # ---- Buried volume: first sphere ----
-    bv1 = BuriedVolume(
-        elements, coordinates, metal_index,
-        excluded_atoms=excluded_atoms, include_hs=include_hs,
-        radius=radius_first, radii_type=radii_type, radii_scale=radii_scale,
-        density=density, z_axis_atoms=z_axis_atoms, xz_plane_atoms=xz_plane_atoms
-    )
-    # Optional quadrant/octant + distal volume
-    if z_axis_atoms is not None:
-        bv1.octant_analysis()
-    try:
-        bv1.compute_distal_volume(method="buried_volume", octants=(z_axis_atoms is not None))
-    except Exception:
-        # distal volume is optional; ignore if not available
-        pass
+            m_idx = metal_index if in_range(metal_index) else auto_center
+            c_idx = cone_center_index if in_range(cone_center_index) else m_idx
+            c0 = int(c_idx) - 1  # 0-based for distance work
 
-    # ---- Buried volume: second sphere (larger radius) ----
-    bv2 = BuriedVolume(
-        elements, coordinates, metal_index,
-        excluded_atoms=excluded_atoms, include_hs=include_hs,
-        radius=radius_second, radii_type=radii_type, radii_scale=radii_scale,
-        density=density, z_axis_atoms=z_axis_atoms, xz_plane_atoms=xz_plane_atoms
-    )
+            def nearest_neighbors(center_zero_based: int, k: int = 3):
+                # returns a list of 0-based neighbor indices (excluding center), sorted by distance
+                d2 = np.sum((coords - coords[center_zero_based])**2, axis=1)
+                order = np.argsort(d2).tolist()
+                order = [i for i in order if i != center_zero_based]
+                return order[:k]
 
-    result: Dict[str, Any] = {
-        # Cone angle
-        "cone_angle_deg": cone_angle_deg,
-        "cone_tangent_atoms": cone_tangent_atoms,  # 1-indexed
+            # infer z-axis pair [center, neighbor]
+            if (
+                z_axis_atoms is None
+                or len(z_axis_atoms) != 2
+                or not all(in_range(i) for i in z_axis_atoms)
+                or z_axis_atoms[0] == z_axis_atoms[1]
+            ):
+                nn = nearest_neighbors(c0, k=1)
+                z_pair = [c_idx, (nn[0] + 1) if nn else c_idx]
+            else:
+                z_pair = [int(z_axis_atoms[0]), int(z_axis_atoms[1])]
 
-        # First-sphere buried volume (3.5 Å by default)
-        "vbur_first_fraction": float(bv1.fraction_buried_volume),
-        "vbur_first_percent": float(bv1.fraction_buried_volume * 100.0),
-        "vbur_first_volume_A3": float(bv1.buried_volume),
-        "free_volume_first_A3": float(bv1.free_volume),
-        "distal_volume_first_A3": getattr(bv1, "distal_volume", None),
-        "molecular_volume_first_A3": getattr(bv1, "molecular_volume", None),
+            # infer xz-plane pair [center, second neighbor distinct from z-axis neighbor]
+            if (
+                xz_plane_atoms is None
+                or len(xz_plane_atoms) != 2
+                or not all(in_range(i) for i in xz_plane_atoms)
+                or len(set(xz_plane_atoms)) < 2
+            ):
+                nn2 = nearest_neighbors(c0, k=2)
+                # choose a neighbor different from z_pair[1]
+                z_nb_0 = int(z_pair[1]) - 1
+                alt0 = next((j for j in nn2 if j != z_nb_0), (nn2[0] if nn2 else c0))
+                xz_pair = [c_idx, alt0 + 1]
+            else:
+                xz_pair = [int(xz_plane_atoms[0]), int(xz_plane_atoms[1])]
 
-        # Second-sphere buried volume (e.g., 5.5 Å)
-        "vbur_second_fraction": float(bv2.fraction_buried_volume),
-        "vbur_second_percent": float(bv2.fraction_buried_volume * 100.0),
-        "vbur_second_volume_A3": float(bv2.buried_volume),
-        "free_volume_second_A3": float(bv2.free_volume),
-    }
+            # --- call morfeus ---
+            res = morfeus_sterics(
+                elements=elements,
+                coordinates=coords,
+                metal_index=int(m_idx),
+                cone_center_index=int(c_idx),
+                excluded_atoms=excluded_atoms,
+                include_hs=include_hs,
+                radius_first=float(radius_first),
+                radius_second=float(radius_second),
+                radii_type=str(radii_type),
+                radii_scale=float(radii_scale),
+                density=float(density),
+                z_axis_atoms=[int(z_pair[0]), int(z_pair[1])],
+                xz_plane_atoms=[int(xz_pair[0]), int(xz_pair[1])],
+                cone_method=str(cone_method),
+            )
 
-    if hasattr(bv1, "quadrants"):
-        result["quadrants_first"] = bv1.quadrants
-    if hasattr(bv1, "octants"):
-        result["octants_first"] = bv1.octants
+        except Exception as e:
+            name = (
+                getattr(mol, "molecule_name", None)
+                or getattr(mol, "name", None)
+                or f"mol_{idx}"
+            )
+            print(f"[WARN] wrapper: failed for {name}: {e}")
+            # Return a minimal dict so downstream code keeps working
+            res = {
+                "cone_angle_deg": np.nan,
+                "vbur_first_percent": np.nan,
+                "vbur_second_percent": np.nan,
+                "vbur_first_volume_A3": np.nan,
+                "free_volume_first_A3": np.nan,
+                "vbur_second_volume_A3": np.nan,
+                "free_volume_second_A3": np.nan,
+                "donor_index_used": np.nan,
+                "donor_guess_used": False,
+            }
 
-    return result
+        results_list.append(res)
 
+    return results_list
 
 import re
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Any
 
-def morfeus_results_to_df(mols, sort_indices: bool = True) -> pd.DataFrame:
+def morfeus_results_to_df(
+    mols,
+    *,
+    sort_indices: bool = True,
+    # --- optional Sterimol integration ---
+    add_sterimol: bool = False,
+    sterimol_atoms=None,           # e.g., [12, 5, 11] (1-indexed) if you want to force the axis
+    sterimol_radii: str = "CPK",
+    sterimol_drop_atoms=None,
+    sterimol_kwargs=None,
+) -> pd.DataFrame:
     """
-    Build a tidy DataFrame from morfeus_sterics results.
+    Build a tidy DataFrame from morfeus_sterics results (wrapper(mols)).
     Index = molecule name (if available), else mol_#.
+
+    If add_sterimol=True, also computes Sterimol (B1, B5, L) per molecule via
+    Molecule.get_sterimol(...). If sterimol_atoms is None, tries to infer or falls back.
     """
+    if sterimol_kwargs is None:
+        sterimol_kwargs = {}
+    if sterimol_drop_atoms is None:
+        sterimol_drop_atoms = []
+
     rows = {}
-    oct_labels = ["+x+y+z","+x+y−z","+x−y+z","+x−y−z","−x+y+z","−x+y−z","−x−y+z","−x−y−z"]
+    # Use ASCII minus to avoid encoding issues
+    oct_labels = ["+x+y+z", "+x+y-z", "+x-y+z", "+x-y-z",
+                  "-x+y+z", "-x+y-z", "-x-y+z", "-x-y-z"]
+
+    # `wrapper(mols)` must exist in your module and return list of dicts
     results_list = wrapper(mols)
+
     for i, (mol, res) in enumerate(zip(mols.molecules, results_list), start=1):
         name = (
             getattr(mol, "name", None)
@@ -182,9 +194,9 @@ def morfeus_results_to_df(mols, sort_indices: bool = True) -> pd.DataFrame:
                 for k in ["Q1","Q2","Q3","Q4"]:
                     row[f"{k}_percent"] = float(q.get(k, np.nan))
             else:
-                q = list(q)
+                q_list = list(q)
                 for idx, k in enumerate(["Q1","Q2","Q3","Q4"]):
-                    row[f"{k}_percent"] = float(q[idx]) if idx < len(q) else np.nan
+                    row[f"{k}_percent"] = float(q_list[idx]) if idx < len(q_list) else np.nan
 
         # Octants (8 bins) if present
         o = res.get("octants_first", None)
@@ -193,9 +205,58 @@ def morfeus_results_to_df(mols, sort_indices: bool = True) -> pd.DataFrame:
                 for lab in oct_labels:
                     row[f"oct_{lab}_percent"] = float(o.get(lab, np.nan))
             else:
-                o = list(o)
+                o_list = list(o)
                 for idx, lab in enumerate(oct_labels):
-                    row[f"oct_{lab}_percent"] = float(o[idx]) if idx < len(o) else np.nan
+                    row[f"oct_{lab}_percent"] = float(o_list[idx]) if idx < len(o_list) else np.nan
+
+        # -------- Sterimol (optional) --------
+        if add_sterimol:
+            try:
+                base_atoms = None
+
+                # 1) If provided explicitly, use them (1-indexed expected)
+                if sterimol_atoms is not None:
+                    base_atoms = list(sterimol_atoms)
+
+                # 2) Else try to infer from your utilities, if available
+                if base_atoms is None:
+                    try:
+                        # optional: only if your project exposes it
+                        from MolFeatures.M2_data_extractor.extractor_utils.sterimol_utils import get_sterimol_indices
+                        base_atoms = get_sterimol_indices(mol.xyz_df, mol.bonds_df)
+                    except Exception:
+                        base_atoms = None
+
+                # 3) Fallback heuristic: pick a heavy atom + its nearest heavy neighbor
+                if base_atoms is None:
+                    try:
+                        df_xyz = mol.xyz_df
+                        coords = df_xyz[["x", "y", "z"]].to_numpy(float)
+                        atoms  = df_xyz["atom"].astype(str).tolist()
+                        heavy  = [i for i, a in enumerate(atoms) if a.upper() != "H"]
+                        if len(heavy) >= 2:
+                            i0 = heavy[0]
+                            d2 = np.sum((coords[heavy] - coords[i0])**2, axis=1)
+                            j0 = heavy[int(np.argsort(d2)[1])]  # 2nd is nearest neighbor
+                            base_atoms = [i0 + 1, j0 + 1]       # 1-indexed
+                        else:
+                            base_atoms = [1, 2]
+                    except Exception:
+                        base_atoms = [1, 2]
+
+                st_df = mol.get_sterimol(
+                    base_atoms,
+                    radii=sterimol_radii,
+                    sub_structure=True,
+                    drop_atoms=sterimol_drop_atoms or [],
+                    visualize_bool=None,
+                    mode="all",
+                    **(sterimol_kwargs or {})
+                )
+                row.update(_extract_sterimol_metrics(st_df))
+            except Exception as e:
+                row.update({"sterimol_B1": np.nan, "sterimol_B5": np.nan, "sterimol_L": np.nan})
+                print(f"[WARN] Sterimol failed for {name}: {e}")
 
         rows[name] = row
 
@@ -205,10 +266,50 @@ def morfeus_results_to_df(mols, sort_indices: bool = True) -> pd.DataFrame:
     if sort_indices:
         try:
             df = df.sort_index(
-                key=lambda idx: idx.map(lambda x: int(re.search(r"\d+", str(x)).group())
-                                        if re.search(r"\d+", str(x)) else float("inf"))
+                key=lambda idx: idx.map(
+                    lambda x: int(re.search(r"\d+", str(x)).group())
+                    if re.search(r"\d+", str(x)) else float("inf")
+                )
             )
         except Exception:
             pass
 
     return df
+
+
+
+
+
+def _extract_sterimol_metrics(st_df) -> Dict[str, float]:
+    """
+    Accepts the DataFrame returned by your Molecule.get_sterimol(...)
+    and returns a dict with B1, B5, L (robust to multiple rows/NaNs).
+    Policy:
+      - B1: min over rows
+      - B5: max over rows
+      - L : max over rows
+    """
+    import numpy as np
+    import pandas as pd
+
+    out = {"sterimol_B1": np.nan, "sterimol_B5": np.nan, "sterimol_L": np.nan}
+    if st_df is None or not hasattr(st_df, "columns"):
+        return out
+
+    # Some implementations return different shapes; standardize.
+    cols = set(map(str, st_df.columns))
+    get = lambda c: st_df[str(c)] if str(c) in cols else None
+
+    b1 = get("B1")
+    b5 = get("B5")
+    L  = get("L")
+
+    # Reduce to scalars if series exist
+    if b1 is not None and len(b1):
+        out["sterimol_B1"] = float(np.nanmin(pd.to_numeric(b1, errors="coerce").values))
+    if b5 is not None and len(b5):
+        out["sterimol_B5"] = float(np.nanmax(pd.to_numeric(b5, errors="coerce").values))
+    if L is not None and len(L):
+        out["sterimol_L"]  = float(np.nanmax(pd.to_numeric(L,  errors="coerce").values))
+
+    return out
