@@ -2005,7 +2005,7 @@ def save_fig_both(fig, pdf: PdfPages, outdir: str, stem: str, dpi: int = 300, ti
     # Build safe PNG path
     safe_stem = _slugify(stem, maxlen=120)
     png_path = _shorten_if_needed(outdir, safe_stem, ".png")
-    plt.show()
+
     # Save PNG with fallback strategies
     try:
         fig.canvas.draw()  # ensure render
@@ -2162,7 +2162,7 @@ def _add_summary_page(pdf, png_dir, base_name, folds_df, vif_df, coef_df, leftou
         ax_leftout.axis("off")
         ax_leftout.set_title("Left-out Predictions (none)", fontsize=12, pad=6)
 
-    plt.tight_layout()
+    # plt.tight_layout()
     save_fig_both(fig, pdf, png_dir, f"{base_name}__tables_summary")
 
 def _add_q2_scatter_page(pdf, png_dir, base_name, y, pred, names, folds_df, features, coef_df, r2_in, lig_types=None,leftout_pred_df=None):
@@ -2170,7 +2170,7 @@ def _add_q2_scatter_page(pdf, png_dir, base_name, y, pred, names, folds_df, feat
     print('predicitions,',leftout_pred_df)
     est = coef_df['Estimate'] if 'Estimate' in coef_df.columns else None
     fig_q2, ax_q2 = generate_q2_scatter_plot(y, pred, names, folds_df, features, est, r2_in, plot=True, dir=None, ligand_types=lig_types,leftout_pred_df=leftout_pred_df)
-    fig_q2.show()
+    plt.show()
     save_fig_both(fig_q2, pdf, png_dir, f"{base_name}__03_pred_vs_meas")
 
 def _add_violin_page(pdf, png_dir, base_name, model, features):
@@ -2181,7 +2181,8 @@ def _add_violin_page(pdf, png_dir, base_name, model, features):
     ax.set_ylabel("Feature Value", fontsize=12)
     ax.set_xlabel("Feature", fontsize=12)
     plt.xticks(rotation=30, ha="right")
-    plt.tight_layout()
+    # plt.tight_layout()
+    plt.show()
     save_fig_both(fig, pdf, png_dir, f"{base_name}__01_violin")
 
 def _add_shap_page(pdf, png_dir, base_name, model, features):
@@ -2294,7 +2295,7 @@ def run_single_combo_report(model, features, app=None, pdf_name=None, lig_types=
             results, _ = check_linear_regression_assumptions(X, y, dir="diag_plots", plot=True)
         except Exception as e:
             print("Error generating regression diagnostics plots:", e)
-            
+
     results_dict = {
         "pdf_path": pdf_path,
         "png_dir": png_dir,

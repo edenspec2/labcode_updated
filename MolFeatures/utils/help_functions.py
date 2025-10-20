@@ -1200,6 +1200,8 @@ def interactive_corr_heatmap_with_highlights(
 
     if show:
         fig.show()
+        plt.show()
+        
     return fig
 
 import matplotlib.pyplot as plt
