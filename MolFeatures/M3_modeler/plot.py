@@ -1590,14 +1590,14 @@ def _save_top5_pdf_regression(results: pd.DataFrame, model, pdf_path: str = "top
                 _footer(fig_fallback, left_text="MolFeatures • Q² scatter", page_num=page_counter)
                 pdf.savefig(fig_fallback, bbox_inches="tight"); plt.close(fig_fallback)
 
-            molecules_names = model.molecules_names
+            molecule_names = model.molecule_names
             # -------- PAGE 3+: SHAP analysis (optional) --------
             shap_res = _try(
                 lambda: analyze_shap_values(
                     model=model,
                     X=model.features_df[feats],
                     feature_names=feats,
-                    sample_names=molecules_names,
+                    sample_names=molecule_names,
                     target_name=getattr(model, "output_name", "target"),
                     n_top_features=min(10, len(feats)),
                     plot=True
@@ -1654,7 +1654,7 @@ def print_models_regression_table(results, app=None ,model=None):
 
         if app:
             messagebox.showinfo('Models List:',df.to_markdown(index=False, tablefmt="pipe"))
-            print(df.head().to_markdown(index=False, tablefmt="pipe"))
+            print(df.head().to_markdown(index=False, tablefmt="pipe"), 'Models results')
             selected_model = get_valid_integer('Select a model number: default is 0', 0)
             show_table_window('Models List:',df)
         else:
