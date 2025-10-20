@@ -69,7 +69,7 @@ def flatten_list(nested_list_arg: List[list]) -> List:
     return flat_list
 
 
-def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params=None):
+def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params=None ):
     """Creates a 3D plot of the molecule, bonds, and (optionally) dipole arrows."""
     atomic_radii = GeneralConstants.COVALENT_RADII.value
     cpk_colors = dict(
@@ -199,23 +199,24 @@ def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params
 
         return traces
 
-    def dipole_trace(dipole_df, origin_point, basis=None, scale=2.0):
+    def dipole_trace(dipole_df, origin_point, scale=None, coords_for_scale=None, show_components=True):
         """
-        Build Plotly 3D traces for dipole components anchored at the *real* origin.
+        Build Plotly 3D traces for dipole vectors anchored at a real-space origin.
 
         Parameters
         ----------
-        dipole_df : DataFrame
-            Row with columns ['dipole_x','dipole_y','dipole_z','total'] (total can be absent).
-            If these components are in the *new frame*, pass `basis` to convert them to world.
-        origin_point : array-like shape (3,)
-            The true origin (e.g., centroid of your origin set). Arrows start here.
-        basis : (3,3) array or None
-            Rows are unit X,Y,Z of the *new frame* expressed in world coordinates.
-            If provided, components are rotated back: world = basis.T @ new_components.
-            If None, components are assumed already in world coordinates.
-        scale : float
-            Visual scaling of arrow lengths.
+        dipole_df : pd.DataFrame
+            Must contain columns ['dipole_x','dipole_y','dipole_z'] in the SAME frame as the geometry.
+            Optionally, you can attach coordinates via `coords_for_scale` arg for auto-scaling.
+        origin_point : array-like (3,) or list/ndarray (N,) of ints (optional advanced)
+            If (3,) -> treated as xyz tail position directly.
+            If int or list of ints -> will compute centroid from coords_for_scale (requires it).
+        scale : float or None
+            Visual scale factor for arrow lengths. If None and coords_for_scale provided, auto-scales.
+        coords_for_scale : np.ndarray of shape (M,3) or None
+            Coordinates (same frame) used to estimate molecular span for auto-scaling.
+        show_components : bool
+            If True, also draw X/Y/Z components; otherwise only the total vector.
 
         Returns
         -------
@@ -223,82 +224,116 @@ def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params
         """
         traces = []
         if dipole_df is None or dipole_df.empty:
+            print("⚠️ dipole_df is empty or None.")
             return traces
 
+        import numpy as np
+        import plotly.graph_objects as go
+
         try:
-            # Pull [dx, dy, dz]; ignore total if present
+            # --- Extract dipole in current frame ---
             row = dipole_df.iloc[0]
-            vec = np.asarray([row.get('dipole_x', row[0]),
-                            row.get('dipole_y', row[1]),
-                            row.get('dipole_z', row[2])], dtype=float)
+            vec = np.array([
+                row.get("dipole_x", row[0]),
+                row.get("dipole_y", row[1]),
+                row.get("dipole_z", row[2]),
+            ], dtype=float)
+            if not np.all(np.isfinite(vec)):
+                raise ValueError("Dipole vector contains NaN/inf.")
+           
 
-            origin_point = np.asarray(origin_point, dtype=float)
-            if origin_point.shape != (3,):
-                raise ValueError("origin_point must be length-3 (x,y,z).")
-
-            # If vec is in NEW frame, convert to world. Also get axis directions in world.
-            if basis is not None:
-                B = np.asarray(basis, dtype=float)           # rows: x̂_world, ŷ_world, ẑ_world
-                # normalize rows defensively
-                B = np.vstack([b/np.linalg.norm(b) if np.linalg.norm(b) > 0 else b for b in B])
-                # total dipole in world
-                total_world = (B.T @ vec) * scale
-                # components along each *new-frame* axis expressed in world
-                compX = (vec[0] * scale) * B[0]
-                compY = (vec[1] * scale) * B[1]
-                compZ = (vec[2] * scale) * B[2]
+            # --- Resolve origin_point robustly ---
+            origin_point = np.asarray(origin_point)
+            if origin_point.ndim == 1 and origin_point.shape[0] == 3:
+                tail = origin_point.astype(float)
+            elif np.issubdtype(origin_point.dtype, np.integer):
+                # single index; need coords_for_scale to resolve
+                if coords_for_scale is None:
+                    raise ValueError("origin_point is index but coords_for_scale is None.")
+                tail = np.asarray(coords_for_scale, dtype=float)[int(origin_point)]
+            elif origin_point.ndim == 1 and origin_point.size > 3 and np.issubdtype(origin_point.dtype, np.integer):
+                # list of atom indices → centroid
+                if coords_for_scale is None:
+                    raise ValueError("origin_point is indices but coords_for_scale is None.")
+                tail = np.asarray(coords_for_scale, dtype=float)[origin_point].mean(axis=0)
             else:
-                # Already in world coordinates; components align with global XYZ
-                total_world = vec * scale
-                compX = np.array([vec[0] * scale, 0.0, 0.0])
-                compY = np.array([0.0, vec[1] * scale, 0.0])
-                compZ = np.array([0.0, 0.0, vec[2] * scale])
+                raise ValueError("origin_point must be xyz (3,) or atom index/indices with coords_for_scale provided.")
+            if tail.shape != (3,):
+                raise ValueError("Resolved origin_point (tail) must be shape (3,).")
+           
 
-            comps = [
-                (compX, 'red',    'Dipole X'),
-                (compY, 'green',  'Dipole Y'),
-                (compZ, 'blue',   'Dipole Z'),
-                (total_world, 'purple', 'Total Dipole'),
-            ]
+            # --- Auto scale if requested and possible ---
+            if scale is None:
+                if coords_for_scale is not None:
+                    coords_for_scale = np.asarray(coords_for_scale, dtype=float)
+                    span = float(np.ptp(coords_for_scale, axis=0).max())
+                    dip_mag = float(np.linalg.norm(vec))
+                    scale = ((span / dip_mag) * 0.3 if dip_mag > 0 else 1.0)*2  # ~30% of molecule span
+                    print(f"🧮 Auto-scale factor from coords_for_scale: span={span:.3f}, scale={scale:.3f}")
+                else:
+                    scale = 15.0
+                    print(f"ℹ️ Using default scale={scale:.1f}")
 
-            for vec_w, color, label in comps:
-                length = float(np.linalg.norm(vec_w))
-                if length < 1e-8:
+            # --- Build vectors (relative) ---
+            total_v = vec * scale
+            comps = []
+            if show_components:
+                comps.extend([
+                    (np.array([vec[0]*scale, 0.0, 0.0]), "red",   "Dipole X"),
+                    (np.array([0.0, vec[1]*scale, 0.0]), "green", "Dipole Y"),
+                    (np.array([0.0, 0.0, vec[2]*scale]), "blue",  "Dipole Z"),
+                ])
+            comps.append((total_v, "purple", "Total Dipole"))
+        
+
+            # --- Draw arrows ---
+            for v, color, label in comps:
+                L = np.linalg.norm(v)
+            
+                if L < 1e-10:
                     continue
+                end = tail + v
+                shaft_end = end - 0.15 * (end - tail) / L  # leave room for cone
 
-                tail = origin_point
-                end = tail + vec_w
-                # shorten shaft a bit so the cone head is visible
-                shaft_end = end - 0.15 * (end - tail) / length
-
-                # Shaft
+                # line
                 traces.append(go.Scatter3d(
                     x=[tail[0], shaft_end[0]],
                     y=[tail[1], shaft_end[1]],
                     z=[tail[2], shaft_end[2]],
-                    mode='lines',
-                    line=dict(color=color, width=8),
+                    mode="lines",
+                    line=dict(color=color, width=4),
                     name=label,
-                    showlegend=True
+                    showlegend=True,
                 ))
-
-                # Cone head (tip at `end`, pointing along vec_w)
+                # cone
                 traces.append(go.Cone(
                     x=[end[0]], y=[end[1]], z=[end[2]],
-                    u=[vec_w[0]], v=[vec_w[1]], w=[vec_w[2]],
-                    anchor='tip',
-                    sizemode='scaled',
+                    u=[v[0]], v=[v[1]], w=[v[2]],
+                    anchor="tip",
+                    sizemode="scaled",
                     sizeref=0.2,
                     showscale=False,
                     colorscale=[[0, color], [1, color]],
                     name=label,
-                    showlegend=False
+                    showlegend=False,
                 ))
+
+            # Optional: mark the tail for sanity
+            traces.append(go.Scatter3d(
+                x=[tail[0]], y=[tail[1]], z=[tail[2]],
+                mode="markers",
+                marker=dict(size=5, color="black", symbol="circle"),
+                name="Origin (tail)"
+            ))
+
+           
+            return traces
 
         except Exception as e:
             print(f"🔥 dipole_trace failed: {e!r}")
+            return traces
 
-        return traces
+
 
 
     annotations_idx = [
@@ -478,12 +513,28 @@ def compare_molecules(coordinates_df_list: List[pd.DataFrame],conformer_numbers:
         annotations_id_main += annotations_id
         updatemenus_list.append(updatemenus_main)
     # Set axis parameters
-    updatemenus=unite_updatemenus(updatemenus_list)
-    axis_params = dict(showgrid=False, showbackground=False, showticklabels=False, zeroline=False,
-                       titlefont=dict(color='white'))
-    # Set layout
-    layout = dict(scene=dict(xaxis=axis_params, yaxis=axis_params, zaxis=axis_params, annotations=annotations_id_main),
-                  margin=dict(r=0, l=0, b=0, t=0), showlegend=False, updatemenus=updatemenus)
+    updatemenus = unite_updatemenus(updatemenus_list)
+
+    axis_params = dict(
+        showgrid=True,               # show faint grid lines
+        showbackground=False,        # keep background clean
+        showticklabels=True,         # <--- make tick labels visible
+        zeroline=True,               # show zero lines
+        titlefont=dict(color='black', size=12),  # axis title style
+    )
+
+    # --- Layout ---
+    layout = dict(
+        scene=dict(
+            xaxis=dict(axis_params, title="X Axis"),
+            yaxis=dict(axis_params, title="Y Axis"),
+            zaxis=dict(axis_params, title="Z Axis"),
+            annotations=annotations_id_main
+        ),
+        margin=dict(r=0, l=0, b=0, t=30),
+        showlegend=True,             # optional: show trace labels
+        updatemenus=updatemenus,
+    )
     fig = go.Figure(data=data_main, layout=layout)
     fig.show()
     return fig

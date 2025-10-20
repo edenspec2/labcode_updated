@@ -23,9 +23,7 @@ import scipy.stats as stats
 from tqdm import tqdm
 from joblib import Parallel, delayed
 from scipy.stats import t
-from statsmodels.stats.stattools import durbin_watson
-from statsmodels.stats.diagnostic import het_breuschpagan
-from scipy.stats import shapiro, probplot
+
 # scikit-learn
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import (
@@ -361,48 +359,6 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
 
 
 
-def check_linear_regression_assumptions(X,y,dir=None,plot=False):
-    # Load data
-    # Fit linear regression model
-    model = sm.OLS(y, sm.add_constant(X)).fit()
-    residuals = model.resid
-    predictions = model.predict(sm.add_constant(X))
-
-    if plot:
-        print("\n----- Independence of Errors (Durbin-Watson) -----")
-        dw_stat = durbin_watson(residuals)
-        print(f"Durbin-Watson statistic: {dw_stat:.3f}")
-        if 1.5 < dw_stat < 2.5:
-            print("✅ No autocorrelation detected.")
-        else:
-            print("⚠️ Possible autocorrelation in residuals.")
-
-        print("\n----- Homoscedasticity (Breusch-Pagan Test) -----")
-        bp_test = het_breuschpagan(residuals, model.model.exog)
-        p_value_bp = bp_test[1]
-        print(f"Breusch-Pagan p-value: {p_value_bp:.3f}")
-        if p_value_bp > 0.05:
-            print("✅ Homoscedasticity assumed (good).")
-        else:
-            print("⚠️ Heteroscedasticity detected (bad).")
-
-        print("\n----- Normality of Errors (Shapiro-Wilk Test) -----")
-        shapiro_stat, shapiro_p = shapiro(residuals)
-        print(f"Shapiro-Wilk p-value: {shapiro_p:.3f}")
-        if shapiro_p > 0.05:
-            print("✅ Residuals appear normally distributed.")
-        else:
-            print("⚠️ Residuals may not be normally distributed.")
-
-        print("\n----- Normality of Errors (Q-Q Plot) -----")
-        plt.figure()
-        probplot(residuals, dist="norm", plot=plt)
-        plt.title('Q-Q plot of residuals')
-        plt.show()
-        if dir:
-            plt.savefig(os.path.join(dir, 'qq_plot_residuals.png'))
-    else:
-        return
 
 class PlotModel:
     def __init__(self, model):
@@ -484,10 +440,11 @@ class LinearRegressionModel:
                     self.process_target_csv(csv_filepaths.get('target_csv_filepath'))
         except Exception as e:
             self.process_features_csv(drop_columns=drop_columns)
+            self.features_df = self.features_df.dropna(axis=1)
 
             self.scaler = StandardScaler()
             self.original_features_df = self.features_df.copy()
-            self.features_df = self.features_df # pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+            self.features_df =  pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
             self.feature_names=self.features_df.columns.tolist()
             
             self.compute_correlation()
@@ -500,7 +457,9 @@ class LinearRegressionModel:
             self.X_b_train   = None
             self.sigma2      = None
             self.XtX_inv     = None
-        
+            
+        ## need to be preformed on the chosen model
+
         self.check_linear_regression_assumptions()
     
 

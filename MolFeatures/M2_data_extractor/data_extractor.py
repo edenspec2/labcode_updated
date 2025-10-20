@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     # Now you can import from the parent directory
     from gaussian_handler import feather_file_handler, save_to_feather
-    from MolAlign.renumbering import batch_renumbering
+    # from MolAlign.renumbering import batch_renumbering
     from utils import visualize
     from utils.help_functions import *
     from extractor_utils.sterimol_utils import *
@@ -26,7 +26,7 @@ try:
     
 except:
     from .gaussian_handler import feather_file_handler, save_to_feather
-    from ..MolAlign.renumbering import batch_renumbering
+    # from ..MolAlign.renumbering import batch_renumbering
     from ..utils import visualize
     from ..utils.help_functions import *
     from .extractor_utils.sterimol_utils import *
@@ -1020,27 +1020,37 @@ class Molecule:
         # Optional visualization
         if visualize_bool:
             try:
-                # Compute origin point as centroid of origin_set (support 1- or 0-based)
-                origin0 = _to0(origin_set)
-                coords = np.asarray(self.coordinates_array, dtype=float)
-                origin_point = coords[origin0].mean(axis=0)
+                # 1) Get transformed coords (LOCAL frame)
+                xyz_df = self.get_coordination_transformation_df([*origin_set, y_idx, plane_idx])
 
-                # If your transformer expects a flat list, pass [*origin_set, y, plane]
-                # otherwise fall back to raw xyz_df
+                # 2) Compute origin IN THE SAME FRAME AS xyz_df
+                if isinstance(xyz_df, (pd.DataFrame,)) and {"x", "y", "z"}.issubset(xyz_df.columns):
+                    origin_idx = _to0(origin_set)
+                    origin_point = xyz_df.loc[origin_idx, ["x", "y", "z"]].to_numpy().mean(axis=0)
+                else:
+                    # If the helper returns something else but is already centered → use (0,0,0)
+                    origin_point = np.zeros(3)
+
+                print(f"[DEBUG] Visualization origin point (LOCAL): {origin_point}")
+
+                # 3) (Nice-to-have) attach coords for auto-scaling downstream
                 try:
-                    xyz_df = self.get_coordination_transformation_df([*origin_set, y_idx, plane_idx])
+                    dipole_df.mol_coords = xyz_df[["x", "y", "z"]].to_numpy()
                 except Exception:
-                    xyz_df = getattr(self, "xyz_df", None)
+                    pass
 
+                # 4) Visualize: dipole_df is already in the same LOCAL frame → no basis needed
                 visualize.show_single_molecule(
                     molecule_name=self.molecule_name,
                     xyz_df=xyz_df,
                     dipole_df=dipole_df,
                     origin=origin_point
                 )
-            except Exception as e:
-                print(f"[visualize] Skipping visualization due to: {e}")
 
+            except Exception as e:
+                # Fallback disabled to avoid frame mismatches (local vs world)
+                print(f"[visualize] Skipping visualization (frame mismatch likely): {e}")
+                
         return dipole_df
 
 
@@ -1176,89 +1186,19 @@ class Molecule:
         # go over df to check if there are equal frequencies and remove them, saving the
         return vibration_df
         
-    # def get_ring_vibrations(self, ring_atom_indices: List[List[int]]) -> pd.DataFrame:
-    #     """
-    #     Parameters
-    #     ----------
-    #     ring_atom_indices :working example: molecule_1.get_ring_vibrations([6]) 
-            
-    #     enter a list of the primary axis atom and the para atom to it.
-    #     For example - for a ring of atoms 1-6 where 4 is connected to the main group and 1 is para to it
-    #     (ortho will be 3 & 5 and meta will be 2 & 6) - enter the input [1] or [1,4].
-            
-    #     Returns
-    #     -------
-    #     dataframe
-    #         cross  cross_angle      para  para_angle
-    #     0  657.3882    81.172063  834.4249   40.674833
-
-    #     """
-    #     try:
-
-    #         if isinstance(ring_atom_indices[0], list):
-    #             df_list = []
-    #             for atoms in ring_atom_indices:
-    #                 try:
-    #                     z, x, c, v, b, n = get_benzene_ring_indices(self.bonds_df, atoms)
-    #                     ring_atom_indices_group = [[z, x], [c, v], [b, n]]
-    #                     filtered_df = get_filtered_ring_df(self.info_df, self.coordinates_array, self.vibration_dict, ring_atom_indices_group)
-    #                 except FileNotFoundError:
-    #                     print(f"[ERROR] No vibration - Check atom numbering in molecule {self.molecule_name}")
-    #                     return None
-    #                 except Exception as e:
-    #                     print(f"[ERROR] Failed to process atom set {atoms} - {e}")
-    #                     #log_exception()
-    #                     continue
-
-    #                 df = calc_min_max_ring_vibration(filtered_df)
-    #                 df.rename(index={
-    #                     'cross': f'cross_{atoms}',
-    #                     'cross_angle': f'cross_angle{atoms}',
-    #                     'para': f'para{atoms}',
-    #                     'para_angle': f'para_angle_{atoms}'
-    #                 }, inplace=True)
-
-    #                 df_list.append(df)
-
-    #             if df_list:
-    #                 result = pd.concat(df_list, axis=0)
-
-    #                 return result
-    #             else:
-    #                 return None
-    #         else:
-    #             try:
-    #                 z, x, c, v, b, n = get_benzene_ring_indices(self.bonds_df, ring_atom_indices)
-    #                 ring_atom_indices_group = [[z, x], [c, v], [b, n]]
-    #             except Exception as e:
-    #                 print(f"[ERROR] Error in get_ring_vibrations (get_benzene_ring_indices): {e}")
-    #                 #log_exception()
-    #                 return None
-
-    #             try:
-    #                 filtered_df = get_filtered_ring_df(self.info_df, self.coordinates_array, self.vibration_dict, ring_atom_indices_group)
-    #             except FileNotFoundError:
-    #                 print(f"[ERROR] No vibration - Check atom numbering in molecule {self.molecule_name}")
-    #                 return None
-    #             except Exception as e:
-    #                 print(f"[ERROR] Error in get_ring_vibrations (get_filtered_ring_df): {e}")
-    #                 #log_exception()
-    #                 return None
-
-    #             result = calc_min_max_ring_vibration(filtered_df)
-    #             return result
-    #     except Exception as e:
-    #         print(f"[ERROR] Unexpected error in get_ring_vibrations for molecule {getattr(self, 'molecule_name', 'Unknown')}: {e}")
-    #         #log_exception()
-    #         return None
-
+    
     def get_ring_vibrations(
         self,
         ring_atom_indices: List[List[int]],
         *,
+        # NEW: thresholds (all optional, applied post-filter)
+        freq_min = None,
+        freq_max = None,
+        inten_min = None,
+        inten_max = None,
         return_nan_on_empty: bool = True,   # if True -> return a NaN row when filters empty
         verbose: bool = True,
-        **filter_kwargs,                    # passed through to get_filtered_ring_df if you add knobs later
+        **filter_kwargs,                    # still passed to get_filtered_ring_df
     ) -> pd.DataFrame:
         """
         Parameters
@@ -1267,14 +1207,62 @@ class Molecule:
             Either a single list like [1] or [1,4], or a list of such lists, e.g. [[1],[2,5],...].
             Example: molecule_1.get_ring_vibrations([6])
 
+        freq_min/freq_max : float or None
+            Optional min/max threshold for vibrational frequency (cm^-1).
+
+        inten_min/inten_max : float or None
+            Optional min/max threshold for vibrational intensity (a.u. or km/mol).
+
         Returns
         -------
         pd.DataFrame or None
             If multiple inputs: stacked rows per atom-set. Index is labeled (e.g., 'cross_[1, 4]').
             Columns: cross, cross_angle, para, para_angle (from calc_min_max_ring_vibration).
-            If filters produce no data and `return_nan_on_empty=True`, returns a single NaN row.
-            Otherwise returns None.
+            If filters (including thresholds) produce no data and `return_nan_on_empty=True`,
+            returns a single NaN row; otherwise returns None.
         """
+        import numpy as np
+        import pandas as pd
+
+        def _pick_col(df: pd.DataFrame, candidates: list[str]) -> str :
+            """Return the first column name present in df from candidates (or None)."""
+            for c in candidates:
+                if c in df.columns:
+                    return c
+            return None
+
+        def _apply_thresholds(df: pd.DataFrame) -> pd.DataFrame:
+            """Apply freq/intensity thresholds if provided; return filtered df."""
+            if df is None or getattr(df, "empty", False):
+                return df
+
+            # Try common column names
+            freq_col = _pick_col(df, ["frequency", "freq", "wavenumber", "wn"])
+            inten_col = _pick_col(df, ["intensity", "inten", "IR_intensity", "IR", "I"])
+
+            out = df
+            if freq_col is not None:
+                if freq_min is not None:
+                    out = out[out[freq_col] >= float(freq_min)]
+                if freq_max is not None:
+                    out = out[out[freq_col] <= float(freq_max)]
+
+            if inten_col is not None:
+                if inten_min is not None:
+                    out = out[out[inten_col] >= float(inten_min)]
+                if inten_max is not None:
+                    out = out[out[inten_col] <= float(inten_max)]
+
+            return out
+
+        def _nan_row(atom_set):
+            nan_row = pd.DataFrame(
+                [[np.nan, np.nan, np.nan, np.nan]],
+                columns=["cross", "cross_angle", "para", "para_angle"]
+            )
+            nan_row.rename(index={0: f"empty_{atom_set}"}, inplace=True)
+            return nan_row
+
         def _process_one(atom_set):
             # Resolve benzene partner indices
             try:
@@ -1285,7 +1273,7 @@ class Molecule:
                     print(f"[ERROR] get_benzene_ring_indices failed for {atom_set}: {e}")
                 return None
 
-            # Filter vibrations
+            # Filter vibrations (pre-existing filters via filter_kwargs)
             try:
                 filtered_df = get_filtered_ring_df(
                     self.info_df, self.coordinates_array, self.vibration_dict, ring_atom_indices_group,
@@ -1300,47 +1288,26 @@ class Molecule:
                     print(f"[ERROR] get_filtered_ring_df failed for {atom_set}: {e}")
                 return None
 
-            # Handle empty filters early
+            # NEW: apply min/max thresholds (freq/intensity)
+            filtered_df = _apply_thresholds(filtered_df)
+
+            # Handle empty after thresholds
             if filtered_df is None or getattr(filtered_df, "empty", False):
                 if verbose:
-                    print("No data within the specified thresholds. Adjust your thresholds.")
-                if return_nan_on_empty:
-                    # Build a NaN row with expected columns
-                    nan_row = pd.DataFrame(
-                        [[np.nan, np.nan, np.nan, np.nan]],
-                        columns=["cross", "cross_angle", "para", "para_angle"]
-                    )
-                    nan_row.rename(index={0: f"empty_{atom_set}"}, inplace=True)
-                    return nan_row
-                return None
+                    print("No Vibration data found within the specified thresholds. Adjust your thresholds.")
+                return _nan_row(atom_set) if return_nan_on_empty else None
 
             # Safe compute min/max summarization
             try:
-                df = calc_min_max_ring_vibration(filtered_df)
+                df = calc_min_max_ring_vibration(filtered_df, ring_atom_indices)
             except ValueError as e:
-                # e.g., argmin/argmax on empty after internal filtering
                 if verbose:
                     print(f"[WARN] Summary failed for {atom_set}: {e}")
-                if return_nan_on_empty:
-                    nan_row = pd.DataFrame(
-                        [[np.nan, np.nan, np.nan, np.nan]],
-                        columns=["cross", "cross_angle", "para", "para_angle"]
-                    )
-                    nan_row.rename(index={0: f"empty_{atom_set}"}, inplace=True)
-                    return nan_row
-                return None
+                return _nan_row(atom_set) if return_nan_on_empty else None
             except Exception as e:
                 if verbose:
                     print(f"[ERROR] calc_min_max_ring_vibration failed for {atom_set}: {e}")
                 return None
-
-            # Label rows nicely
-            # df.rename(index={
-            #     'cross': f'cross_{atom_set}',
-            #     'cross_angle': f'cross_angle_{atom_set}',
-            #     'para': f'para_{atom_set}',
-            #     'para_angle': f'para_angle_{atom_set}'
-            # }, inplace=True, errors='ignore')
 
             return df
 
@@ -1367,7 +1334,7 @@ class Molecule:
         except Exception as e:
             print(f"[ERROR] Unexpected error in get_ring_vibrations for molecule {getattr(self, 'molecule_name', 'Unknown')}: {e}")
             return None
-        
+
  
     
     def get_bend_vibration_single(self, atom_pair: List[int], threshold: float = 1300)-> pd.DataFrame:
@@ -1556,41 +1523,62 @@ class Molecules():
 
         return dict_to_horizontal_df(npa_dict)
 
-    def get_ring_vibration_dict(self,ring_atom_indices, threshold=1550):
+    def get_ring_vibration_dict(self, ring_atom_indices, freq_min=1550, freq_max=1700):
         """
         Parameters
         ----------
-        ring_atom_indices :working example: molecule_1.get_ring_vibrations([[8,11],[9,12]]) 
-            
-        enter a list of the primary axis atom and the para atom to it.
-        For example - for a ring of atoms 1-6 where 4 is connected to the main group and 1 is para to it
-        (ortho will be 3 & 5 and meta will be 2 & 6) - enter the input [1,4].
-            
+        ring_atom_indices : list
+            Can be a single list of indices [a, b] or a list of lists like [[a, b], [c, d]].
+            Example:
+                molecule_1.get_ring_vibrations([[8,11],[9,12]])
+
+        For example – for a ring of atoms 1–6 where atom 4 is connected to the main group
+        and 1 is para to it (ortho would be 3 & 5, meta would be 2 & 6),
+        you’d enter [1,4].
+
         Returns
         -------
-        dataframe
-        Results for LS1717_optimized:
-                              0
-        cross_[8, 11]       1666.188400
-        cross_angle[8, 11]    89.079604
-        para[8, 11]         1462.659400
-        para_angle_[8, 11]    20.657101
-        cross_[7, 10]       1666.188400
-        cross_angle[7, 10]    86.888386
-        para[7, 10]         1462.659400
-        para_angle_[7, 10]     8.628947
-
+        pd.DataFrame
+            Each molecule’s ring vibration data combined horizontally into one table.
         """
-        ring_dict={}
+        import traceback
+        import pandas as pd
+
+        ring_dict = {}
+
+        # normalize to list-of-lists
+        if not isinstance(ring_atom_indices, list):
+            ring_atom_indices = [ring_atom_indices]
+        if ring_atom_indices and not isinstance(ring_atom_indices[0], list):
+            ring_atom_indices = [ring_atom_indices]
+
         for molecule in self.molecules:
             try:
-                ring_dict[molecule.molecule_name]=molecule.get_ring_vibrations(ring_atom_indices)
+                combined_df_list = []
+
+                # iterate over multiple ring atom sets if given
+                for atom_set in ring_atom_indices:
+                    res = molecule.get_ring_vibrations(atom_set, freq_min=freq_min, freq_max=freq_max)
+                    if res is not None and not getattr(res, "empty", False):
+                        # name each subset by atom indices
+                        label = "-".join(map(str, atom_set))
+                        res.columns = [f"{col}_{label}" for col in res.columns]
+                        combined_df_list.append(res)
+
+                # concatenate all ring results for this molecule
+                if combined_df_list:
+                    ring_dict[molecule.molecule_name] = pd.concat(combined_df_list, axis=1)
+                else:
+                    ring_dict[molecule.molecule_name] = pd.DataFrame()
+
             except Exception as e:
-                print(f'Error: {molecule.molecule_name} ring vibration could not be processed: {e}')
+                print(f"Error: {molecule.molecule_name} ring vibration could not be processed: {e}")
                 traceback.print_exc()
-                pass
+                continue
+
         return dict_to_horizontal_df(ring_dict)
     
+
     def get_dipole_dict(self, atom_indices, visualize_bool: bool = False):
         """
         Returns a wide (horizontal) DataFrame aggregating dipole results for each molecule.
@@ -1867,33 +1855,36 @@ class Molecules():
         """
         Gathers user input from entry_widgets, applies parameters,
         extracts features, and optionally saves results to a file.
+        Includes NaN and duplicate-value diagnostics.
         """
         import pandas as pd
         import datetime
-        # add timestamp to filename
+        import numpy as np
+        import re
+        import os
+
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         if save_as:
             csv_file_name = f"{csv_file_name}_{timestamp}"
-        # 1. Prepare answers from GUI (robust to both widget.get() and prefilled strings)
+
+        # --- 1. GUI answers ---
         answers = {}
         if parameters is None:
             parameters = {'Radii': 'CPK', 'Isotropic': True}
+
         for param_name, entry in entry_widgets.items():
-            key = param_name.split()[0].lower().replace('-', '_')  # Normalize key
+            key = param_name.split()[0].lower().replace('-', '_')
             try:
                 answers[key] = entry.get()
             except AttributeError:
                 answers[key] = entry
 
-        # 2. Optional: update answers_list (currently unused)
         if answers_list is not None:
-            answers_list = answers_list  # (unused, consider removing or clarify usage)
+            answers_list = answers_list  # placeholder
 
-        # 3. Safe parameter extraction with default fallback
         radii = parameters.get('Radii', 'CPK')
         iso = parameters.get('Isotropic', True)
 
-        # 4. Convert all input values to standardized list-like structure
         for k, v in answers.items():
             if v != '':
                 if isinstance(v, str):
@@ -1907,15 +1898,13 @@ class Molecules():
 
         res_df = pd.DataFrame()
 
-        # 5. Processing: Use .get() to avoid KeyError
         def safe_concat(res_df, new_df):
-            """Helper to concatenate new_df horizontally, even if res_df is empty."""
             if res_df.empty:
                 return new_df
             else:
                 return pd.concat([res_df, new_df], axis=1)
 
-        # List of feature extraction steps as (key, handler function, *extra_args)
+        # --- 2. Feature extraction steps ---
         feature_steps = [
             ('ring', lambda a: self.get_ring_vibration_dict(a)),
             ('stretching', lambda a: self.get_stretch_vibration_dict(a, answers.get('stretch', [None])[0], answers.get('upper_stretch', [None])[0])),
@@ -1929,7 +1918,7 @@ class Molecules():
             ('bond_length', lambda a: self.get_bond_length_dict(a)),
         ]
 
-        # 6. Apply each step if the relevant input is present (and not empty)
+        # --- 3. Apply all extraction steps ---
         for key, handler in feature_steps:
             if answers.get(key):
                 try:
@@ -1937,32 +1926,25 @@ class Molecules():
                     res_df = safe_concat(res_df, new_df)
                 except Exception as e:
                     print(f"Error processing {key} for {getattr(self.molecules[0], 'molecule_name', 'unknown')}: {e}")
-                    # Optionally call log_exception(f"get_molecules_comp_set_app – {key}")
                     log_exception(f"get_molecules_comp_set_app – {key}")
                     continue
 
-        # 7. Add polarizability (isotropic) block
+        # --- 4. Polarizability & energy block ---
         if iso:
             try:
                 rows = []
                 for molecule in self.molecules:
                     info = pd.DataFrame(index=[molecule.molecule_name])
-
-                    # Try polarizability
                     try:
                         polar = molecule.polarizability_df.copy().iloc[[0]]
                         polar.index = [molecule.molecule_name]
                         info = polar
-                    except Exception as e:
+                    except Exception:
                         pass
-
-                    # Try energy
                     try:
-                        # print(f"Extracting energy - {getattr(molecule.energy_value, 'values', molecule.energy_value)}")
                         info["energy"] = molecule.energy_value.values
-                    except Exception as e:
+                    except Exception:
                         pass
-
                     rows.append(info)
 
                 if rows:
@@ -1970,32 +1952,61 @@ class Molecules():
                     polar_energy_concat = polar_energy_concat.dropna(axis=1, how='all')
                     polar_energy_concat = polar_energy_concat.reset_index().set_index('index')
                     res_df = safe_concat(res_df, polar_energy_concat)
-
             except Exception as e:
-                print(
-                    f"Error processing polarizability/Energy for this set: {e} - check feather file"
-                )
+                print(f"Error processing polarizability/Energy: {e}")
                 log_exception("get_molecules_comp_set_app – polarizability/energy")
 
-        # 8. Interactive analysis
+        # --- 5. Correlation analysis (optional visualization) ---
         interactive_corr_heatmap_with_highlights(res_df)
         correlation_table = show_highly_correlated_pairs(res_df, corr_thresh=0.8)
-        res_df=res_df.sort_index(ascending=False)
+
+        # --- 6. Post-processing diagnostics ---
+        print("\n===== Feature Integrity Diagnostics =====")
+
+        # (a) Check columns with NaN values
+        nan_cols = res_df.columns[res_df.isna().any()].tolist()
+        if nan_cols:
+            print(f"[!] Columns with missing (NaN) values ({len(nan_cols)}):")
+            for c in nan_cols:
+                missing_pct = res_df[c].isna().mean() * 100
+                print(f"    - {c} ({missing_pct:.1f}% missing)")
+        else:
+            print("[✓] No columns with NaN values.")
+
+        # (b) Check for identical or nearly identical columns
+        numeric_df = res_df.select_dtypes(include=[np.number])
+        duplicate_groups = []
+        corr = numeric_df.corr().abs()
+        corr.values[np.tril_indices_from(corr)] = np.nan  # <-- fixed line
+        near_dupes = corr.stack()[corr.stack() > 0.999].index.tolist()
+        
+        if near_dupes:
+            print(f"[!] Columns with nearly identical values (>0.999 correlation):")
+            for (a, b) in near_dupes:
+                print(f"    - {a}  ≈  {b}")
+        else:
+            print("[✓] No nearly identical numeric columns detected.")
+
+        print("========================================\n")
+
+        # --- 7. Save results if requested ---
+        res_df = res_df.sort_index(ascending=False)
         if save_as:
-            # organize res_df by the in in index if possible
             try:
                 res_df = res_df.sort_index(
-                key=lambda idx: idx.map(
-                    lambda x: int(re.search(r"\d+", x).group()) if re.search(r"\d+", x) else x
+                    key=lambda idx: idx.map(
+                        lambda x: int(re.search(r"\d+", x).group()) if re.search(r"\d+", x) else x
+                    )
                 )
-            )
-            except Exception as e:
+            except Exception:
                 pass
+
             res_df.to_csv(f"{csv_file_name}.csv", index=True)
             correlation_table.to_csv(f"{csv_file_name}_correlation_table.csv", index=True)
             print(f"Features saved to {csv_file_name}.csv and correlation table to {csv_file_name}_correlation_table.csv in {os.getcwd()}")
 
         return res_df
+
 
     def get_renumbering_dict(self):
         

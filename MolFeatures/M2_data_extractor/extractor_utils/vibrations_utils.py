@@ -548,33 +548,40 @@ def get_filtered_ring_df(info_df: pd.DataFrame,
 
 
 
-def calc_min_max_ring_vibration(filtered_df: pd.DataFrame) -> pd.DataFrame:
+def calc_min_max_ring_vibration(filtered_df: pd.DataFrame, ring_atom_indices: list) -> pd.DataFrame:
     """
-    Calculates the minimum and maximum vibration frequency and the angle between the vibration vector and the plane of the ring.
-
-    Parameters
-    ----------
-    filtered_df : pd.DataFrame
-        A filtered DataFrame from `get_filtered_ring_df`.
-
-    Returns
-    -------
-    df : pd.DataFrame
-        A DataFrame containing the minimum and maximum vibration frequency and the angle between the vibration vector and the plane of the ring.
+    Calculates the minimum and maximum vibration frequency and the angle between the vibration vector
+    and the plane of the ring, safely handling asin domain errors.
     """
-    # filtered_df['Product']=filtered_df['Product'].abs()
-    max_vibration_frequency = filtered_df.iloc[filtered_df[
-        XYZConstants.RING_VIBRATION_INDEX.value[2]].idxmin()][2]  
-    asin_max = math.asin(filtered_df[XYZConstants.RING_VIBRATION_INDEX.value[2]].min()) * (
-                180 / np.pi)
-    min_vibration_frequency = filtered_df.iloc[filtered_df[
-        XYZConstants.RING_VIBRATION_INDEX.value[2]].idxmax()][2]
-    asin_min = math.asin(filtered_df[XYZConstants.RING_VIBRATION_INDEX.value[2]].max()) * (
-                180 / np.pi)
-    df = pd.DataFrame((max_vibration_frequency, asin_max, min_vibration_frequency, asin_min),
-                      index=XYZConstants.RING_VIBRATION_COLUMNS.value)
-    
+    import math
+    import numpy as np
+    import pandas as pd
+
+    freq_col = XYZConstants.RING_VIBRATION_INDEX.value[2]
+
+    max_idx = filtered_df[freq_col].idxmin()
+    min_idx = filtered_df[freq_col].idxmax()
+
+    max_vibration_frequency = filtered_df.iloc[max_idx, 2]
+    min_vibration_frequency = filtered_df.iloc[min_idx, 2]
+
+    # ---- fix: safely clip the values to [-1, 1] before asin ----
+    def safe_asin(x):
+        return math.degrees(math.asin(float(np.clip(x, -1.0, 1.0))))
+
+    asin_max = safe_asin(filtered_df.iloc[max_idx, 2])
+    asin_min = safe_asin(filtered_df.iloc[min_idx, 2])
+
+    df = pd.DataFrame(
+        [(max_vibration_frequency, asin_max, min_vibration_frequency, asin_min)],
+        columns=XYZConstants.RING_VIBRATION_COLUMNS.value
+    )
+
+    df.columns = [f"{col}" for col in df.columns]
+
     return df
+
+
 
 ### bending vibration
 

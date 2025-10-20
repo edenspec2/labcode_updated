@@ -836,52 +836,81 @@ def charge_dict_to_horizontal_df(charge_data: dict) -> pd.DataFrame:
     return horizontal_df
 
 def dict_to_horizontal_df(data_dict):
+    """
+    Converts a dictionary of DataFrames or Series into a single horizontally concatenated DataFrame.
+    Each molecule (key) becomes one row; columns are dynamically generated from index and column names.
 
-    if data_dict is None:
-        print("Warning: Received None instead of a DataFrame in dict_to_horizontal_df.")
+    Handles inconsistent input types, numeric indices, and overlapping label names robustly.
+    """
+
+    import pandas as pd
+
+    # --- Safety checks ---
+    if data_dict is None or not isinstance(data_dict, dict):
+        print("[WARN] dict_to_horizontal_df: Expected dict, got None or wrong type.")
         return pd.DataFrame()
-    
+
     df_transformed = pd.DataFrame()
-    for mol, df in data_dict.items():
-        if isinstance(df, pd.Series):
-            df = df.to_frame().T  # Fix for inconsistent structure
-        
 
     for mol, df in data_dict.items():
+        if df is None:
+            print(f"[WARN] {mol}: received None, skipping.")
+            continue
+
+        # Convert Series to DataFrame
+        if isinstance(df, pd.Series):
+            df = df.to_frame().T
+
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            print(f"[WARN] {mol}: empty or invalid DataFrame, skipping.")
+            continue
+
         transformed_data = {}
-        if df is not None:
-            for index, row in df.iterrows():
-                
-                index_words = set(index.split('_'))
-                for col in df.columns:
-                    # Create a new key using the format: col_index
-                    try:
-                        col_words = set(col.split('_'))
-                    except:
-                        col_words = []
-                    # Check if the index and the column have the same words and remove one
-                    common_words = index_words.intersection(col_words)
-                    if col != 0 and '0':
-                        if common_words:
-                            unique_col_words = col_words - common_words
-                            unique_index_words = index_words - common_words
-                            new_key_parts = ['_'.join(common_words)] if common_words else []
-                            new_key_parts.extend([part for part in ['_'.join(unique_col_words), '_'.join(unique_index_words)] if part])
-                            new_key = '_'.join(new_key_parts)
-                        else:
-                            new_key = f"{col}_{index}"
-                    else:
-                        new_key = f"{index}"
-                    # Store the corresponding value in the transformed_data dictionary
+
+        # Iterate rows safely
+        for index, row in df.iterrows():
+            index_str = str(index).strip()  # <- prevents int.split() errors
+            try:
+                index_words = set(index_str.split('_'))
+            except Exception:
+                index_words = set()
+
+            for col in df.columns:
+                col_str = str(col).strip()
+                try:
+                    col_words = set(col_str.split('_'))
+                except Exception:
+                    col_words = set()
+
+                # Identify overlap
+                common_words = index_words.intersection(col_words)
+                if common_words:
+                    # Build minimal unique key
+                    unique_col = col_words - common_words
+                    unique_idx = index_words - common_words
+                    new_key_parts = list(common_words) + list(unique_col) + list(unique_idx)
+                    new_key = "_".join(filter(None, new_key_parts))
+                else:
+                    new_key = f"{col_str}_{index_str}"
+
+                # Store value
+                try:
                     transformed_data[new_key] = row[col]
-            # Convert the dictionary into a DataFrame row with the molecule name as the index
+                except Exception as e:
+                    print(f"[WARN] {mol}: failed on {new_key} -> {e}")
+
+        # Build DataFrame row for this molecule
+        if transformed_data:
             df_row = pd.DataFrame([transformed_data], index=[mol])
-            # Append the row to df_transformed
             df_transformed = pd.concat([df_transformed, df_row], ignore_index=False)
         else:
-            return pd.DataFrame()
-        
+            print(f"[INFO] {mol}: no valid transformed data.")
+
+    # Clean up duplicate columns (optional)
+    df_transformed = df_transformed.loc[:, ~df_transformed.columns.duplicated()].copy()
+
     return df_transformed
+
 
 
 
@@ -1055,58 +1084,116 @@ def extract_connectivity(xyz_df, threshold_distance=1.82, metal_atom='Pd'):
 
 import plotly.graph_objs as go
 from ipywidgets import interact, FloatSlider
+import plotly.io as pio
 
-def interactive_corr_heatmap_with_highlights(df, initial_threshold=0.9, highlight_thresh=0.95, cell_size=40, min_size=400, max_size=1200):
+def interactive_corr_heatmap_with_highlights(
+    df,
+    initial_threshold=0.9,
+    highlight_thresh=0.95,
+    cell_size=25,
+    min_size=300,
+    max_size=800,
+    *,
+    renderer=None,   # e.g. "notebook_connected", "vscode", "browser"
+    show=True
+):
     """
-    Interactive Plotly heatmap of the correlation matrix with a slider for the minimum absolute correlation.
-    Features that are in a highly correlated pair (|corr| > highlight_thresh) are marked with an asterisk (*).
+    Plotly correlation heatmap with a built-in slider to control min |r|.
+    Works in notebooks and non-notebook contexts (no ipywidgets needed).
     """
-    corr = df.corr()
+    # ---- Choose a renderer that works in current environment ----
+    try:
+        if renderer:
+            pio.renderers.default = renderer
+        else:
+            # If inside Jupyter, prefer notebook renderer; else fall back to browser
+            from IPython import get_ipython
+            ip = get_ipython()
+            if ip and 'IPKernelApp' in getattr(ip, 'config', {}):
+                pio.renderers.default = "notebook_connected"
+            else:
+                pio.renderers.default = "browser"
+    except Exception:
+        pio.renderers.default = "browser"
+
+    # ---- Use only numeric columns ----
+    num = df.select_dtypes(include=[np.number])
+    if num.shape[1] == 0:
+        print("No numeric columns to correlate.")
+        return None
+
+    # ---- Build correlation + ordering ----
+    corr = num.corr()
     order = corr.abs().sum().sort_values(ascending=False).index
     corr_sorted = corr.loc[order, order]
     n = len(order)
-    size = min(max(n * cell_size, min_size), max_size)
+    size = int(min(max(n * cell_size, min_size), max_size))
 
-    # Find features to highlight
+    # ---- Label features with '*' if they appear in any |r| > highlight_thresh pair ----
     highly_corr_features = set()
-    for i, feat_i in enumerate(order):
-        for j, feat_j in enumerate(order):
-            if i != j and abs(corr_sorted.iloc[i, j]) > highlight_thresh:
-                highly_corr_features.add(feat_i)
-                highly_corr_features.add(feat_j)
-    # Add asterisk to highly correlated features
-    labels = [
-        f"{name}{'' if name in highly_corr_features else ''}"
-        for name in order
-    ]
+    abs_corr = corr_sorted.abs().values
+    for i in range(n):
+        for j in range(n):
+            if i != j and abs_corr[i, j] > highlight_thresh:
+                highly_corr_features.add(order[i])
+                highly_corr_features.add(order[j])
+    labels = [f"{name}{'*' if name in highly_corr_features else ''}" for name in order]
 
-    def plot(threshold):
-        # Mask correlations below threshold and zeros
-        corr_display = corr_sorted.where(corr_sorted.abs() >= threshold)
-        corr_display = corr_display.where(corr_display != 0)
+    # ---- Helper to mask correlations below threshold ----
+    def masked_z(thr: float):
+        m = corr_sorted.where(corr_sorted.abs() >= thr)
+        m = m.where(m != 0)
+        return m.values
 
-        fig = go.Figure(
-            data=go.Heatmap(
-                z=corr_display.values,
-                x=labels,
-                y=labels,
-                colorscale='RdBu',
-                zmid=0,
-                colorbar=dict(title='Correlation'),
-                hovertemplate='Feature 1: %{y}<br>Feature 2: %{x}<br>Correlation: %{z:.3f}<extra></extra>'
-            )
+    # ---- Build figure with slider ----
+    thr_values = np.round(np.linspace(0.0, 1.0, 51), 2)  # 0.00 .. 1.00
+    # Initial heatmap
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=masked_z(initial_threshold),
+            x=labels,
+            y=labels,
+            colorscale="RdBu",
+            zmid=0,
+            colorbar=dict(title="Corr"),
+            hovertemplate=(
+                "Feature 1: %{y}<br>"
+                "Feature 2: %{x}<br>"
+                "r = %{z:.3f}<extra></extra>"
+            ),
         )
-        fig.update_layout(
-            title=f'Correlation Heatmap (|corr| ≥ {threshold})',
-            xaxis_nticks=n,
-            yaxis_nticks=n,
-            autosize=False,
-            width=size,
-            height=size,
-        )
+    )
+
+    # Slider steps: update the heatmap's 'z' only
+    steps = []
+    # Find which slider index is closest to initial_threshold
+    init_idx = int(np.argmin(np.abs(thr_values - initial_threshold)))
+    for t in thr_values:
+        steps.append(dict(
+            method="restyle",
+            args=[{"z": [masked_z(float(t))]}],
+            label=f"{t:.2f}"
+        ))
+
+    fig.update_layout(
+        title=f"Correlation Heatmap (|r| ≥ {initial_threshold:.2f})",
+        xaxis_nticks=n,
+        yaxis_nticks=n,
+        autosize=False,
+        width=size,
+        height=size,
+        margin=dict(l=30, r=30, t=50, b=30),
+        sliders=[dict(
+            active=init_idx,
+            currentvalue={"prefix": "Min |r| = "},
+            pad={"t": 10},
+            steps=steps
+        )]
+    )
+
+    if show:
         fig.show()
-
-    interact(plot, threshold=FloatSlider(min=0, max=1, step=0.01, value=initial_threshold, description='Threshold'))
+    return fig
 
 import matplotlib.pyplot as plt
 from scipy.stats import ks_2samp

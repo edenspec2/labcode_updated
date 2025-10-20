@@ -579,12 +579,16 @@ def save_to_feather(df, filename):
     string_report=f"Data saved to {feather_filename}\n"
     return string_report
 
-def logs_to_feather(dir_path):
+def logs_to_feather(dir_path, feather_dir = 'feather_files'):
+    """
+    Processes Gaussian log files in the given directory and saves them as Feather files.
+    Default place to save feather files is a subdirectory named 'feather_files'.
+    """
     string_report=''
     failed_files_string=None
     os.chdir(dir_path)
-    if not os.path.exists('feather_files'):
-        os.mkdir('feather_files')
+    if not os.path.exists(feather_dir):
+        os.mkdir(feather_dir)
 
     for file in os.listdir(dir_path):
         if file.endswith(".log"):

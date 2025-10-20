@@ -499,48 +499,81 @@ def preform_coordination_transformation(xyz_df, indices=None, origin=None):
 
 
 
-def direction_atoms_for_sterimol(bonds_df, base_atoms) -> list:  # help function for sterimol
+def direction_atoms_for_sterimol(bonds_df, base_atoms) -> list:
     """
-    A function that returns the base atom indices for coordination transformation according to the bonded atoms.
-    You can insert two atom indices - [1,2] output [1,2,8] or the second bonded atom
-    if the first one repeats - [1,2,1] output [1,2,3]
+    Return [origin, direction, third] for Sterimol coordinate setup.
+    - bonds_df: DataFrame with two columns (0,1), undirected bonds between integer atom indices.
+    - base_atoms: [origin, direction] or [origin, direction, third].
+       If third == origin, choose a neighbor of 'direction' different from origin.
+    Raises ValueError with a clear message if it can't determine 'third'.
     """
+    import pandas as pd
+
+    if not isinstance(bonds_df, pd.DataFrame) or not set(bonds_df.columns[:2]) >= {0, 1}:
+        raise ValueError("bonds_df must be a DataFrame with columns 0 and 1 listing bonds.")
     
-    base_atoms_copy=base_atoms[0:2]
-    origin, direction=base_atoms[0],base_atoms[1]
-    bonds_df = bonds_df[~((bonds_df[0] == origin) & (bonds_df[1] == direction)) & 
-                              ~((bonds_df[0] == direction) & (bonds_df[1] == origin))]
-    
-    try:
-        # Case: user explicitly repeated origin as 3rd atom
-        if base_atoms[2] == origin:
-            if any(bonds_df[0] == direction):
-                choice = bonds_df[bonds_df[0] == direction].iloc[1, 1]
-                base_atoms_copy.append(int(choice))
-                
-            else:
-                choice = bonds_df[bonds_df[1] == direction].iloc[1, 0]
-                base_atoms_copy.append(int(choice))
-                
-            return base_atoms_copy
-    except Exception as e:
-        pass
+    # if base atoms list of list do base_atoms=base_atoms[0]
+    if isinstance(base_atoms[0], list):
+        base_atoms=base_atoms[0]
 
-    # Otherwise, try to extend by looking for bonds involving direction
-    for _, row in bonds_df.iterrows():
-        if row[1] == direction:
-            base_atoms_copy.append(int(row[0]))
+    if len(base_atoms) < 2:
+        raise ValueError(f"base_atoms must contain at least two indices [origin, direction]; got: {base_atoms}")
 
-            return base_atoms_copy
+    # Normalize to ints
+    origin, direction = int(base_atoms[0]), int(base_atoms[1])
 
-    for _, row in bonds_df.iterrows():
-        if row[0] == direction:
-            base_atoms_copy.append(int(row[1]))
+    # Build neighbor sets
+    # neighbors(n): all atoms bonded to n (undirected)
+    col0, col1 = bonds_df[0].astype(int), bonds_df[1].astype(int)
+    nbr_dir = set(col1[col0 == direction].astype(int)).union(set(col0[col1 == direction].astype(int)))
+    nbr_org = set(col1[col0 == origin].astype(int)).union(set(col0[col1 == origin].astype(int)))
 
-            return base_atoms_copy
-    return None
+    # Helper to pick a 'third' atom:
+    def pick_third():
+        # Prefer neighbor of direction that is not origin
+        cand = [a for a in nbr_dir if a != origin]
+        if cand:
+            return int(cand[0])
+        # If direction is terminal (only bonded to origin), try neighbor of origin that is not direction
+        cand2 = [a for a in nbr_org if a != direction]
+        if cand2:
+            return int(cand2[0])
+        # Nothing usable
+        return None
 
+    # If user supplied a 3rd atom explicitly
+    if len(base_atoms) >= 3:
+        third = int(base_atoms[2])
+        if third == origin:
+            third = pick_third()
+            if third is None:
+                raise ValueError(
+                    f"Cannot determine third atom: 'direction'={direction} has no neighbor != origin={origin}, "
+                    f"and 'origin' has no neighbor != direction."
+                )
+            return [origin, direction, third]
+        else:
+            # If the provided third is bonded to direction, accept it; otherwise try to fix gracefully
+            if (third in nbr_dir) and (third != origin):
+                return [origin, direction, third]
+            # Try automatic pick if given third is not valid
+            auto = pick_third()
+            if auto is not None:
+                return [origin, direction, auto]
+            raise ValueError(
+                f"Provided third atom {third} is not bonded to 'direction'={direction}; "
+                f"also failed to auto-pick a neighbor."
+            )
 
+    # Only two atoms given → pick a third automatically
+    third = pick_third()
+    if third is None:
+        raise ValueError(
+            f"Cannot determine third atom from bonds: 'direction'={direction} neighbors={sorted(nbr_dir)}, "
+            f"'origin'={origin} neighbors={sorted(nbr_org)}."
+        )
+
+    return [origin, direction, third]
 
 
 
@@ -781,11 +814,14 @@ def get_sterimol_df(coordinates_df, bonds_df, base_atoms, connected_from_directi
             connected_from_direction = [old_to_new[a] for a in connected_from_direction if a in old_to_new]
     
     bonds_direction = adjust_indices(direction_atoms_for_sterimol(bonds_df, base_atoms))
+    if isinstance(base_atoms[0], list):
+        base_atoms=base_atoms[0]
+        # print(f'Debug! base_atoms adjusted to: {base_atoms}')
     # verify bonds direction is 3 atoms
     if len(bonds_direction) != 3:
         raise ValueError("Bonds direction must contain exactly 3 atoms, check molecule connectivity.")
     new_coordinates_df = preform_coordination_transformation(coordinates_df, bonds_direction)
-
+    
     if sub_structure:
         if connected_from_direction is None:
             connected_from_direction = get_molecule_connections(bonds_df, base_atoms[0], base_atoms[1], mode=mode)

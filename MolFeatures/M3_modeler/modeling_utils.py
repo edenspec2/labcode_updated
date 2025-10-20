@@ -12,6 +12,10 @@ from itertools import combinations
 import sqlite3
 import os 
 from typing import  List , Literal ,Union, Optional
+import statsmodels.api as sm
+from statsmodels.stats.stattools import durbin_watson
+from statsmodels.stats.diagnostic import het_breuschpagan
+from scipy.stats import shapiro, probplot
 
 def _add_drop_status(simi_table: pd.DataFrame, class_label, keep_pos, label_col_hint="Label"):
     df = simi_table.copy()
@@ -879,3 +883,256 @@ def resolve_db_path(db_path_arg: Union[str, Path],
     if db_dir is not None:
         return str((db_dir / dbfile).resolve())
     return str(Path(dbfile).resolve())
+
+import os
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+import matplotlib.pyplot as plt
+
+from statsmodels.stats.diagnostic import (
+    het_breuschpagan, het_white, het_goldfeldquandt,
+    acorr_breusch_godfrey, acorr_ljungbox, linear_rainbow, linear_harvey_collier
+)
+from statsmodels.stats.stattools import durbin_watson, jarque_bera
+from statsmodels.stats.diagnostic import normal_ad
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from scipy.stats import shapiro, probplot
+
+def check_linear_regression_assumptions(X, y, dir=None, plot=False, k_best=10):
+    """
+    Extended diagnostics for OLS assumptions and influence.
+    Returns a dict of test results and (optionally) writes plots to 'dir'.
+    """
+    # Ensure DataFrame for consistent column labels
+    X = pd.DataFrame(X).copy()
+    Xc = sm.add_constant(X)
+    model = sm.OLS(y, Xc).fit()
+    resid = model.resid
+    fitted = model.fittedvalues
+
+    results = {}
+
+    # === Linearity / specification ===
+    try:
+        reset = sm.stats.diagnostic.linear_reset(model, power=2, use_f=True)
+        results["RESET_F"], results["RESET_p"] = float(reset.fvalue), float(reset.pvalue)
+    except Exception:
+        results["RESET_F"], results["RESET_p"] = np.nan, np.nan
+
+    try:
+        rb = linear_rainbow(model)
+        results["Rainbow_F"], results["Rainbow_p"] = float(rb[0]), float(rb[1])
+    except Exception:
+        results["Rainbow_F"], results["Rainbow_p"] = np.nan, np.nan
+
+    try:
+        hc = linear_harvey_collier(model)
+        results["HarveyCollier_t"], results["HarveyCollier_p"] = float(hc[0]), float(hc[1])
+    except Exception:
+        results["HarveyCollier_t"], results["HarveyCollier_p"] = np.nan, np.nan
+
+    # === Normality ===
+    try:
+        jb_stat, jb_p, _, _ = jarque_bera(resid)
+        results["JarqueBera_stat"], results["JarqueBera_p"] = float(jb_stat), float(jb_p)
+    except Exception:
+        results["JarqueBera_stat"], results["JarqueBera_p"] = np.nan, np.nan
+
+    try:
+        ad_stat, ad_p = normal_ad(resid)
+        results["AndersonDarling_stat"], results["AndersonDarling_p"] = float(ad_stat), float(ad_p)
+    except Exception:
+        results["AndersonDarling_stat"], results["AndersonDarling_p"] = np.nan, np.nan
+
+    try:
+        sh_stat, sh_p = shapiro(resid)
+        results["Shapiro_stat"], results["Shapiro_p"] = float(sh_stat), float(sh_p)
+    except Exception:
+        results["Shapiro_stat"], results["Shapiro_p"] = np.nan, np.nan
+
+    # === Homoscedasticity ===
+    try:
+        bp = het_breuschpagan(resid, model.model.exog)
+        # (Lagrange multiplier stat, p-value, f-value, f p-value)
+        results["BP_LM"], results["BP_p"], results["BP_F"], results["BP_F_p"] = map(float, bp)
+    except Exception:
+        results["BP_LM"] = results["BP_p"] = results["BP_F"] = results["BP_F_p"] = np.nan
+
+    try:
+        w = het_white(resid, model.model.exog)
+        results["White_LM"], results["White_p"], results["White_F"], results["White_F_p"] = map(float, w)
+    except Exception:
+        results["White_LM"] = results["White_p"] = results["White_F"] = results["White_F_p"] = np.nan
+
+    try:
+        gq = het_goldfeldquandt(y, model.model.exog, alternative="two-sided")
+        # returns (F, pvalue, split)
+        results["GoldfeldQuandt_F"], results["GoldfeldQuandt_p"], results["GoldfeldQuandt_split"] = float(gq[0]), float(gq[1]), int(gq[2])
+    except Exception:
+        results["GoldfeldQuandt_F"] = results["GoldfeldQuandt_p"] = np.nan
+        results["GoldfeldQuandt_split"] = None
+
+    # === Autocorrelation ===
+    try:
+        results["DurbinWatson"] = float(durbin_watson(resid))
+    except Exception:
+        results["DurbinWatson"] = np.nan
+
+    try:
+        bg = acorr_breusch_godfrey(model, nlags=1)  # increase nlags if needed
+        # (LM stat, p-value, F stat, F p-value)
+        results["BG_LM"], results["BG_p"], results["BG_F"], results["BG_F_p"] = map(float, bg)
+    except Exception:
+        results["BG_LM"] = results["BG_p"] = results["BG_F"] = results["BG_F_p"] = np.nan
+
+    try:
+        lb = acorr_ljungbox(resid, lags=[5], return_df=True)
+        results["LjungBox_Q(5)"] = float(lb["lb_stat"].iloc[0])
+        results["LjungBox_p(5)"] = float(lb["lb_pvalue"].iloc[0])
+    except Exception:
+        results["LjungBox_Q(5)"] = results["LjungBox_p(5)"] = np.nan
+
+    try:
+        XtX = Xc.values.T @ Xc.values
+        results["ConditionNumber"] = float(np.linalg.cond(XtX))
+    except Exception:
+        results["ConditionNumber"] = np.nan
+
+    # === Influence & outliers ===
+    try:
+        infl = model.get_influence()
+        summ = infl.summary_frame()
+        # Cook's D, leverage (hat_diag), studentized residuals (student_resid), DFFITS, DFBETAS...
+        influence_df = summ[[
+            "cooks_d", "hat_diag", "student_resid", "dffits_internal", "cov_ratio"
+        ]].copy()
+        # DFBETAS as array -> add max |DFBETA| per obs for quick flagging
+        dfbetas = infl.dfbetas
+        influence_df["max_abs_dfbeta"] = np.abs(dfbetas).max(axis=1)
+
+        # Heuristics for flags
+        n, p = Xc.shape[0], Xc.shape[1] - 1
+        cooks_thresh = 4 / (n - p - 1) if n > p + 1 else np.inf
+        leverage_thresh = 2 * (p + 1) / n if n else np.inf
+
+        influence_df["flag_cooks"] = influence_df["cooks_d"] > cooks_thresh
+        influence_df["flag_leverage"] = influence_df["hat_diag"] > leverage_thresh
+        influence_df["flag_student_resid"] = np.abs(influence_df["student_resid"]) > 3
+        influence_df["flag_dffits"] = np.abs(influence_df["dffits_internal"]) > 2*np.sqrt((p+1)/n) if n else False
+        influence_df["flag_dfbetas"] = influence_df["max_abs_dfbeta"] > 2/np.sqrt(n) if n else False
+
+        results["influence_table"] = influence_df
+        results["influential_indices"] = influence_df[
+            influence_df.filter(like="flag_").any(axis=1)
+        ].index.tolist()
+    except Exception:
+        results["influence_table"] = None
+        results["influential_indices"] = []
+
+    # === Plots (optional) ===
+    if plot:
+        if dir and not os.path.isdir(dir):
+            os.makedirs(dir, exist_ok=True)
+
+        # Residuals vs fitted (scale-location style)
+        plt.figure()
+        plt.scatter(fitted, resid, alpha=0.7)
+        plt.axhline(0, ls="--")
+        plt.xlabel("Fitted values")
+        plt.ylabel("Residuals")
+        plt.title("Residuals vs Fitted")
+        if dir: plt.savefig(os.path.join(dir, "resid_vs_fitted.png"), dpi=200)
+        plt.show()
+
+        # Q-Q plot
+        plt.figure()
+        probplot(resid, dist="norm", plot=plt)
+        plt.title("Q-Q plot of residuals")
+        if dir: plt.savefig(os.path.join(dir, "qq_plot_residuals.png"), dpi=200)
+        plt.show()
+
+        # Scale-location plot (|studentized residuals| vs fitted)
+        try:
+            infl = model.get_influence()
+            stud = infl.resid_studentized_internal
+            plt.figure()
+            plt.scatter(fitted, np.sqrt(np.abs(stud)), alpha=0.7)
+            plt.xlabel("Fitted values")
+            plt.ylabel("sqrt(|Studentized residuals|)")
+            plt.title("Scale-Location")
+            if dir: plt.savefig(os.path.join(dir, "scale_location.png"), dpi=200)
+            plt.show()
+        except Exception:
+            pass
+
+        # Cook’s distance stem plot
+        try:
+            cooks = results["influence_table"]["cooks_d"].values
+            plt.figure()
+            markerline, stemlines, baseline = plt.stem(range(len(cooks)), cooks, use_line_collection=True)
+            plt.setp(markerline, markersize=4)
+            plt.xlabel("Observation")
+            plt.ylabel("Cook's distance")
+            plt.title("Influence: Cook's Distance")
+            if dir: plt.savefig(os.path.join(dir, "cooks_distance.png"), dpi=200)
+            plt.show()
+        except Exception:
+            pass
+
+    # === Robust SEs (optional summary) ===
+    try:
+        robust = model.get_robustcov_results(cov_type="HC3")
+        results["robust_summary"] = robust.summary().as_text()
+    except Exception:
+        results["robust_summary"] = None
+    # Peek key outputs:
+    print("RESET p:", results["RESET_p"])
+    print("White p:", results["White_p"])
+    print("BG (autocorr) p:", results["BG_p"])
+    print("Influential indices:", results["influential_indices"])
+    return results, model
+
+
+# def check_linear_regression_assumptions(X,y,dir=None,plot=False):
+#     # Load data
+#     # Fit linear regression model
+#     model = sm.OLS(y, sm.add_constant(X)).fit()
+#     residuals = model.resid
+#     predictions = model.predict(sm.add_constant(X))
+
+#     if plot:
+#         print("\n----- Independence of Errors (Durbin-Watson) -----")
+#         dw_stat = durbin_watson(residuals)
+#         print(f"Durbin-Watson statistic: {dw_stat:.3f}")
+#         if 1.5 < dw_stat < 2.5:
+#             print("✅ No autocorrelation detected.")
+#         else:
+#             print("⚠️ Possible autocorrelation in residuals.")
+
+#         print("\n----- Homoscedasticity (Breusch-Pagan Test) -----")
+#         bp_test = het_breuschpagan(residuals, model.model.exog)
+#         p_value_bp = bp_test[1]
+#         print(f"Breusch-Pagan p-value: {p_value_bp:.3f}")
+#         if p_value_bp > 0.05:
+#             print("✅ Homoscedasticity assumed (good).")
+#         else:
+#             print("⚠️ Heteroscedasticity detected (bad).")
+
+#         print("\n----- Normality of Errors (Shapiro-Wilk Test) -----")
+#         shapiro_stat, shapiro_p = shapiro(residuals)
+#         print(f"Shapiro-Wilk p-value: {shapiro_p:.3f}")
+#         if shapiro_p > 0.05:
+#             print("✅ Residuals appear normally distributed.")
+#         else:
+#             print("⚠️ Residuals may not be normally distributed.")
+
+#         print("\n----- Normality of Errors (Q-Q Plot) -----")
+#         plt.figure()
+#         probplot(residuals, dist="norm", plot=plt)
+#         plt.title('Q-Q plot of residuals')
+#         plt.show()
+#         if dir:
+#             plt.savefig(os.path.join(dir, 'qq_plot_residuals.png'))
+#     else:
+#         return

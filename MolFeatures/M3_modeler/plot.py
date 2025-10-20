@@ -28,13 +28,15 @@ from sklearn.tree import DecisionTreeClassifier
 import textwrap
 from matplotlib.table import Table
 from datetime import datetime
+import warnings
+warnings.filterwarnings("ignore", message="Glyph.*missing from font")
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from .modeling import fit_and_evaluate_single_combination_regression , fit_and_evaluate_single_combination_classification
-    from .modeling_utils import _normalize_combination_to_columns
+    from .modeling_utils import _normalize_combination_to_columns, check_linear_regression_assumptions
 except ImportError as e:
     from modeling import fit_and_evaluate_single_combination_regression , fit_and_evaluate_single_combination_classification
-    from modeling_utils import _normalize_combination_to_columns
+    from modeling_utils import _normalize_combination_to_columns, check_linear_regression_assumptions
 
 def show_table_window(title, df):
     """
@@ -317,11 +319,25 @@ def generate_q2_scatter_plot(
 
     # smaller & closer labels
     texts = []
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+
     for _, row in data.iloc[idx].iterrows():
-        t = ax.text(row["Measured"], row["Predicted"], row["Labels"],
-                    fontsize=label_fontsize, ha="center", va="bottom", color="black",
-                    path_effects=[pe.withStroke(linewidth=1.2, foreground="white", alpha=0.95)])
+        x, y_ = row["Measured"], row["Predicted"]
+
+        # Skip labels that would fall outside the visible range
+        if x < xlim[0] or x > xlim[1] or y_ < ylim[0] or y_ > ylim[1]:
+            continue
+
+        t = ax.text(
+            x, y_, row["Labels"],
+            fontsize=label_fontsize,
+            ha="center", va="bottom", color="black",
+            clip_on=True,
+            path_effects=[pe.withStroke(linewidth=1.2, foreground="white", alpha=0.95)]
+        )
         texts.append(t)
+
 
     # make them sit closer (reduced expansions/forces)
     try:
@@ -381,7 +397,7 @@ def generate_q2_scatter_plot(
             eqn = f"R = {corr:.2f}"
 
     ax.text(
-        0.5, -0.17, f"{eqn}",
+        0.5, -0.3, f"{eqn}",
         transform=ax.transAxes,
         fontsize=fontsize-2,
         va="top", ha="center",
@@ -401,9 +417,9 @@ def generate_q2_scatter_plot(
         q_txt = rf"$R^2 = {corr:.2f}$"
 
     ax.text(
-        0.02, 0.8, q_txt,
+        0.02, 0.98, q_txt,
         transform=ax.transAxes,
-        fontsize=fontsize-2 ,
+        fontsize=2 ,
         va="top", ha="left",
         bbox=dict(facecolor="white", alpha=0.9, boxstyle="round,pad=0.25"),
         zorder=4,
@@ -1638,11 +1654,11 @@ def print_models_regression_table(results, app=None ,model=None):
 
         if app:
             messagebox.showinfo('Models List:',df.to_markdown(index=False, tablefmt="pipe"))
-            print(df.to_markdown(index=False, tablefmt="pipe"))
+            print(df.head().to_markdown(index=False, tablefmt="pipe"))
             selected_model = get_valid_integer('Select a model number: default is 0', 0)
             show_table_window('Models List:',df)
         else:
-            print(df.to_markdown(index=False, tablefmt="pipe"))
+            # print(df.head().to_markdown(index=False, tablefmt="pipe"))
             try:
                 selected_model = int(input("Select a model number (or -1 to exit): "))
             except ValueError:
@@ -1738,12 +1754,7 @@ def print_models_regression_table(results, app=None ,model=None):
                 plot=False, dir=model.paths.figs
             )
 
-            # Adjust figure size/DPI for Jupyter clarity
-            # fig_q2.set_size_inches(8, 6)
-            # fig_q2.set_dpi(120)
-
-            # Jupyter will render the fig automatically if it's the last line
-            # In script runs, use plt.show()
+    
             if "ipykernel" in sys.modules:  # running in Jupyter
                 fig_q2
             else:  # running in terminal script
@@ -1775,7 +1786,7 @@ def run_model_sanity_checks(
     """
     # ----- normalize output dir ONCE and create it -----
     png_dir = Path(png_dir) if png_dir is not None else None
-    print(f'THIS IS THE DIRRRRR {png_dir}')
+    
     if png_dir is not None:
         png_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2158,6 +2169,7 @@ def _add_q2_scatter_page(pdf, png_dir, base_name, y, pred, names, folds_df, feat
     print('predicitions,',leftout_pred_df)
     est = coef_df['Estimate'] if 'Estimate' in coef_df.columns else None
     fig_q2, ax_q2 = generate_q2_scatter_plot(y, pred, names, folds_df, features, est, r2_in, plot=True, dir=None, ligand_types=lig_types,leftout_pred_df=leftout_pred_df)
+    fig_q2.show()
     save_fig_both(fig_q2, pdf, png_dir, f"{base_name}__03_pred_vs_meas")
 
 def _add_violin_page(pdf, png_dir, base_name, model, features):
@@ -2277,7 +2289,10 @@ def run_single_combo_report(model, features, app=None, pdf_name=None, lig_types=
         except Exception as e:
             print("Error generating threshold analysis plot:", e)
 
-    print(f"[PDF] Report saved: {pdf_path}")
+        try:
+            results, _ = check_linear_regression_assumptions(X, y, dir="diag_plots", plot=True)
+        except Exception as e:
+            print("Error generating regression diagnostics plots:", e)
     return {
         "pdf_path": pdf_path,
         "png_dir": png_dir,
