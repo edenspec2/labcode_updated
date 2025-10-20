@@ -388,7 +388,7 @@ def batch_renumbering(folder_path = None, log_folder_path = '', feather_path = '
             if numbering_dict is None:
                 print(f"Failed to optimize {file_path} due to invalid mapping.")
                 error_files.append(file_path)
-                renumbering_dict_list.append({})
+                # renumbering_dict_list.append({})
                 continue
             print(f"Successfully optimized {file_path}. Mapping: {numbering_dict}")
             renumbering_dict_list.append(numbering_dict)

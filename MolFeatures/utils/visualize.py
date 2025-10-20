@@ -271,7 +271,7 @@ def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params
                     scale = ((span / dip_mag) * 0.3 if dip_mag > 0 else 1.0)*2  # ~30% of molecule span
                     print(f"🧮 Auto-scale factor from coords_for_scale: span={span:.3f}, scale={scale:.3f}")
                 else:
-                    scale = 15.0
+                    scale = 5.0
                     print(f"ℹ️ Using default scale={scale:.1f}")
 
             # --- Build vectors (relative) ---

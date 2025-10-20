@@ -1094,25 +1094,32 @@ def interactive_corr_heatmap_with_highlights(
     min_size=300,
     max_size=800,
     *,
-    renderer=None,   # e.g. "notebook_connected", "vscode", "browser"
+    renderer="colab",   # e.g. "colab", "notebook_connected", "vscode", "browser"
     show=True
 ):
     """
     Plotly correlation heatmap with a built-in slider to control min |r|.
-    Works in notebooks and non-notebook contexts (no ipywidgets needed).
+    Works in Colab, Jupyter, and non-notebook contexts.
     """
-    # ---- Choose a renderer that works in current environment ----
-    try:
-        if renderer:
-            pio.renderers.default = renderer
-        else:
-            # If inside Jupyter, prefer notebook renderer; else fall back to browser
+
+    # ---- Choose a renderer that works in current environment (Colab-aware) ----
+    def _pick_renderer(r):
+        if r:  # explicit choice wins
+            return r
+        if "google.colab" in sys.modules:
+            return "colab"
+        # Jupyter kernel?
+        try:
             from IPython import get_ipython
             ip = get_ipython()
             if ip and 'IPKernelApp' in getattr(ip, 'config', {}):
-                pio.renderers.default = "notebook_connected"
-            else:
-                pio.renderers.default = "browser"
+                return "notebook_connected"
+        except Exception:
+            pass
+        return "browser"
+
+    try:
+        pio.renderers.default = _pick_renderer(renderer)
     except Exception:
         pio.renderers.default = "browser"
 
@@ -1142,12 +1149,15 @@ def interactive_corr_heatmap_with_highlights(
     # ---- Helper to mask correlations below threshold ----
     def masked_z(thr: float):
         m = corr_sorted.where(corr_sorted.abs() >= thr)
+        # Keep diagonal at 1.0 even if thr > 1 (rare), avoid showing 0's
+        m.values[[np.arange(n)], [np.arange(n)]] = np.diag(corr_sorted.values)
         m = m.where(m != 0)
         return m.values
 
     # ---- Build figure with slider ----
     thr_values = np.round(np.linspace(0.0, 1.0, 51), 2)  # 0.00 .. 1.00
-    # Initial heatmap
+    init_idx = int(np.argmin(np.abs(thr_values - initial_threshold)))
+
     fig = go.Figure(
         data=go.Heatmap(
             z=masked_z(initial_threshold),
@@ -1164,10 +1174,7 @@ def interactive_corr_heatmap_with_highlights(
         )
     )
 
-    # Slider steps: update the heatmap's 'z' only
     steps = []
-    # Find which slider index is closest to initial_threshold
-    init_idx = int(np.argmin(np.abs(thr_values - initial_threshold)))
     for t in thr_values:
         steps.append(dict(
             method="restyle",

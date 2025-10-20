@@ -419,7 +419,7 @@ def generate_q2_scatter_plot(
     ax.text(
         0.02, 0.98, q_txt,
         transform=ax.transAxes,
-        fontsize=2 ,
+        fontsize=4 ,
         va="top", ha="left",
         bbox=dict(facecolor="white", alpha=0.9, boxstyle="round,pad=0.25"),
         zorder=4,
