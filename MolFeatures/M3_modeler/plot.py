@@ -1839,6 +1839,7 @@ def run_model_sanity_checks(
         # ---------- helper (no shadowing; dir already exists) ----------
         def _save_current_fig(stem):
             fig = plt.gcf()
+            plt.show()
             if pdf is not None:
                 pdf.savefig(fig)
             if png_dir is not None:
@@ -2004,7 +2005,7 @@ def save_fig_both(fig, pdf: PdfPages, outdir: str, stem: str, dpi: int = 300, ti
     # Build safe PNG path
     safe_stem = _slugify(stem, maxlen=120)
     png_path = _shorten_if_needed(outdir, safe_stem, ".png")
-
+    plt.show()
     # Save PNG with fallback strategies
     try:
         fig.canvas.draw()  # ensure render
@@ -2293,7 +2294,8 @@ def run_single_combo_report(model, features, app=None, pdf_name=None, lig_types=
             results, _ = check_linear_regression_assumptions(X, y, dir="diag_plots", plot=True)
         except Exception as e:
             print("Error generating regression diagnostics plots:", e)
-    return {
+            
+    results_dict = {
         "pdf_path": pdf_path,
         "png_dir": png_dir,
         "folds_df": folds_df,
@@ -2302,6 +2304,7 @@ def run_single_combo_report(model, features, app=None, pdf_name=None, lig_types=
         "in_sample": {"R2": r2_in, "MAE": mae_in},
         "leftout": {"df": leftout_pred_df, "R2": r2_leftout, "MAE": mae_leftout},
     }
+    return results_dict
 
 
 

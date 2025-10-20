@@ -1043,14 +1043,14 @@ def check_linear_regression_assumptions(X, y, dir=None, plot=False, k_best=10):
         plt.ylabel("Residuals")
         plt.title("Residuals vs Fitted")
         if dir: plt.savefig(os.path.join(dir, "resid_vs_fitted.png"), dpi=200)
-        plt.show()
+        # plt.show()
 
         # Q-Q plot
         plt.figure()
         probplot(resid, dist="norm", plot=plt)
         plt.title("Q-Q plot of residuals")
         if dir: plt.savefig(os.path.join(dir, "qq_plot_residuals.png"), dpi=200)
-        plt.show()
+        # plt.show()
 
         # Scale-location plot (|studentized residuals| vs fitted)
         try:
@@ -1062,7 +1062,7 @@ def check_linear_regression_assumptions(X, y, dir=None, plot=False, k_best=10):
             plt.ylabel("sqrt(|Studentized residuals|)")
             plt.title("Scale-Location")
             if dir: plt.savefig(os.path.join(dir, "scale_location.png"), dpi=200)
-            plt.show()
+            # plt.show()
         except Exception:
             pass
 
@@ -1076,7 +1076,7 @@ def check_linear_regression_assumptions(X, y, dir=None, plot=False, k_best=10):
             plt.ylabel("Cook's distance")
             plt.title("Influence: Cook's Distance")
             if dir: plt.savefig(os.path.join(dir, "cooks_distance.png"), dpi=200)
-            plt.show()
+            # plt.show()
         except Exception:
             pass
 
