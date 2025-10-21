@@ -1625,7 +1625,7 @@ def _parse_tuple_string(s: str):
     return [x.strip(" '") for x in s.strip("()").split(",")]
 
 def print_models_regression_table(results, app=None ,model=None):
-
+    print(f'inside the print models')
     formulas=results['combination'].values
     r_squared=results['r2'].values
     q_squared=results['q2'].values
@@ -1653,10 +1653,11 @@ def print_models_regression_table(results, app=None ,model=None):
     while True:
 
         if app:
-            messagebox.showinfo('Models List:',df.to_markdown(index=False, tablefmt="pipe"))
-            print(df.head().to_markdown(index=False, tablefmt="pipe"), 'Models results')
-            selected_model = get_valid_integer('Select a model number: default is 0', 0)
-            show_table_window('Models List:',df)
+            print('debug')
+            # messagebox.showinfo('Models List:',df.to_markdown(index=False, tablefmt="pipe"))
+            # print(df.head().to_markdown(index=False, tablefmt="pipe"), 'Models results')
+            # selected_model = get_valid_integer('Select a model number: default is 0', 0)
+            # show_table_window('Models List:',df)
         else:
             # print(df.head().to_markdown(index=False, tablefmt="pipe"))
             try:
@@ -2292,7 +2293,7 @@ def run_single_combo_report(model, features, app=None, pdf_name=None, lig_types=
             print("Error generating threshold analysis plot:", e)
 
         try:
-            results, _ = check_linear_regression_assumptions(X, y, dir="diag_plots", plot=True)
+            results, _ = check_linear_regression_assumptions(X, y, dir="diag_plots", plot=False)
         except Exception as e:
             print("Error generating regression diagnostics plots:", e)
 

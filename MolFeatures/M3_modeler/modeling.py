@@ -136,10 +136,39 @@ def _best_r2(df: pd.DataFrame) -> Optional[float]:
     return float(r2.max())
 
 def _sort_results(df: pd.DataFrame) -> pd.DataFrame:
-    """Sort by q2 (desc) if present, then r2; else by r2 only."""
+    """
+    Sort model results by Q² (descending) if present, then by R².
+    Falls back to R²-only sorting if Q² not found.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Results dataframe expected to contain columns like:
+        ['id', 'threshold', 'model', 'predictions', 'q2', 'r2', ...]
+
+    Returns
+    -------
+    pd.DataFrame
+        Sorted dataframe (copy), cleaned of non-metric columns.
+    """
+    if df is None or df.empty:
+        print("⚠️ Empty DataFrame received in _sort_results.")
+        return pd.DataFrame()
+
+    # drop non-metric columns if they exist
+    drop_cols = [c for c in ['id', 'threshold', 'model', 'predictions'] if c in df.columns]
+    df = df.drop(columns=drop_cols, errors='ignore').copy()
+
+    # filter out any rows with inf or NaN values in numeric columns
+    numeric_cols = df.select_dtypes(include=[float, int]).columns
+    if len(numeric_cols) > 0:
+        df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=numeric_cols, how="any")
 
     if df.empty:
+        print("⚠️ No valid rows after cleaning in _sort_results.")
         return df
+
+    # --- your existing logic follows ---
     q2 = _extract_q2(df)
     r2 = _extract_r2(df)
 
@@ -148,15 +177,21 @@ def _sort_results(df: pd.DataFrame) -> pd.DataFrame:
         temp["_q2__"] = q2
     if r2 is not None:
         temp["_r2__"] = r2
+
     by = []
     if "_q2__" in temp.columns:
         by.append("_q2__")
     if "_r2__" in temp.columns:
         by.append("_r2__")
+
     if not by:
         return df
-    temp = temp.sort_values(by=by, ascending=[False]*len(by))
-    return temp.drop(columns=[c for c in ("_q2__", "_r2__") if c in temp.columns])
+
+    temp = temp.sort_values(by=by, ascending=[False] * len(by))
+    tmp_re = temp.drop(columns=[c for c in ("_q2__", "_r2__") if c in temp.columns])
+    
+    return tmp_re 
+
 
 
         # Print the count of combinations for each number of features
@@ -305,7 +340,7 @@ def fit_and_evaluate_single_combination_regression(model, combination, r2_thresh
         evaluation_results['Q2'] = q2
         evaluation_results['MAE'] = mae
         evaluation_results['RMSD'] = rmsd
-        print(f'R2:{evaluation_results["r2"]:.3f} Q2: {q2:.3f}, MAE: {mae:.3f}, RMSD: {rmsd:.3f} for combination: {combination}')
+        # print(f'R2:{evaluation_results["r2"]:.3f} Q2: {q2:.3f}, MAE: {mae:.3f}, RMSD: {rmsd:.3f} for combination: {combination}')
 
     q2_time=time.time()-t3
 
@@ -460,7 +495,7 @@ class LinearRegressionModel:
             
         ## need to be preformed on the chosen model
 
-        self.check_linear_regression_assumptions()
+        # self.check_linear_regression_assumptions()
     
 
     from pathlib import Path

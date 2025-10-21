@@ -19,6 +19,7 @@ try:
     # from MolAlign.renumbering import batch_renumbering
     from utils import visualize
     from utils.help_functions import *
+    # from utils.rdkit_utils import xyz_list_to_mols, visualize_mols, mols_to_fingerprint_df 
     from extractor_utils.sterimol_utils import *
     from extractor_utils.bond_angle_length_utils import *
     from extractor_utils.dipole_utils import *
@@ -29,6 +30,7 @@ except:
     # from ..MolAlign.renumbering import batch_renumbering
     from ..utils import visualize
     from ..utils.help_functions import *
+    # from ..utils.rdkit_utils import xyz_list_to_mols, visualize_mols, mols_to_fingerprint_df 
     from .extractor_utils.sterimol_utils import *
     from .extractor_utils.bond_angle_length_utils import *
     from .extractor_utils.dipole_utils import *
@@ -2054,4 +2056,22 @@ class Molecules():
         os.chdir('../')
 
 
+
+    # def mols_to_rdkit_mols(self):
+    #     mols=[mol for mol in self.molecules]
+    #     xyz_list=[xyz.xyz_df for xyz in mols]
+    #     molss=xyz_list_to_mols(xyz_list, mol_names=self..molecule_names)
+    #     img = visualize_mols(molss)
+    #     # display(img) 
+    #     fps = mols_to_fingerprint_df(molss, fp_type="morgan", nBits=1024)
+
+    #     fp_df, pca_df, var_ratio = mols_to_fingerprint_df(
+    #     mols,
+    #     fp_type="morgan",
+    #     nBits=2048,
+    #     radius=2,
+    #     do_pca=True,
+    #     n_components=20,
+    #     scale_before_pca=True
+    # )
 
