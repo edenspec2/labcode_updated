@@ -1,7 +1,0 @@
-,Feature 1,Feature 2,Correlation
-0,L_11-26,0_bond_length_11-26,0.9998155846988981
-1,Amplitude_Stretch_12_13,Amplitude_Stretch_24_25,0.9806429954157346
-2,total_dipole_6-11-4,nbo_atom_26,0.8753182358630425
-3,nbo_atom_14,nbo_atom_6,0.8562980496505317
-4,nbo_atom_6,nbo_atom_26,-0.8048711719652453
-5,L_11-27,loc_B5_11-27,0.8013475752259765
