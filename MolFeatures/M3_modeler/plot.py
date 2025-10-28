@@ -1625,7 +1625,7 @@ def _parse_tuple_string(s: str):
     return [x.strip(" '") for x in s.strip("()").split(",")]
 
 def print_models_regression_table(results, app=None ,model=None):
-    print(f'inside the print models')
+   
     formulas=results['combination'].values
     r_squared=results['r2'].values
     q_squared=results['q2'].values
