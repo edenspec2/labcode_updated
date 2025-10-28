@@ -2825,7 +2825,8 @@ def interactive_corr_heatmap(
         updatemenus=[dict(
             type="buttons",
             direction="right",
-            x=0.5, xanchor="center", y=1.12, yanchor="top",
+            x=0.5, xanchor="center", 
+            y=1.12, yanchor="top",
             buttons=[
                 dict(
                     label="Reset",
@@ -2835,17 +2836,29 @@ def interactive_corr_heatmap(
             ],
             showactive=False
         )],
+
+        # Slider stays horizontal but positioned beside the plot (right side)
         sliders=[dict(
-            active=int(initial_threshold*20),
+            active=int(initial_threshold * 20),
             steps=steps,
-            x=0.5, xanchor="center", y=-0.08, len=0.8,
-            currentvalue=dict(prefix="|r| ≥ ", visible=True)
+            x=1.05, xanchor="left",      # move to the right of the plot
+            y=0.5,  yanchor="middle",    # vertically centered
+            len=0.6,                     # slider length along the y-direction
+            pad=dict(t=0, b=0),
+            currentvalue=dict(prefix="|r| ≥ ", visible=True),
         )],
+
         title=f"{title} (|r| ≥ {initial_threshold:.2f})",
-        xaxis=dict(scaleanchor="y", constrain="domain", tickangle=45),
-        yaxis=dict(autorange="reversed"),
+        xaxis=dict(
+            scaleanchor="y",
+            constrain="domain",
+            tickangle=45,
+        ),
+        yaxis=dict(
+            autorange="reversed",
+        ),
         width=width, height=height,
-        margin=dict(l=60, r=20, t=60, b=80),
+        margin=dict(l=60, r=100, t=80, b=60),  # extra right margin for slider
     )
     fig.show()
 
