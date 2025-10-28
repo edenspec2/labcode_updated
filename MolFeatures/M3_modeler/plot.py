@@ -1644,9 +1644,10 @@ def print_models_regression_table(results, app=None ,model=None):
 
     df = df.sort_values(by='Q.sq', ascending=False)
     df.index = range(1, len(df) + 1)
+    print(df.head().to_markdown(index=False, tablefmt="pipe"))
     try:
         pdf_path = model.paths.pdf / f"{model.name}_top_models_report.pdf"
-        _save_top5_pdf_regression(results,model, pdf_path=pdf_path)
+        # _save_top5_pdf_regression(results,model, pdf_path=pdf_path)
     except Exception as e:
         print(f"[PDF] Skipping top-5 export due to error: {e}")
 
@@ -1654,10 +1655,6 @@ def print_models_regression_table(results, app=None ,model=None):
 
         if app:
             print('debug')
-            # messagebox.showinfo('Models List:',df.to_markdown(index=False, tablefmt="pipe"))
-            # print(df.head().to_markdown(index=False, tablefmt="pipe"), 'Models results')
-            # selected_model = get_valid_integer('Select a model number: default is 0', 0)
-            # show_table_window('Models List:',df)
         else:
             # print(df.head().to_markdown(index=False, tablefmt="pipe"))
             try:
