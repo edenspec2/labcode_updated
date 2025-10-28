@@ -68,384 +68,344 @@ def flatten_list(nested_list_arg: List[list]) -> List:
     flat_list=[item for sublist in nested_list_arg for item in sublist]
     return flat_list
 
+import re
+from itertools import combinations
 
-def plot_interactions(xyz_df, color, dipole_df=None, origin=None,sterimol_params=None ):
-    """Creates a 3D plot of the molecule, bonds, and (optionally) dipole arrows."""
-    atomic_radii = GeneralConstants.COVALENT_RADII.value
+def plot_interactions(xyz_df, color, dipole_df=None, origin=None, sterimol_params=None):
+    """
+    Creates a 3D Plotly figure of the molecule (atoms + bonds) with optional dipole and Sterimol arrows.
+    - Locks aspect to 'data' (no fake warping of small z).
+    - Uses one coordinate array for all traces.
+    - Correct visibility masks for toggles.
+    """
+    # ---------- helpers ----------
+    def _parse_element(label: str) -> str:
+        m = re.match(r"[A-Za-z]+", str(label).strip())
+        if not m:
+            s = str(label).strip()
+        else:
+            s = m.group(0)
+        return s[0].upper() + s[1:].lower() if s else s
+
+    def _resolve_origin(origin_arg, coords_arr):
+        """
+        origin_arg can be:
+          - None: centroid of coords_arr
+          - array-like shape (3,): xyz position
+          - int: atom index (0-based)
+          - list/array of ints: centroid of those atoms
+        """
+        if origin_arg is None:
+            return coords_arr.mean(axis=0)
+        ori = np.asarray(origin_arg)
+        if ori.ndim == 1 and ori.shape[0] == 3 and np.isfinite(ori).all():
+            return ori.astype(float)
+        if np.issubdtype(ori.dtype, np.integer) and ori.ndim == 0:
+            return coords_arr[int(ori)]
+        if np.issubdtype(ori.dtype, np.integer) and ori.ndim == 1:
+            return coords_arr[ori].mean(axis=0)
+        raise ValueError("Invalid 'origin' argument. Use None, (3,), int, or list of ints.")
+
+    def _planarity_metrics(coords_arr):
+        """Optional diagnostic—unused in layout, handy to print if needed."""
+        c = coords_arr.mean(0)
+        X = coords_arr - c
+        _, _, Vt = np.linalg.svd(X, full_matrices=False)
+        n = Vt[-1]
+        d = X @ n
+        return dict(rms=float(np.sqrt((d**2).mean())), max_abs=float(np.max(np.abs(d))))
+
+    # ---------- constants / lookups ----------
+    try:
+        atomic_radii_raw = GeneralConstants.COVALENT_RADII.value  # user env
+        try:
+            atomic_radii = dict(atomic_radii_raw)
+        except Exception:
+            atomic_radii = atomic_radii_raw
+    except Exception:
+        # minimal fallback
+        atomic_radii = {"H": 0.31, "B": 0.85, "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57,
+                        "Si": 1.11, "P": 1.07, "S": 1.05, "Cl": 1.02, "Br": 1.20, "I": 1.39,
+                        "Pd": 1.39, "Co": 1.26, "Ni": 1.24, "Fe": 1.24, "Cu": 1.32, "Zn": 1.22,
+                        "Ag": 1.45, "Au": 1.36}
+
     cpk_colors = dict(
         C='black', F='green', H='white', N='blue', O='red', P='orange',
         S='yellow', Cl='green', Br='brown', I='purple',
         Ni='blue', Fe='red', Cu='orange', Zn='yellow', Ag='grey',
-        Au='gold', Si='grey', B='pink', Pd='green',Co='pink',
+        Au='gold', Si='grey', B='pink', Pd='green', Co='pink'
     )
 
-    # coordinates and atoms
-    coords = xyz_df[['x','y','z']].values.astype(float)
-    atoms = xyz_df['atom'].astype(str).tolist()
-    ids = xyz_df.index.tolist()
+    # ---------- coordinates / atoms ----------
+    coords = xyz_df[['x', 'y', 'z']].to_numpy(dtype=float)
+    atoms_raw = xyz_df['atom'].astype(str).tolist()
+    elements = [_parse_element(a) for a in atoms_raw]
 
-    # radii
+    n = coords.shape[0]
+    assert n == len(elements), f"Row count mismatch: coords={n}, atoms={len(elements)}"
+    if not np.isfinite(coords).all():
+        bad = np.argwhere(~np.isfinite(coords)).ravel().tolist()
+        raise ValueError(f"Non-finite coordinates at rows: {bad}")
 
-    try:
-        radii = [atomic_radii[a] for a in atoms]
-    except TypeError:
-        atoms = flatten_list(atoms)
-        radii = [atomic_radii[a] for a in atoms]
+    # radii (safe defaults)
+    default_r = 0.77
+    radii = np.array([atomic_radii.get(el, default_r) for el in elements], dtype=float)
 
-    # bonds finder
-    def get_bonds():
-        ids_arr = np.arange(len(coords))
-        bonds = {}
-        c2, r2, id2 = coords.copy(), radii.copy(), ids_arr.copy()
-        for _ in ids_arr:
-            c2 = np.roll(c2, -1, axis=0)
-            r2 = np.roll(r2, -1)
-            id2 = np.roll(id2, -1)
-            dists = np.linalg.norm(coords - c2, axis=1)
-            thresh = (np.array(radii) + np.array(r2)) * 1.3
-            mask = (dists > 0.1) & (dists < thresh)
-            for i,j,dist in zip(ids_arr[mask], id2[mask], dists[mask].round(2)):
-                bonds[frozenset([i,j])] = dist
-        return bonds
+    # ---------- bonds (robust O(n^2)) ----------
+    def get_bonds(thresh_scale=1.30, min_dist=0.10):
+        bonds_local = {}
+        for i, j in combinations(range(n), 2):
+            dij = np.linalg.norm(coords[i] - coords[j])
+            if dij <= min_dist:
+                continue
+            cutoff = (radii[i] + radii[j]) * thresh_scale
+            if dij < cutoff:
+                bonds_local[(i, j)] = round(dij, 2)
+        return bonds_local
 
     bonds = get_bonds()
 
-    # atom trace
-    def atom_trace():
-   
-        colors = [cpk_colors[a] for a in atoms]
-        return go.Scatter3d(
-            x=coords[:,0], y=coords[:,1], z=coords[:,2],
-            mode='markers',
-            marker=dict(color=colors, size=5, line=dict(color='lightgray', width=2)),
-            text=atoms, name='atoms'
-        )
+    # ---------- base traces ----------
+    atom_colors = [cpk_colors.get(el, 'gray') for el in elements]
+    hovertext = [f"{el} ({x:.3f},{y:.3f},{z:.3f})"
+                 for el, (x, y, z) in zip(elements, coords)]
+    atom_scatter = go.Scatter3d(
+        x=coords[:, 0], y=coords[:, 1], z=coords[:, 2],
+        mode='markers',
+        marker=dict(color=atom_colors, size=5, line=dict(color='lightgray', width=2)),
+        text=hovertext, name='atoms', hoverinfo='text'
+    )
 
-    # bond trace
-    def bond_trace():
-        trace = go.Scatter3d(
-            x=[], y=[], z=[], mode='lines',
-            line=dict(color=color, width=3), hoverinfo='none',
-            name='bonds'
-        )
-        for pair in bonds:
-            i,j = tuple(pair)
-            trace.x += (coords[i,0], coords[j,0], None)
-            trace.y += (coords[i,1], coords[j,1], None)
-            trace.z += (coords[i,2], coords[j,2], None)
-        return trace
-    
-    def sterimol_trace(sterimol_params, origin=None):
-        """
-        Return a list of 3D traces for the Sterimol B1, B5, and L arrows.
-        
-        sterimol_params must include keys:
-        - 'B1_coords', 'B1_value'
-        - 'B5_coords', 'B5_value'
-        - 'L_coords',  'L_value'
-        """
-        try:
-            traces = []
-            # Extract vectors and magnitudes
-            b1 = np.asarray(sterimol_params['B1_coords'], float)
-            b5 = np.asarray(sterimol_params['B5_coords'], float)
-            l  = np.asarray(sterimol_params['L_coords'],  float)
-            
-            vecs = [
-                (b1, 'forestgreen', sterimol_params['B1_value'], 'B1'),
-                (b5, 'firebrick',   sterimol_params['B5_value'], 'B5'),
-                (l,  'steelblue',   sterimol_params['L_value'],  'L'),
-            ]
+    bx, by, bz = [], [], []
+    for (i, j) in bonds:
+        xi, yi, zi = coords[i]
+        xj, yj, zj = coords[j]
+        bx += [xi, xj, None]
+        by += [yi, yj, None]
+        bz += [zi, zj, None]
+    bond_trace = go.Scatter3d(
+        x=bx, y=by, z=bz, mode='lines',
+        line=dict(color=color, width=3), hoverinfo='none',
+        name='bonds'
+    )
 
-            # Tail point in 3D (z=0 plane)
-            tail = np.array(origin, float) if origin is not None else np.zeros(3)
-
-            for vec2d, col, mag, name in vecs:
-                # lift into 3D
-                vec3d = np.array([vec2d[0], vec2d[1], 0.0], float)
-                length = np.linalg.norm(vec3d)
-                if length < 1e-8:
-                    continue
-
-                # compute endpoints
-                end = tail + vec3d
-                shaft_end = end - 0.1 * (vec3d / length)
-
-                # Shaft line trace
-                traces.append(go.Scatter3d(
-                    x=[tail[0], shaft_end[0]],
-                    y=[tail[1], shaft_end[1]],
-                    z=[tail[2], shaft_end[2]],
-                    mode='lines',
-                    line=dict(color=col, width=4),
-                    name=f"{name}-shaft",
-                    showlegend=True
-                ))
-
-                # Cone head trace
-                traces.append(go.Cone(
-                    x=[end[0]], y=[end[1]], z=[end[2]],
-                    u=[vec3d[0]], v=[vec3d[1]], w=[vec3d[2]],
-                    anchor='tip',
-                    sizemode='absolute',
-                    sizeref=length * 0.07,  # head ~7% of length
-                    showscale=False,
-                    colorscale=[[0, col], [1, col]],
-                    name=name
-                ))
-        except Exception as e:
-            # print(f"🔥 sterimol_trace failed: {e!r}")
-            return []
-
-        return traces
-
-    def dipole_trace(dipole_df, origin_point, scale=None, coords_for_scale=None, show_components=True):
-        """
-        Build Plotly 3D traces for dipole vectors anchored at a real-space origin.
-
-        Parameters
-        ----------
-        dipole_df : pd.DataFrame
-            Must contain columns ['dipole_x','dipole_y','dipole_z'] in the SAME frame as the geometry.
-            Optionally, you can attach coordinates via `coords_for_scale` arg for auto-scaling.
-        origin_point : array-like (3,) or list/ndarray (N,) of ints (optional advanced)
-            If (3,) -> treated as xyz tail position directly.
-            If int or list of ints -> will compute centroid from coords_for_scale (requires it).
-        scale : float or None
-            Visual scale factor for arrow lengths. If None and coords_for_scale provided, auto-scales.
-        coords_for_scale : np.ndarray of shape (M,3) or None
-            Coordinates (same frame) used to estimate molecular span for auto-scaling.
-        show_components : bool
-            If True, also draw X/Y/Z components; otherwise only the total vector.
-
-        Returns
-        -------
-        list of plotly traces
-        """
-        traces = []
-        if dipole_df is None or dipole_df.empty:
-            print("⚠️ dipole_df is empty or None.")
-            return traces
-
-        import numpy as np
-        import plotly.graph_objects as go
-
-        try:
-            # --- Extract dipole in current frame ---
-            row = dipole_df.iloc[0]
-            vec = np.array([
-                row.get("dipole_x", row[0]),
-                row.get("dipole_y", row[1]),
-                row.get("dipole_z", row[2]),
-            ], dtype=float)
-            if not np.all(np.isfinite(vec)):
-                raise ValueError("Dipole vector contains NaN/inf.")
-           
-
-            # --- Resolve origin_point robustly ---
-            origin_point = np.asarray(origin_point)
-            if origin_point.ndim == 1 and origin_point.shape[0] == 3:
-                tail = origin_point.astype(float)
-            elif np.issubdtype(origin_point.dtype, np.integer):
-                # single index; need coords_for_scale to resolve
-                if coords_for_scale is None:
-                    raise ValueError("origin_point is index but coords_for_scale is None.")
-                tail = np.asarray(coords_for_scale, dtype=float)[int(origin_point)]
-            elif origin_point.ndim == 1 and origin_point.size > 3 and np.issubdtype(origin_point.dtype, np.integer):
-                # list of atom indices → centroid
-                if coords_for_scale is None:
-                    raise ValueError("origin_point is indices but coords_for_scale is None.")
-                tail = np.asarray(coords_for_scale, dtype=float)[origin_point].mean(axis=0)
-            else:
-                raise ValueError("origin_point must be xyz (3,) or atom index/indices with coords_for_scale provided.")
-            if tail.shape != (3,):
-                raise ValueError("Resolved origin_point (tail) must be shape (3,).")
-           
-
-            # --- Auto scale if requested and possible ---
-            if scale is None:
-                if coords_for_scale is not None:
-                    coords_for_scale = np.asarray(coords_for_scale, dtype=float)
-                    span = float(np.ptp(coords_for_scale, axis=0).max())
-                    dip_mag = float(np.linalg.norm(vec))
-                    scale = ((span / dip_mag) * 0.3 if dip_mag > 0 else 1.0)*2  # ~30% of molecule span
-                    print(f"🧮 Auto-scale factor from coords_for_scale: span={span:.3f}, scale={scale:.3f}")
-                else:
-                    scale = 5.0
-                    print(f"ℹ️ Using default scale={scale:.1f}")
-
-            # --- Build vectors (relative) ---
-            total_v = vec * scale
-            comps = []
-            if show_components:
-                comps.extend([
-                    (np.array([vec[0]*scale, 0.0, 0.0]), "red",   "Dipole X"),
-                    (np.array([0.0, vec[1]*scale, 0.0]), "green", "Dipole Y"),
-                    (np.array([0.0, 0.0, vec[2]*scale]), "blue",  "Dipole Z"),
-                ])
-            comps.append((total_v, "purple", "Total Dipole"))
-        
-
-            # --- Draw arrows ---
-            for v, color, label in comps:
-                L = np.linalg.norm(v)
-            
-                if L < 1e-10:
-                    continue
-                end = tail + v
-                shaft_end = end - 0.15 * (end - tail) / L  # leave room for cone
-
-                # line
-                traces.append(go.Scatter3d(
-                    x=[tail[0], shaft_end[0]],
-                    y=[tail[1], shaft_end[1]],
-                    z=[tail[2], shaft_end[2]],
-                    mode="lines",
-                    line=dict(color=color, width=4),
-                    name=label,
-                    showlegend=True,
-                ))
-                # cone
-                traces.append(go.Cone(
-                    x=[end[0]], y=[end[1]], z=[end[2]],
-                    u=[v[0]], v=[v[1]], w=[v[2]],
-                    anchor="tip",
-                    sizemode="scaled",
-                    sizeref=0.2,
-                    showscale=False,
-                    colorscale=[[0, color], [1, color]],
-                    name=label,
-                    showlegend=False,
-                ))
-
-            # Optional: mark the tail for sanity
-            traces.append(go.Scatter3d(
-                x=[tail[0]], y=[tail[1]], z=[tail[2]],
-                mode="markers",
-                marker=dict(size=5, color="black", symbol="circle"),
-                name="Origin (tail)"
-            ))
-
-           
-            return traces
-
-        except Exception as e:
-            print(f"🔥 dipole_trace failed: {e!r}")
-            return traces
-
-
-
-
+    # ---------- annotation sets ----------
     annotations_idx = [
-    dict(text=str(i+1), x=coords[i,0], y=coords[i,1], z=coords[i,2],
-         showarrow=False, yshift=15, font=dict(color="blue"))
-    for i in range(len(coords))
+        dict(text=str(i + 1), x=coords[i, 0], y=coords[i, 1], z=coords[i, 2],
+             showarrow=False, yshift=15, font=dict(color="blue"))
+        for i in range(n)
     ]
     annotations_len = [
-        dict(
-            text=str(dist),
-            x=(coords[i,0]+coords[j,0])/2,
-            y=(coords[i,1]+coords[j,1])/2,
-            z=(coords[i,2]+coords[j,2])/2,
-            showarrow=False, yshift=10
-        )
-        for (i,j), dist in bonds.items()
+        dict(text=str(dist),
+             x=(coords[i, 0] + coords[j, 0]) / 2,
+             y=(coords[i, 1] + coords[j, 1]) / 2,
+             z=(coords[i, 2] + coords[j, 2]) / 2,
+             showarrow=False, yshift=10)
+        for (i, j), dist in bonds.items()
     ]
 
-    # assemble data
-    data = [ atom_trace(), bond_trace() ]
-    dip_trs = dipole_trace(dipole_df=dipole_df, origin_point=origin) or []  # list of arrow traces
-    sterimol_trs= sterimol_trace(sterimol_params, origin=origin) or []  # list of arrow traces
+    def add_traces():
+        traces = []
+        coords = xyz_df[['x','y','z']].to_numpy(float)
+        center = coords.mean(axis=0)
+        span = np.ptp(coords, axis=0)
+        pad = np.median(span)*0.5   # how far beyond molecule you want to expand
 
-    # hide each dipole trace initially
+        # create invisible boundary points
+        x_dummy = [center[0] - pad, center[0] + pad]
+        y_dummy = [center[1] - pad, center[1] + pad]
+        z_dummy = [center[2] - pad, center[2] + pad]
+
+        invisible_trace = go.Scatter3d(
+            x=x_dummy,
+            y=y_dummy,
+            z=z_dummy,
+            mode="markers",
+            marker=dict(size=0.1, opacity=0),  # completely invisible
+            hoverinfo="none",
+            showlegend=False,
+            name="frame_expander",
+        )
+        traces.append(invisible_trace)
+            
+        return traces
+    
+    # ---------- dipole arrows ----------
+    def dipole_traces(dip_df, origin_arg, coords_for_scale, show_components=True):
+        traces = []
+        if dip_df is None or len(dip_df) == 0:
+            return traces
+        row = dip_df.iloc[0]
+        vec = np.array([
+            row.get("dipole_x", row.iloc[0]),
+            row.get("dipole_y", row.iloc[1]),
+            row.get("dipole_z", row.iloc[2]),
+        ], dtype=float)
+        if not np.all(np.isfinite(vec)):
+            return traces
+
+        tail = _resolve_origin(origin_arg, coords_for_scale)
+
+        # auto-scale w.r.t. molecular span
+        span = float(np.ptp(coords_for_scale, axis=0).max())
+        dip_mag = float(np.linalg.norm(vec))
+        scale = ((span / dip_mag) * 0.3 if dip_mag > 0 else 1.0) * 2.0
+
+        comps = []
+        if show_components:
+            comps.extend([
+                (np.array([vec[0] * scale, 0.0, 0.0]), "red",   "Dipole X"),
+                (np.array([0.0, vec[1] * scale, 0.0]), "green", "Dipole Y"),
+                (np.array([0.0, 0.0, vec[2] * scale]), "blue",  "Dipole Z"),
+            ])
+        comps.append((vec * scale, "purple", "Total Dipole"))
+
+        for v, col, label in comps:
+            L = float(np.linalg.norm(v))
+            if L < 1e-10:
+                continue
+            end = tail + v
+            shaft_end = end - 0.15 * (end - tail) / L
+
+            traces.append(go.Scatter3d(
+                x=[tail[0], shaft_end[0]],
+                y=[tail[1], shaft_end[1]],
+                z=[tail[2], shaft_end[2]],
+                mode="lines",
+                line=dict(color=col, width=4),
+                name=label,
+                showlegend=True,
+            ))
+            traces.append(go.Cone(
+                x=[end[0]], y=[end[1]], z=[end[2]],
+                u=[v[0]], v=[v[1]], w=[v[2]],
+                anchor="tip",
+                sizemode="scaled",
+                sizeref=0.2,
+                showscale=False,
+                colorscale=[[0, col], [1, col]],
+                name=label,
+                showlegend=False,
+            ))
+
+        # mark origin
+        traces.append(go.Scatter3d(
+            x=[tail[0]], y=[tail[1]], z=[tail[2]],
+            mode="markers",
+            marker=dict(size=5, color="black", symbol="circle"),
+            name="Origin (tail)"
+        ))
+        return traces
+
+    # ---------- Sterimol arrows ----------
+    def sterimol_traces(params, origin_arg):
+        """
+        Expects 'B1_coords','B5_coords','L_coords' as 2D vectors (x,y) in current global axes.
+        Anchors at resolved 3D origin; lifts vectors with z=0 in global frame.
+        """
+        if params is None:
+            return []
+        required = ['B1_coords', 'B5_coords', 'L_coords', 'B1_value', 'B5_value', 'L_value']
+        if not all(k in params for k in required):
+            return []
+
+        try:
+            tail = _resolve_origin(origin_arg, coords)
+        except Exception:
+            tail = coords.mean(axis=0)
+
+        vecs = [
+            (np.asarray(params['B1_coords'], float), 'forestgreen', params['B1_value'], 'B1'),
+            (np.asarray(params['B5_coords'], float), 'firebrick',   params['B5_value'], 'B5'),
+            (np.asarray(params['L_coords'],  float), 'steelblue',   params['L_value'], 'L'),
+        ]
+
+        traces = []
+        for vec2d, col, mag, name in vecs:
+            vec3d = np.array([vec2d[0], vec2d[1], 0.0], float)
+            L = float(np.linalg.norm(vec3d))
+            if L < 1e-8:
+                continue
+            end = tail + vec3d
+            shaft_end = end - 0.1 * (vec3d / L)
+
+            traces.append(go.Scatter3d(
+                x=[tail[0], shaft_end[0]],
+                y=[tail[1], shaft_end[1]],
+                z=[tail[2], shaft_end[2]],
+                mode='lines',
+                line=dict(color=col, width=4),
+                name=f"{name}-shaft",
+                showlegend=True
+            ))
+            traces.append(go.Cone(
+                x=[end[0]], y=[end[1]], z=[end[2]],
+                u=[vec3d[0]], v=[vec3d[1]], w=[vec3d[2]],
+                anchor='tip',
+                sizemode='absolute',
+                sizeref=L * 0.07,   # head ~7% of length
+                showscale=False,
+                colorscale=[[0, col], [1, col]],
+                name=name
+            ))
+        return traces
+
+    # ---------- assemble data ----------
+    data = [bond_trace, atom_scatter]
+
+    dip_trs = dipole_traces(dipole_df, origin, coords_for_scale=coords) if dipole_df is not None else []
     for tr in dip_trs:
         tr.visible = False
     data.extend(dip_trs)
 
-    for tr in sterimol_trs:
+    add_trace=add_traces()
+    data.extend(add_trace)
+    for tr in add_trace:
+        tr.visible = True
+    ster_trs = sterimol_traces(sterimol_params, origin) if sterimol_params is not None else []
+    for tr in ster_trs:
         tr.visible = False
-    data.extend(sterimol_trs)
-    # add the sterimol arrows to the data
+    data.extend(ster_trs)
 
+    # ---------- visibility masks ----------
+    n_base = 2
+    n_dip = len(dip_trs)
+    n_ster = len(ster_trs)
+    n_total = n_base + n_dip + n_ster
 
-    # compute visibility masks
-    n_base   = 2                # atoms + bonds
-    n_arrows = len(dip_trs)
-    vis_hide = [True]*n_base + [False]*n_arrows
-    vis_show = [True]*n_base + [True]*n_arrows
-
-    # updatemenu buttons
+    vis_base_only = [True]*n_base + [False]*n_dip + [False]*n_ster
+    vis_dip_only  = [True]*n_base + [True ]*n_dip + [False]*n_ster
+    vis_ster_only = [True]*n_base + [False]*n_dip + [True ]*n_ster
+    vis_both      = [True]*n_base + [True ]*n_dip + [True ]*n_ster
+    # make add_trace vis
+    # vis_add_only  = [True]*n_base + [False]*n_dip + [False]*n_ster + [True ]*n_add
+    # ---------- buttons ----------
     buttons = [
-        dict(
-            label='Atom indices',
-            method='relayout',
-            args=[{'scene.annotations': annotations_idx}]
-        ),
-        dict(
-            label='Bond lengths',
-            method='relayout',
-            args=[{'scene.annotations': annotations_len}]
-        ),
-        dict(
-            label='Both',
-            method='relayout',
-            args=[{'scene.annotations': annotations_idx + annotations_len}]
-        ),
-        dict(
-            label='Hide all',
-            method='relayout',
-            args=[{'scene.annotations': []}]
-        )
+        dict(label='Atom indices', method='relayout', args=[{'scene.annotations': annotations_idx}]),
+        dict(label='Bond lengths', method='relayout', args=[{'scene.annotations': annotations_len}]),
+        dict(label='Both',         method='relayout', args=[{'scene.annotations': annotations_idx + annotations_len}]),
+        dict(label='Hide annotations', method='relayout', args=[{'scene.annotations': []}]),
     ]
 
-    # add dipole toggle buttons
-    if dipole_df is not None:
+    if n_dip > 0 and n_ster > 0:
         buttons.extend([
-            dict(
-                label='Show dipole',
-                method='update',
-                args=[{'visible': vis_show}, {}]
-            ),
-            dict(
-                label='Hide dipole',
-                method='update',
-                args=[{'visible': vis_hide}, {}]
-            ),
+            dict(label='Show dipole',   method='update', args=[{'visible': vis_dip_only},  {}]),
+            dict(label='Show Sterimol', method='update', args=[{'visible': vis_ster_only}, {}]),
+            dict(label='Show both',     method='update', args=[{'visible': vis_both},      {}]),
+            dict(label='Hide arrows',   method='update', args=[{'visible': vis_base_only}, {}]),
+        ])
+    elif n_dip > 0:
+        buttons.extend([
+            dict(label='Show dipole', method='update', args=[{'visible': vis_dip_only},  {}]),
+            dict(label='Hide dipole', method='update', args=[{'visible': vis_base_only}, {}]),
+        ])
+    elif n_ster > 0:
+        buttons.extend([
+            dict(label='Show Sterimol', method='update', args=[{'visible': vis_ster_only}, {}]),
+            dict(label='Hide Sterimol', method='update', args=[{'visible': vis_base_only}, {}]),
         ])
 
-    updatemenus = [
-        dict(
-            buttons=buttons,
-            direction='down', xanchor='left', yanchor='top'
-        )
-    ]
-    # add sterimol arrows
-    if sterimol_params is not None:
-        buttons.extend([
-            dict(
-                label='Show Sterimol',
-                method='update',
-                args=[{'visible': vis_show}, {}]
-            ),
-            dict(
-                label='Hide Sterimol',
-                method='update',
-                args=[{'visible': vis_hide}, {}]
-            ),
-        ])
-        # add sterimol toggle buttons
-        updatemenus[0]['buttons'].extend([
-            dict(
-                label='Show Sterimol',
-                method='update',
-                args=[{'visible': vis_show}, {}]
-            ),
-            dict(
-                label='Hide Sterimol',
-                method='update',
-                args=[{'visible': vis_hide}, {}]
-            ),
-        ])
+    updatemenus = [dict(buttons=buttons, direction='down', xanchor='left', yanchor='top')]
 
     return data, annotations_idx, updatemenus
 
@@ -515,26 +475,43 @@ def compare_molecules(coordinates_df_list: List[pd.DataFrame],conformer_numbers:
     # Set axis parameters
     updatemenus = unite_updatemenus(updatemenus_list)
 
+    coords = xyz_df[['x','y','z']].to_numpy(float)
+    span = np.ptp(coords, axis=0)            # total extent along each axis
+    center = coords.mean(axis=0)
+    pad = max(span) * 0.8                    # extra space around molecule
+
+    x_range = [center[0] - span[0]/2 - pad, center[0] + span[0]/2 + pad]
+    y_range = [center[1] - span[1]/2 - pad, center[1] + span[1]/2 + pad]
+    z_range = [center[2] - span[2]/2 - pad, center[2] + span[2]/2 + pad]
+
     axis_params = dict(
-        showgrid=True,               # show faint grid lines
-        showbackground=False,        # keep background clean
-        showticklabels=True,         # <--- make tick labels visible
-        zeroline=True,               # show zero lines
-        titlefont=dict(color='black', size=12),  # axis title style
+        showgrid=True,
+        showbackground=False,
+        showticklabels=True,
+        zeroline=True,
+        titlefont=dict(color='black', size=12),
     )
 
-    # --- Layout ---
+    # --- Layout with fixed large frame ---
     layout = dict(
         scene=dict(
-            xaxis=dict(axis_params, title="X Axis"),
-            yaxis=dict(axis_params, title="Y Axis"),
-            zaxis=dict(axis_params, title="Z Axis"),
-            annotations=annotations_id_main
+            aspectmode='data',
+            xaxis=dict(**axis_params, title="X Axis", range=x_range),
+            yaxis=dict(**axis_params, title="Y Axis", range=y_range),
+            zaxis=dict(**axis_params, title="Z Axis", range=z_range),
+            annotations=annotations_id_main,
+        ),
+        scene_camera=dict(
+            eye=dict(x=1.8, y=1.8, z=1.8),
+            center=dict(x=0, y=0, z=0),
+            projection=dict(type='orthographic')
         ),
         margin=dict(r=0, l=0, b=0, t=30),
-        showlegend=True,             # optional: show trace labels
+        showlegend=True,
         updatemenus=updatemenus,
+        uirevision="keep-camera"
     )
+
     fig = go.Figure(data=data_main, layout=layout)
     fig.show()
     return fig
