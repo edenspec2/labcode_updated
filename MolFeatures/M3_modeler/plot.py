@@ -379,7 +379,7 @@ def generate_q2_scatter_plot(
               fontsize=max(6, fontsize-1), markerscale=0.9, handlelength=1.0,
               handletextpad=0.3, borderpad=0.3, labelspacing=0.25)
 
-    fig.tight_layout()
+    # fig.tight_layout()
 
     # return metrics instead of drawing them
     metrics = {}
@@ -2280,8 +2280,8 @@ def run_single_combo_report(model, features, app=None, pdf_name=None, lig_types=
         except Exception as e:
             print("Error generating violin plots:", e)
 
-        # SHAP
-        _add_shap_page(pdf, png_dir, base_name, model, features)
+        # # SHAP
+        # _add_shap_page(pdf, png_dir, base_name, model, features)
 
         # Threshold pages
         try:
