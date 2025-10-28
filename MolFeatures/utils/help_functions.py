@@ -1192,15 +1192,18 @@ def interactive_corr_heatmap_with_highlights(
         margin=dict(l=30, r=30, t=50, b=30),
         sliders=[dict(
             active=init_idx,
-            currentvalue={"prefix": "Min |r| = "},
-            pad={"t": 10},
-            steps=steps
+            steps=steps,
+            currentvalue=dict(prefix="Min |r| = ", visible=True),
+            x=0.5, xanchor="center",
+            y=-0.5, yanchor="top",   # << place below the plot + labels
+            len=0.8,
+            pad=dict(t=0, b=0, l=0, r=0)
         )]
     )
 
     if show:
         fig.show()
-        plt.show()
+        # plt.show()
         
     return fig
 
