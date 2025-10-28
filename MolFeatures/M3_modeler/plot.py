@@ -379,7 +379,7 @@ def generate_q2_scatter_plot(
               fontsize=max(6, fontsize-1), markerscale=0.9, handlelength=1.0,
               handletextpad=0.3, borderpad=0.3, labelspacing=0.25)
 
-    # fig.tight_layout()
+    fig.tight_layout()
 
     # return metrics instead of drawing them
     metrics = {}
