@@ -1480,14 +1480,14 @@ def print_models_regression_table(results, app=None ,model=None):
             ip = get_ipython()
             is_colab = "google.colab" in str(ip).lower() if ip else False
 
-            # --- show figure non-blocking ---
-            if ip is not None:  # Notebook / Colab
-                from IPython.display import display
-                display(fig_q2)       # render inline immediately
-                plt.pause(0.5)        # <-- short pause lets Colab finish rendering
-            else:                     # Terminal / script
-                plt.show(block=False)
-                plt.pause(0.5)
+            # # --- show figure non-blocking ---
+            # if ip is not None:  # Notebook / Colab
+            #     from IPython.display import display
+            #     display(fig_q2)       # render inline immediately
+            #     plt.pause(0.5)        # <-- short pause lets Colab finish rendering
+            # else:                     # Terminal / script
+            #     plt.show(block=False)
+            #     plt.pause(0.5)
 
             # --- handle prompt logic ---
             if not app:
