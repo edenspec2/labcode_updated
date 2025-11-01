@@ -583,11 +583,12 @@ class LinearRegressionModel:
     self,
     drop_columns: Optional[Union[str, List[str]]] = None,
     drop_smiles: bool = True,
-    ) -> dict:
+) -> dict:
         """
         Load and process a features dataset from:
         - a CSV file path (string),
         - a dict with key 'features_csv_filepath',
+        - a single-path list/tuple,
         - or an in-memory pandas DataFrame.
 
         Initializes:
@@ -598,8 +599,8 @@ class LinearRegressionModel:
 
         Parameters
         ----------
-        drop_columns : str or list[str], optional
-            Additional columns to drop (case-insensitive).
+        drop_columns : str or list[str|int], optional
+            Additional columns to drop (case-insensitive for names; ints treated as positions).
         drop_smiles : bool, default=True
             Drop SMILES-like columns if found.
 
@@ -609,21 +610,34 @@ class LinearRegressionModel:
             Summary of processing steps.
         """
         import os
-        import pandas as pd
+        from typing import List, Optional, Union
         import numpy as np
+        import pandas as pd
 
-        # --- Load from file path OR from existing DataFrame ---
+        # ---------- Load source ----------
         csv_source = getattr(self, "csv_filepaths", None)
-
         if csv_source is None:
             raise AttributeError(
-                "`self.csv_filepaths` must be set to a CSV path, a dict, or a pandas DataFrame."
+                "`self.csv_filepaths` must be set to a CSV path (str), a dict, a pandas DataFrame, "
+                "or a single-path list/tuple."
             )
+
+        # Normalize a single-path list/tuple into a string
+        if isinstance(csv_source, (list, tuple)):
+            if len(csv_source) == 1 and isinstance(csv_source[0], str):
+                csv_source = csv_source[0]
+            else:
+                raise TypeError(
+                    "`csv_filepaths` list/tuple must contain exactly one string path; "
+                    f"got {csv_source!r}"
+                )
+
         names_from_index = False
+        path_used = None
+
         if isinstance(csv_source, pd.DataFrame):
             df = csv_source.copy()
-            path_used = None
-            names_from_index = True
+            # we will still honor self.names_column if provided
         elif isinstance(csv_source, dict):
             csv_path = csv_source.get("features_csv_filepath")
             if not csv_path or not os.path.exists(csv_path):
@@ -636,25 +650,12 @@ class LinearRegressionModel:
             df = pd.read_csv(csv_source)
             path_used = os.path.abspath(csv_source)
         else:
-            raise TypeError("`self.csv_filepaths` must be a str, dict, or DataFrame.")
+            raise TypeError("`self.csv_filepaths` must be a str, dict, DataFrame, or single-path list/tuple.")
 
         if df.empty:
             raise ValueError("The provided dataset is empty.")
 
-        # --- Target and drop setup ---
-        y_value = getattr(self, "y_value", None)
-        if y_value is None:
-            raise AttributeError("`self.y_value` must be set to the target column name.")
-
-        if drop_columns is None and hasattr(self, "drop_columns"):
-            drop_columns = getattr(self, "drop_columns")
-
-        if isinstance(drop_columns, str):
-            drop_columns = [drop_columns]
-        elif drop_columns is None:
-            drop_columns = []
-
-        # --- Helper functions ---
+        # ---------- Helpers ----------
         def _case_insensitive_find(col_name: str, columns: pd.Index):
             lc = str(col_name).lower()
             for c in columns:
@@ -677,30 +678,46 @@ class LinearRegressionModel:
                     return hit
             return None
 
-        # --- Resolve name and target columns ---
+        # ---------- Target & name resolution ----------
+        y_value = getattr(self, "y_value", None)
+        if y_value is None:
+            raise AttributeError("`self.y_value` must be set to the target column name.")
+
+        # Allow caller-provided drop_columns or self.drop_columns
+        if drop_columns is None and hasattr(self, "drop_columns"):
+            drop_columns = getattr(self, "drop_columns")
+
+        if isinstance(drop_columns, str):
+            drop_columns = [drop_columns]
+        elif drop_columns is None:
+            drop_columns = []
+
         provided_names_col = getattr(self, "names_column", None)
         name_candidates = ["name", "names", "molecule", "molecule_name", "mol", "compound", "sample", "id"]
 
-        if names_from_index:
-            names_col = None
+        # Choose names column (honor provided_names_col first)
+        names_col = None
+        if provided_names_col:
+            names_col = _case_insensitive_find(provided_names_col, df.columns)
+            if names_col is None:
+                raise KeyError(
+                    f"names_column {provided_names_col!r} not found. Available: {list(df.columns)}"
+                )
         else:
-            if provided_names_col:
-                names_col = _case_insensitive_find(provided_names_col, df.columns)
-                if names_col is None:
-                    raise KeyError(
-                        f"names_column {provided_names_col!r} not found. Available: {list(df.columns)}"
-                    )
+            # Use a meaningful index if not a default RangeIndex
+            if not isinstance(df.index, pd.RangeIndex):
+                names_col = None  # will use index
+                names_from_index = True
             else:
+                # try heuristics; fallback to first column
                 names_col = _first_match(name_candidates, df.columns) or df.columns[0]
 
         target_col = _case_insensitive_find(y_value, df.columns)
         if target_col is None:
-            raise KeyError(
-                f"Target column {y_value!r} not found. Available: {list(df.columns)}"
-            )
+            raise KeyError(f"Target column {y_value!r} not found. Available: {list(df.columns)}")
 
-        # --- Build features DataFrame ---
-        cols_to_drop = {names_col, target_col}
+        # ---------- Build features frame ----------
+        cols_to_drop = {c for c in [names_col, target_col] if c is not None}
         features_df_raw = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
         n_features_total = features_df_raw.shape[1]
 
@@ -714,9 +731,22 @@ class LinearRegressionModel:
                 features_df_raw = features_df_raw.drop(columns=smiles_to_drop)
                 dropped_smiles_like_cols.extend(smiles_to_drop)
 
-        # Drop user-specified columns
+        # Drop user-specified columns (support names or integer positions)
         if drop_columns:
-            resolved_user_cols = _resolve_many(drop_columns, features_df_raw.columns)
+            dc = list(drop_columns)
+            by_pos = [c for c in dc if isinstance(c, (int, np.integer))]
+            by_name = [c for c in dc if not isinstance(c, (int, np.integer))]
+
+            resolved_user_cols = _resolve_many(by_name, features_df_raw.columns)
+
+            if by_pos:
+                pos_names = [
+                    features_df_raw.columns[i] for i in by_pos
+                    if 0 <= int(i) < features_df_raw.shape[1]
+                ]
+                resolved_user_cols.extend(pos_names)
+
+            resolved_user_cols = list(dict.fromkeys(resolved_user_cols))  # dedupe
             if resolved_user_cols:
                 features_df_raw = features_df_raw.drop(columns=resolved_user_cols)
                 dropped_user_columns.extend(resolved_user_cols)
@@ -724,7 +754,7 @@ class LinearRegressionModel:
         # Deduplicate columns
         features_df_raw = features_df_raw.loc[:, ~features_df_raw.columns.duplicated()]
 
-        # --- Coerce to numeric ---
+        # ---------- Coerce to numeric ----------
         coerced = features_df_raw.apply(pd.to_numeric, errors="coerce")
         all_nan_cols = [c for c in coerced.columns if coerced[c].isna().all()]
         numeric_df = coerced.drop(columns=all_nan_cols, errors="ignore").select_dtypes(include=[np.number])
@@ -732,19 +762,24 @@ class LinearRegressionModel:
             c for c in features_df_raw.columns if c not in numeric_df.columns and c not in all_nan_cols
         ]
 
-        # --- Assign outputs ---
-        if names_from_index:
-            self.molecule_names = df.index.astype(str).tolist()
+        # ---------- Assign outputs ----------
+        if names_col is None:
+            # From index (if meaningful)
+            names_series = df.index
             names_label = "<index>"
         else:
-            self.molecule_names = df[names_col].astype(str).tolist()
+            names_series = df[names_col]
             names_label = names_col
+
+        self.molecule_names = names_series.astype(str).fillna("").replace("nan", "").tolist()
+
         target_series_numeric = pd.to_numeric(df[target_col], errors="coerce")
         self.target_vector = target_series_numeric if not target_series_numeric.isna().all() else df[target_col]
         self.features_df = numeric_df
         self.features_list = numeric_df.columns.tolist()
 
-        # --- Summary ---
+        # ---------- Summary ----------
+        name_src_note = "from index" if names_col is None else f"from column '{names_col}'"
         summary = {
             "path": path_used,
             "names_column": names_label,
@@ -758,10 +793,10 @@ class LinearRegressionModel:
             "dropped_user_columns": dropped_user_columns,
         }
 
-        # --- Output/log ---
+        # ---------- Output/log ----------
         msg = (
             f"Processed {'DataFrame' if path_used is None else os.path.basename(path_used)}\n"
-            f"Names column: {names_label} | Target: {target_col}\n"
+            f"Molecule names: {name_src_note} | Target: {target_col}\n"
             f"Rows: {df.shape[0]} | Features: {n_features_total} → {numeric_df.shape[1]}"
         )
         for key, lst in {
@@ -783,6 +818,7 @@ class LinearRegressionModel:
             print(msg)
 
         return summary
+
 
     def run_spike_and_slab_selection(self, slab_sd: float = 5.0, n_samples: int = 2000, n_tune: int = 1000,
                                      target_accept: float = 0.95, p_include: float = 0.5, verbose: bool = True):
