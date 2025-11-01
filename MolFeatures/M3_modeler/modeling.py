@@ -767,20 +767,27 @@ class LinearRegressionModel:
 
         # ---------- Assign outputs ----------
         if names_col is None:
-            # From index (if meaningful)
-            names_series = df.index
+            # Use index → convert to Series so we can use Series string ops
+            names_series = pd.Series(df.index, copy=False)
             names_label = "<index>"
         else:
-            names_series = df[names_col]
+            names_series = pd.Series(df[names_col], copy=False)
             names_label = names_col
 
-        self.molecule_names = names_series.astype(str).fillna("").replace("nan", "").tolist()
+        # Normalize to strings and clean NaNs / literal "nan"
+        names_series = names_series.where(names_series.notna(), "")
+        self.molecule_names = (
+            names_series.astype(str)
+            .str.replace(r'^\s*nan\s*$', '', regex=True)
+            .tolist()
+        )
 
         target_series_numeric = pd.to_numeric(df[target_col], errors="coerce")
-        self.target_vector = target_series_numeric if not target_series_numeric.isna().all() else df[target_col]
+        self.target_vector = (
+            target_series_numeric if not target_series_numeric.isna().all() else df[target_col]
+        )
         self.features_df = numeric_df
         self.features_list = numeric_df.columns.tolist()
-
         # ---------- Summary ----------
         name_src_note = "from index" if names_col is None else f"from column '{names_col}'"
         summary = {
