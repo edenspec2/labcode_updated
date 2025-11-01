@@ -596,22 +596,10 @@ class LinearRegressionModel:
 
         Initializes:
             - self.molecule_names : list[str]
-            - self.target_vector  : pd.Series
-            - self.features_df    : pd.DataFrame (numeric-only, deduplicated)
+            - self.target_vector  : pd.Series (indexed by molecule names)
+            - self.features_df    : pd.DataFrame (numeric-only, deduplicated, indexed by molecule names)
             - self.features_list  : list[str]
-
-        Parameters
-        ----------
-        drop_columns : str or list[str|int], optional
-            Additional columns to drop (case-insensitive for names; ints treated as positions).
-        drop_smiles : bool, default=True
-            Drop SMILES-like columns if found.
-
-        Returns
-        -------
-        dict
-            Summary of processing steps.
-        """
+    """
         import os
         from typing import List, Optional, Union
         import numpy as np
@@ -625,7 +613,6 @@ class LinearRegressionModel:
                 "or a single-path list/tuple."
             )
 
-        # Normalize a single-path list/tuple into a string
         if isinstance(csv_source, (list, tuple)):
             if len(csv_source) == 1 and isinstance(csv_source[0], str):
                 csv_source = csv_source[0]
@@ -640,7 +627,6 @@ class LinearRegressionModel:
 
         if isinstance(csv_source, pd.DataFrame):
             df = csv_source.copy()
-            # we will still honor self.names_column if provided
         elif isinstance(csv_source, dict):
             csv_path = csv_source.get("features_csv_filepath")
             if not csv_path or not os.path.exists(csv_path):
@@ -681,12 +667,35 @@ class LinearRegressionModel:
                     return hit
             return None
 
+        def _clean_and_make_unique(names: List[str]) -> List[str]:
+            # strip, normalize 'nan', and make unique with suffixes: name, name#2, name#3, ...
+            base = []
+            for x in names:
+                s = "" if x is None else str(x)
+                s = s.strip()
+                if s.lower() == "nan":
+                    s = ""
+                base.append(s)
+
+            result = []
+            seen = {}
+            for s in base:
+                key = s if s else ""  # allow empty then disambiguate
+                if key not in seen:
+                    seen[key] = 1
+                    result.append(key if key else "row")
+                else:
+                    seen[key] += 1
+                    # append a simple counter
+                    tag = f"{key if key else 'row'}#{seen[key]}"
+                    result.append(tag)
+            return result
+
         # ---------- Target & name resolution ----------
         y_value = getattr(self, "y_value", None)
         if y_value is None:
             raise AttributeError("`self.y_value` must be set to the target column name.")
 
-        # Allow caller-provided drop_columns or self.drop_columns
         if drop_columns is None and hasattr(self, "drop_columns"):
             drop_columns = getattr(self, "drop_columns")
 
@@ -707,12 +716,10 @@ class LinearRegressionModel:
                     f"names_column {provided_names_col!r} not found. Available: {list(df.columns)}"
                 )
         else:
-            # Use a meaningful index if not a default RangeIndex
             if not isinstance(df.index, pd.RangeIndex):
-                names_col = None  # will use index
+                names_col = None  # use index
                 names_from_index = True
             else:
-                # try heuristics; fallback to first column
                 names_col = _first_match(name_candidates, df.columns) or df.columns[0]
 
         target_col = _case_insensitive_find(y_value, df.columns)
@@ -744,7 +751,7 @@ class LinearRegressionModel:
 
             if by_pos:
                 pos_names = [
-                    features_df_raw.columns[i] for i in by_pos
+                    features_df_raw.columns[int(i)] for i in by_pos
                     if 0 <= int(i) < features_df_raw.shape[1]
                 ]
                 resolved_user_cols.extend(pos_names)
@@ -765,29 +772,43 @@ class LinearRegressionModel:
             c for c in features_df_raw.columns if c not in numeric_df.columns and c not in all_nan_cols
         ]
 
-        # ---------- Assign outputs ----------
+        # ---------- Names / index handling (MAIN FIX) ----------
         if names_col is None:
-            # Use index → convert to Series so we can use Series string ops
             names_series = pd.Series(df.index, copy=False)
             names_label = "<index>"
         else:
             names_series = pd.Series(df[names_col], copy=False)
             names_label = names_col
 
-        # Normalize to strings and clean NaNs / literal "nan"
-        names_series = names_series.where(names_series.notna(), "")
-        self.molecule_names = (
-            names_series.astype(str)
-            .str.replace(r'^\s*nan\s*$', '', regex=True)
-            .tolist()
-        )
+        clean_unique_names = _clean_and_make_unique(names_series.tolist())
 
-        target_series_numeric = pd.to_numeric(df[target_col], errors="coerce")
-        self.target_vector = (
-            target_series_numeric if not target_series_numeric.isna().all() else df[target_col]
-        )
+        # Apply the same name index to both X and y
+        numeric_df = numeric_df.copy()
+        numeric_df.index = clean_unique_names
+
+        target_series_raw = pd.to_numeric(df[target_col], errors="coerce")
+        # If everything became NaN, fallback to original dtype
+        target_series = target_series_raw if not target_series_raw.isna().all() else df[target_col]
+        target_series = pd.Series(target_series.values, index=clean_unique_names, name=target_col)
+
+        # Optionally drop rows with NaN targets (keeps model flows sane)
+        nan_target_mask = target_series.isna()
+        n_nan_targets = int(nan_target_mask.sum())
+        if n_nan_targets:
+            target_series = target_series[~nan_target_mask]
+            numeric_df = numeric_df.loc[target_series.index]
+
+        # Final align & checks
+        shared = numeric_df.index.intersection(target_series.index)
+        numeric_df = numeric_df.loc[shared]
+        target_series = target_series.loc[shared]
+
+        # Sync public attributes
+        self.molecule_names = list(numeric_df.index)
+        self.target_vector = target_series
         self.features_df = numeric_df
         self.features_list = numeric_df.columns.tolist()
+
         # ---------- Summary ----------
         name_src_note = "from index" if names_col is None else f"from column '{names_col}'"
         summary = {
@@ -801,13 +822,16 @@ class LinearRegressionModel:
             "dropped_all_nan_cols": all_nan_cols,
             "dropped_smiles_like_cols": dropped_smiles_like_cols,
             "dropped_user_columns": dropped_user_columns,
+            "dropped_rows_nan_target": n_nan_targets,
+            "n_final_rows": numeric_df.shape[0],
         }
 
         # ---------- Output/log ----------
         msg = (
             f"Processed {'DataFrame' if path_used is None else os.path.basename(path_used)}\n"
             f"Molecule names: {name_src_note} | Target: {target_col}\n"
-            f"Rows: {df.shape[0]} | Features: {n_features_total} → {numeric_df.shape[1]}"
+            f"Rows: {df.shape[0]} → {summary['n_final_rows']} (dropped NaN targets: {n_nan_targets}) | "
+            f"Features: {n_features_total} → {numeric_df.shape[1]}"
         )
         for key, lst in {
             "SMILES-like": dropped_smiles_like_cols,
@@ -827,7 +851,12 @@ class LinearRegressionModel:
         else:
             print(msg)
 
+        # Final sanity
+        assert self.features_df.index.equals(self.target_vector.index), \
+            "X and y must share identical indices after processing."
+
         return summary
+
 
 
     def run_spike_and_slab_selection(self, slab_sd: float = 5.0, n_samples: int = 2000, n_tune: int = 1000,
@@ -1133,6 +1162,7 @@ class LinearRegressionModel:
         target_vector_unordered = pd.read_csv(csv_filepath)[self.y_value]
         
         self.target_vector = target_vector_unordered.loc[self.molecule_names]
+        
     def leave_out_samples(self, leave_out=None, keep_only=False):
         """
         Remove or retain specific rows from features_df/target_vector based on indices or molecule names.
@@ -1193,36 +1223,60 @@ class LinearRegressionModel:
             )
 
         # locate index labels for dropping
-        self.idx_labels = self.features_df.index[indices]
+        feat_labels = self.features_df.index.take(indices)
+
+        # --- decide how to address the target_vector (labels vs positions) ---
+        use_label_drop_for_target = False
+        targ_labels = None
+        if self.target_vector.index.equals(self.features_df.index):
+            # same index as features → safe to drop by the same labels
+            targ_labels = feat_labels
+            use_label_drop_for_target = True
+        elif hasattr(self, "molecule_names") and len(self.molecule_names) == len(self.target_vector):
+            # try mapping via molecule_names if they mirror the target order
+            cand = pd.Index(self.molecule_names).take(indices)
+            if pd.Index(cand).isin(self.target_vector.index).all():
+                targ_labels = cand
+                use_label_drop_for_target = True
+        # else: we will drop target by positions
+
+        # cache for downstream / debugging
+        self.idx_labels = feat_labels
+        self.indices_predict = indices
 
         if keep_only:
-            # Everything *not* in indices becomes the "left out" set
-            self.leftout_samples = self.features_df.drop(index=self.idx_labels).copy()
-            self.leftout_target_vector = self.target_vector.drop(index=self.idx_labels).copy()
-            self.molecule_names_predict = [
-                n for i, n in enumerate(self.molecule_names) if i not in indices
-            ]
+            # Everything NOT in indices becomes the "left out" set
+            self.leftout_samples = self.features_df.drop(index=feat_labels).copy()
+            if use_label_drop_for_target:
+                self.leftout_target_vector = self.target_vector.drop(index=targ_labels).copy()
+            else:
+                self.leftout_target_vector = self.target_vector.drop(self.target_vector.index[indices]).copy()
+            self.molecule_names_predict = [n for i, n in enumerate(self.molecule_names) if i not in indices]
 
-            # The new main set is just our selected rows (already reindexed)
-            self.features_df = selected_features
+            # Keep only the selected rows as the main set (already sliced earlier)
+            self.features_df   = selected_features
             self.target_vector = selected_target
             self.molecule_names = selected_names
-            self.indices_predict = indices
-            print(self.leftout_target_vector,'left')
         else:
-            # The selected rows become the "left out" set (already reindexed)
-            self.leftout_samples = selected_features
-            self.leftout_target_vector = selected_target
+            # The selected rows become the "left out" set
+            self.leftout_samples        = selected_features
+            self.leftout_target_vector  = selected_target
             self.molecule_names_predict = selected_names
 
             # Drop them from the main set
-            self.features_df = self.features_df.drop(index=self.idx_labels)
-            self.target_vector = self.target_vector.drop(index=self.idx_labels)
-            self.molecule_names = [
-                n for i, n in enumerate(self.molecule_names) if i not in indices
-            ]
-            self.indices_predict = indices
-            print(self.leftout_target_vector,'left')
+            self.features_df = self.features_df.drop(index=feat_labels)
+            if use_label_drop_for_target:
+                self.target_vector = self.target_vector.drop(index=targ_labels)
+            else:
+                self.target_vector = self.target_vector.drop(self.target_vector.index[indices])
+            self.molecule_names = [n for i, n in enumerate(self.molecule_names) if i not in indices]
+
+
+
+
+
+
+
 
         
 
