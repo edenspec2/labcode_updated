@@ -1407,14 +1407,25 @@ def print_models_regression_table(results, app=None ,model=None):
             r = r_squared[selected_model]
 
             # ✅ Generate scatter plot safely (don’t auto-show inside the function)
+            lb = None if lwr is None else float(np.nanmin(lwr))
+            ub = None if upr is None else float(np.nanmax(upr))
+
             fig_q2, ax_q2 = generate_q2_scatter_plot(
-                y, pred, model.molecule_names,
-                folds_df, features, coef_df['Estimate'], r, X, lwr, upr,
-                plot=False, dir=model.paths.figs,
-                figsize=(12, 7),         # wider
-                equal_aspect=False,      # let it expand horizontally
-                fontsize=10,             # bigger axes text
-                label_fontsize=5         # smaller point labels
+                y=y,
+                y_pred=pred,
+                labels=model.molecule_names,
+                folds_df=folds_df,
+                formula=features,
+                coefficients=coef_df['Estimate'],
+                r=r,
+                lower_bound=lb,                 # <- keyword, scalar
+                upper_bound=ub,                 # <- keyword, scalar
+                plot=False,
+                dir=model.paths.figs,
+                figsize=(12, 7),                # wider
+                equal_aspect=False,             # let it expand horizontally
+                fontsize=10,                    # bigger axes text
+                label_fontsize=5                # smaller point labels
             )
 
             ip = get_ipython()
