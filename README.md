@@ -682,9 +682,3 @@ A: The number of samples to **keep** within `class_label`, evenly spread across 
 **Q: How do I apply drops only inside one class?**
 A: Build a mask: keep all rows from other classes, then either keep or drop the selected positions inside `class_label` only.
 
----
-
-## License
-
-MIT License (see `LICENSE` for details).
-
