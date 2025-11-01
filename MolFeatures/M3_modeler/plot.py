@@ -176,7 +176,7 @@ def generate_q2_scatter_plot(
     show_type_legend=True,
     # Compact + labeling
     compact=True,
-    label_fraction=0.20,
+    label_fraction=1.0,
     label_strategy="residual",
     random_state=42,
     # Left-out support
@@ -199,7 +199,7 @@ def generate_q2_scatter_plot(
     label_min_abs_residual=None,
     label_fontsize=6,
     leftout_label_fontsize=6,
-    show_metrics=False,      # no metrics box when False
+    show_metrics=True,      # no metrics box when False
     footer_y=0.10            # footer equation vertical position in figure coords
 ):
     import numpy as np
@@ -212,12 +212,48 @@ def generate_q2_scatter_plot(
     print('Debugging print')
     # ---------- helpers ----------
     def _build_eqn(formula, coefficients, corr):
-        # If you have your own builder, swap this out.
-        if coefficients is not None and len(coefficients) == 2:
-            a, b = coefficients
-            return f"y = {a:.3g}·x + {b:.3g}     R = {corr:.2f}"
-        return f"R = {corr:.2f}"
+        """
+        Build a readable regression equation for up to N coefficients.
+        Uses feature names from 'formula' instead of x1, x2.
+        Handles 1D, 2D, or multi-feature models.
+        """
+        import numpy as np
 
+        try:
+            coeffs = np.asarray(coefficients, dtype=float).ravel()
+            n = len(coeffs)
+        except Exception:
+            return f"R = {corr:.2f}"
+
+        # Normalize formula → list of feature names (if string, wrap in list)
+        if isinstance(formula, str):
+            features = [formula]
+        else:
+            try:
+                features = list(formula)
+            except Exception:
+                features = [f"x{i+1}" for i in range(n)]
+
+        # --- 1D (no intercept)
+        if n == 1:
+            return f"y = {coeffs[0]:.3g}·{features[0]}"
+
+        # --- 2D (slope + intercept)
+        elif n == 2:
+            a, b = coeffs
+            name = features[0] if len(features) >= 1 else "x"
+            return f"y = {a:.3g}·{name} + {b:.3g}"
+
+        # --- Multi-feature (more than 2 terms)
+        else:
+            # Align number of coefficients (excluding intercept) with features
+            feat_names = features[: n - 1] if len(features) >= n - 1 else [
+                f"x{i+1}" for i in range(n - 1)
+            ]
+            terms = [f"{c:.3g}·{f}" for c, f in zip(coeffs[:-1], feat_names)]
+            intercept = coeffs[-1]
+            eqn = " + ".join(terms) + f" + {intercept:.3g}"
+            return f"y = {eqn}"
     rng = np.random.default_rng(random_state)
 
     y = np.asarray(y).ravel().astype(float)
@@ -309,12 +345,25 @@ def generate_q2_scatter_plot(
     pad = margin_frac * span if span > 0 else 1.0
     lo_p, hi_p = lo - pad, hi + pad
 
-    ax.plot([lo_p, hi_p], [lo_p, hi_p], "--", color=identity_color, lw=1.0, zorder=1)
+    # Keep the limits logic you computed:
     ax.set_xlim(lo_p, hi_p)
     ax.set_ylim(lo_p, hi_p)
-    if equal_aspect:
-        ax.set_aspect("equal", adjustable="box")  # keeps parity look correct
 
+    # ---- draw a fitted line through the data instead of y=x ----
+    # Prefer passed-in coefficients if available, else compute from data
+    try:
+        if (coefficients is not None) and (len(coefficients) == 2):
+            a, b = float(coefficients[0]), float(coefficients[1])   # slope, intercept
+        else:
+            # robust simple linear fit: Predicted = a*Measured + b
+            a, b = np.polyfit(y, y_pred, 1)
+    except Exception:
+        a, b = np.polyfit(y, y_pred, 1)
+
+    # draw fit line across the visible x-range
+    xx = np.linspace(*ax.get_xlim(), 200)
+    yy = a*xx + b
+    ax.plot(xx, yy, color="black", lw=1.3, linestyle="--", zorder=2)
     # ---- label selection & placement ----
     n_total = len(data)
     n_default = max(1, int(np.ceil(label_fraction * n_total)))
@@ -328,7 +377,7 @@ def generate_q2_scatter_plot(
     if label_min_abs_residual is not None:
         order = [i for i in order if abs(data["Residual"].iat[i]) >= label_min_abs_residual]
 
-    idx = np.array(order[:n_to_label], dtype=int)
+    idx = np.array(order, dtype=int)
 
     texts = []
     for _, row in data.iloc[idx].iterrows():
@@ -392,8 +441,8 @@ def generate_q2_scatter_plot(
                 f"\n5-fold Q²: {q.get('Q2_5_Fold', np.nan):.2f}"
                 f"\nLOOCV Q²: {q.get('Q2_LOOCV', np.nan):.2f}"
             )
-        else:
-            q_txt = rf"$R^2 = {corr:.2f}$"
+        # else:
+        #     q_txt = rf"$R^2 = {corr:.2f}$"
         ax.text(
             0.02, 0.98, q_txt,
             transform=ax.transAxes,
@@ -1425,7 +1474,7 @@ def print_models_regression_table(results, app=None ,model=None):
                 figsize=(12, 7),                # wider
                 equal_aspect=False,             # let it expand horizontally
                 fontsize=10,                    # bigger axes text
-                label_fontsize=5                # smaller point labels
+                label_fontsize=8                # smaller point labels
             )
 
             ip = get_ipython()
