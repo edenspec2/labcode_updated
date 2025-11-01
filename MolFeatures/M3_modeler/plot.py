@@ -1459,7 +1459,7 @@ def print_models_regression_table(results, app=None ,model=None):
             lb = None if lwr is None else float(np.nanmin(lwr))
             ub = None if upr is None else float(np.nanmax(upr))
 
-            fig_q2, ax_q2 = generate_q2_scatter_plot(
+            _, ax_q2 = generate_q2_scatter_plot(
                 y=y,
                 y_pred=pred,
                 labels=model.molecule_names,
@@ -1471,7 +1471,7 @@ def print_models_regression_table(results, app=None ,model=None):
                 upper_bound=ub,                 # <- keyword, scalar
                 plot=False,
                 dir=model.paths.figs,
-                figsize=(12, 7),                # wider
+                figsize=(10, 5),                # wider
                 equal_aspect=False,             # let it expand horizontally
                 fontsize=10,                    # bigger axes text
                 label_fontsize=8                # smaller point labels
