@@ -33,6 +33,8 @@ from sklearn.linear_model import (
     LogisticRegression,
     SGDRegressor,
 )
+from sklearn.utils.validation import check_is_fitted
+from sklearn.exceptions import NotFittedError 
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -477,22 +479,23 @@ class LinearRegressionModel:
             self.process_features_csv(drop_columns=drop_columns)
             self.features_df = self.features_df.dropna(axis=1)
 
-            self.scaler = StandardScaler()
-            self.original_features_df = self.features_df.copy()
-            self.features_df =  pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
-            self.feature_names=self.features_df.columns.tolist()
-            
-            self.compute_correlation()
-            self.leave_out_samples(self.leave_out)
-            self.determine_number_of_features()
+        self.scaler = StandardScaler()
+        self.original_features_df = self.features_df.copy()
+        self.features_df =  pd.DataFrame(self.scaler.fit_transform(self.features_df), columns=self.features_df.columns)
+        self.feature_names=self.features_df.columns.tolist()
+        
+        # self.compute_correlation()
+       
+        self.leave_out_samples(self.leave_out)
+        self.determine_number_of_features()
 
-            
+        
 
-            self.theta       = None
-            self.X_b_train   = None
-            self.sigma2      = None
-            self.XtX_inv     = None
-            
+        self.theta       = None
+        self.X_b_train   = None
+        self.sigma2      = None
+        self.XtX_inv     = None
+        
         ## need to be preformed on the chosen model
 
         # self.check_linear_regression_assumptions()
@@ -1135,7 +1138,7 @@ class LinearRegressionModel:
             leave_out (int, str, list[int|str]): Indices or molecule names to leave out (or to keep if keep_only=True).
             keep_only (bool): If True, only the given indices/names are kept, all others are left out.
         """
-        
+       
         if leave_out is None:
             return
 
@@ -1198,6 +1201,7 @@ class LinearRegressionModel:
             self.target_vector = selected_target
             self.molecule_names = selected_names
             self.indices_predict = indices
+            print(self.leftout_target_vector,'left')
         else:
             # The selected rows become the "left out" set (already reindexed)
             self.leftout_samples = selected_features
@@ -1211,7 +1215,7 @@ class LinearRegressionModel:
                 n for i, n in enumerate(self.molecule_names) if i not in indices
             ]
             self.indices_predict = indices
-
+            print(self.leftout_target_vector,'left')
 
         
 
@@ -1433,49 +1437,111 @@ class LinearRegressionModel:
 
 
 
-    def predict_for_leftout(self, X, y=None, X_train=None, y_train=None,
-                        calc_interval=False, confidence_level=0.95):
+    def predict_for_leftout(
+    self,
+    X: pd.DataFrame,
+    y: Optional[object] = None,
+    X_train: Optional[pd.DataFrame] = None,
+    y_train: Optional[object] = None,
+    *,
+    calc_interval: bool = False,
+    confidence_level: float = 0.95,
+):
         """
-        Predict on left-out samples using the already-fitted or freshly refitted model.
+        Predict on left-out samples using an already-fitted or freshly refitted model.
 
-        Args:
-            X (pd.DataFrame or np.ndarray): Left-out feature matrix.
-            y (optional): Left-out target values.
-            X_train, y_train (optional): If provided, will retrain model on this data before predicting.
-            calc_interval (bool): If True, compute prediction intervals.
-            confidence_level (float): Confidence level for prediction intervals.
+        Parameters
+        ----------
+        X : pd.DataFrame or np.ndarray
+            Left-out feature matrix.
+        y : array-like, optional
+            Left-out target values.
+        X_train, y_train : array-like, optional
+            If provided, the model will be (re)fit on this data before predicting.
+        calc_interval : bool, default False
+            If True and the model/predict wrapper supports it, compute prediction intervals.
+        confidence_level : float, default 0.95
+            Confidence level for prediction intervals (if supported).
 
-        Returns:
-            Prediction results as described earlier.
+        Returns
+        -------
+        preds or (preds, errors) or (preds, lower, upper) or (preds, lower, upper, errors)
         """
-        import numpy as np
-        import pandas as pd
-        import copy
 
-        try:
-            import statsmodels.api as sm
-        except ImportError:
-            sm = None
-
-        # --- Step 1: Confirm feature list ---
-        if not hasattr(self, "_trained_features"):
-            raise AttributeError("Model is missing `_trained_features`. Set this after fitting.")
-
-        if isinstance(X, np.ndarray):
-            X = pd.DataFrame(X, columns=self._trained_features)
+        # ----------------------- 1) Ensure fitted (or fit now) -----------------------
+        must_refit = (X_train is not None) and (y_train is not None)
+        if must_refit:
+            Xt = X_train.to_numpy() if hasattr(X_train, "to_numpy") else np.asarray(X_train)
+            yt = np.asarray(y_train).ravel()
+            self.model.fit(Xt, yt)          # fit now
+            # Optionally keep for future checks
+            self.X_, self.y_ = Xt, yt
         else:
-            X = X.copy()
+            try:
+                check_is_fitted(self.model)
+            except Exception:
+                # try cached training data, else error
+                if hasattr(self, "X_") and hasattr(self, "y_"):
+                    self.model.fit(self.X_, self.y_)
+                else:
+                    raise NotFittedError(
+                        "This estimator is not fitted yet. Provide X_train,y_train or fit before calling predict_for_leftout."
+                    )
 
-        X = X[self._trained_features]
-    
-        X_arr = X.values
-        if calc_interval:
-            preds, lower, upper = self.predict(X_arr, return_interval=True, cl=confidence_level)
+        # ----------------------- 2) Align columns/schema -----------------------
+        X_is_df = isinstance(X, pd.DataFrame)
+        if X_is_df and isinstance(X_train, pd.DataFrame):
+            # reindex to training columns; missing -> NaN
+            X_aligned = X.reindex(columns=X_train.columns)
+        elif X_is_df and hasattr(self, "features_df") and isinstance(self.features_df, pd.DataFrame):
+            X_aligned = X.reindex(columns=self.features_df.columns)
         else:
+            X_aligned = X
+
+        # handle missing columns (NaNs after reindex)
+        if isinstance(X_aligned, pd.DataFrame):
+            if X_aligned.isna().any().any():
+                # Simple, safe default: fill NaNs with 0.0
+                # (swap to column means if you store them, e.g., self.feature_means_)
+                X_aligned = X_aligned.fillna(0.0)
+            X_arr = X_aligned.to_numpy()
+        else:
+            X_arr = np.asarray(X_aligned)
+
+        # Ensure 2D
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(-1, 1)
+
+        # ----------------------- 3) Apply scaler if present -----------------------
+        if hasattr(self, "scaler_") and self.scaler_ is not None:
+            try:
+                X_arr = self.scaler_.transform(X_arr)
+            except Exception:
+                # if scaler fails (shape mismatch), skip silently or raise as you prefer
+                pass
+
+        # ----------------------- 4) Predict (with or without intervals) -----------------------
+        # If your model class has a wrapper predict(X, return_interval=..., cl=...),
+        # prefer that; else fall back to sklearn's .predict
+        preds = lower = upper = None
+
+        if calc_interval and hasattr(self, "predict"):
+            # Your wrapper signature uses 'cl' in earlier code; keep both for safety
+            try:
+                preds, lower, upper = self.predict(X_arr, return_interval=True, cl=confidence_level)
+            except TypeError:
+                preds, lower, upper = self.predict(X_arr, return_interval=True, confidence_level=confidence_level)
+        elif hasattr(self, "predict"):
+            # If your wrapper exists but intervals not requested
+            out = self.predict(X_arr, return_interval=False)
+            preds = out[0] if isinstance(out, (tuple, list)) else out
+        else:
+            # plain sklearn estimator
             preds = self.model.predict(X_arr)
 
+        preds = np.asarray(preds).ravel()
 
-        # --- Step 6: Compute errors ---
+        # ----------------------- 5) Errors (if y given) -----------------------
         errors = None
         if y is not None:
             y_arr = y.values.ravel() if isinstance(y, (pd.Series, pd.DataFrame)) else np.asarray(y).ravel()
@@ -1483,11 +1549,14 @@ class LinearRegressionModel:
                 raise ValueError(f"Prediction shape {preds.shape} != y shape {y_arr.shape}")
             errors = y_arr - preds
 
-        # --- Step 7: Return ---
-        if calc_interval:
+        # ----------------------- 6) Return -----------------------
+        if calc_interval and (lower is not None) and (upper is not None):
+            lower = np.asarray(lower).ravel()
+            upper = np.asarray(upper).ravel()
             return (preds, lower, upper, errors) if errors is not None else (preds, lower, upper)
         else:
             return (preds, errors) if errors is not None else preds
+
         
     def evaluate(self, X, y):
         
@@ -2010,6 +2079,7 @@ class ClassificationModel:
             leave_out (int, str, list[int|str]): Indices or molecule names to leave out (or to keep if keep_only=True).
             keep_only (bool): If True, only the given indices/names are kept, all others are left out.
         """
+        print('Debugging leave')
         if leave_out is None:
             return
 
@@ -2093,11 +2163,12 @@ class ClassificationModel:
     self,
     drop_columns: Optional[Union[str, List[str]]] = None,
     drop_smiles: bool = True,
-    ) -> dict:
+) -> dict:
         """
         Load and process a features dataset from:
         - a CSV file path (string),
         - a dict with key 'features_csv_filepath',
+        - a single-path list/tuple,
         - or an in-memory pandas DataFrame.
 
         Initializes:
@@ -2108,8 +2179,8 @@ class ClassificationModel:
 
         Parameters
         ----------
-        drop_columns : str or list[str], optional
-            Additional columns to drop (case-insensitive).
+        drop_columns : str or list[str|int], optional
+            Additional columns to drop (case-insensitive for names; ints treated as positions).
         drop_smiles : bool, default=True
             Drop SMILES-like columns if found.
 
@@ -2119,20 +2190,33 @@ class ClassificationModel:
             Summary of processing steps.
         """
         import os
-        import pandas as pd
+        from typing import List, Optional, Union
         import numpy as np
+        import pandas as pd
 
-        # --- Load from file path OR from existing DataFrame ---
+        # ---------- Load source ----------
         csv_source = getattr(self, "csv_filepaths", None)
-
         if csv_source is None:
             raise AttributeError(
-                "`self.csv_filepaths` must be set to a CSV path, a dict, or a pandas DataFrame."
+                "`self.csv_filepaths` must be set to a CSV path (str), a dict, a pandas DataFrame, "
+                "or a single-path list/tuple."
             )
+
+        # Normalize a single-path list/tuple into a string
+        if isinstance(csv_source, (list, tuple)):
+            if len(csv_source) == 1 and isinstance(csv_source[0], str):
+                csv_source = csv_source[0]
+            else:
+                raise TypeError(
+                    "`csv_filepaths` list/tuple must contain exactly one string path; "
+                    f"got {csv_source!r}"
+                )
+
+        path_used = None
 
         if isinstance(csv_source, pd.DataFrame):
             df = csv_source.copy()
-            path_used = None
+            # we will still honor self.names_column if provided
         elif isinstance(csv_source, dict):
             csv_path = csv_source.get("features_csv_filepath")
             if not csv_path or not os.path.exists(csv_path):
@@ -2145,25 +2229,12 @@ class ClassificationModel:
             df = pd.read_csv(csv_source)
             path_used = os.path.abspath(csv_source)
         else:
-            raise TypeError("`self.csv_filepaths` must be a str, dict, or DataFrame.")
+            raise TypeError("`self.csv_filepaths` must be a str, dict, DataFrame, or single-path list/tuple.")
 
         if df.empty:
             raise ValueError("The provided dataset is empty.")
 
-        # --- Target and drop setup ---
-        y_value = getattr(self, "y_value", None)
-        if y_value is None:
-            raise AttributeError("`self.y_value` must be set to the target column name.")
-
-        if drop_columns is None and hasattr(self, "drop_columns"):
-            drop_columns = getattr(self, "drop_columns")
-
-        if isinstance(drop_columns, str):
-            drop_columns = [drop_columns]
-        elif drop_columns is None:
-            drop_columns = []
-
-        # --- Helper functions ---
+        # ---------- Helpers ----------
         def _case_insensitive_find(col_name: str, columns: pd.Index):
             lc = str(col_name).lower()
             for c in columns:
@@ -2186,10 +2257,25 @@ class ClassificationModel:
                     return hit
             return None
 
-        # --- Resolve name and target columns ---
+        # ---------- Target & name resolution ----------
+        y_value = getattr(self, "y_value", None)
+        if y_value is None:
+            raise AttributeError("`self.y_value` must be set to the target column name.")
+
+        # Allow caller-provided drop_columns or self.drop_columns
+        if drop_columns is None and hasattr(self, "drop_columns"):
+            drop_columns = getattr(self, "drop_columns")
+
+        if isinstance(drop_columns, str):
+            drop_columns = [drop_columns]
+        elif drop_columns is None:
+            drop_columns = []
+
         provided_names_col = getattr(self, "names_column", None)
         name_candidates = ["name", "names", "molecule", "molecule_name", "mol", "compound", "sample", "id"]
 
+        # Choose names column (honor provided_names_col first)
+        names_col = None
         if provided_names_col:
             names_col = _case_insensitive_find(provided_names_col, df.columns)
             if names_col is None:
@@ -2197,16 +2283,18 @@ class ClassificationModel:
                     f"names_column {provided_names_col!r} not found. Available: {list(df.columns)}"
                 )
         else:
-            names_col = _first_match(name_candidates, df.columns) or df.columns[0]
+            # Use a meaningful index if not a default RangeIndex; otherwise try heuristics then fallback to first column
+            if not isinstance(df.index, pd.RangeIndex):
+                names_col = None  # will use index
+            else:
+                names_col = _first_match(name_candidates, df.columns) or df.columns[0]
 
         target_col = _case_insensitive_find(y_value, df.columns)
         if target_col is None:
-            raise KeyError(
-                f"Target column {y_value!r} not found. Available: {list(df.columns)}"
-            )
+            raise KeyError(f"Target column {y_value!r} not found. Available: {list(df.columns)}")
 
-        # --- Build features DataFrame ---
-        cols_to_drop = {names_col, target_col}
+        # ---------- Build features frame ----------
+        cols_to_drop = {c for c in [names_col, target_col] if c is not None}
         features_df_raw = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
         n_features_total = features_df_raw.shape[1]
 
@@ -2220,9 +2308,22 @@ class ClassificationModel:
                 features_df_raw = features_df_raw.drop(columns=smiles_to_drop)
                 dropped_smiles_like_cols.extend(smiles_to_drop)
 
-        # Drop user-specified columns
+        # Drop user-specified columns (support names or integer positions)
         if drop_columns:
-            resolved_user_cols = _resolve_many(drop_columns, features_df_raw.columns)
+            dc = list(drop_columns)
+            by_pos = [c for c in dc if isinstance(c, (int, np.integer))]
+            by_name = [c for c in dc if not isinstance(c, (int, np.integer))]
+
+            resolved_user_cols = _resolve_many(by_name, features_df_raw.columns)
+
+            if by_pos:
+                pos_names = [
+                    features_df_raw.columns[i] for i in by_pos
+                    if 0 <= int(i) < features_df_raw.shape[1]
+                ]
+                resolved_user_cols.extend(pos_names)
+
+            resolved_user_cols = list(dict.fromkeys(resolved_user_cols))  # dedupe
             if resolved_user_cols:
                 features_df_raw = features_df_raw.drop(columns=resolved_user_cols)
                 dropped_user_columns.extend(resolved_user_cols)
@@ -2230,7 +2331,7 @@ class ClassificationModel:
         # Deduplicate columns
         features_df_raw = features_df_raw.loc[:, ~features_df_raw.columns.duplicated()]
 
-        # --- Coerce to numeric ---
+        # ---------- Coerce to numeric ----------
         coerced = features_df_raw.apply(pd.to_numeric, errors="coerce")
         all_nan_cols = [c for c in coerced.columns if coerced[c].isna().all()]
         numeric_df = coerced.drop(columns=all_nan_cols, errors="ignore").select_dtypes(include=[np.number])
@@ -2238,17 +2339,36 @@ class ClassificationModel:
             c for c in features_df_raw.columns if c not in numeric_df.columns and c not in all_nan_cols
         ]
 
-        # --- Assign outputs ---
-        self.molecule_names = df[names_col].astype(str).tolist()
+        # ---------- Assign outputs ----------
+   
+
+        if names_col is None:
+            # Convert Index -> Series so we can use Series string ops safely
+            names_series = pd.Series(df.index, copy=False)
+            names_label = "<index>"
+        else:
+            names_series = df[names_col]
+            names_label = names_col
+
+        # Clean names to strings and remove NaNs cleanly
+        names_series = pd.Series(names_series, copy=False)
+        names_series = names_series.where(names_series.notna(), "")
+        self.molecule_names = (
+            names_series.astype(str)
+            .str.replace(r'^\s*nan\s*$', '', regex=True)
+            .tolist()
+        )
+
         target_series_numeric = pd.to_numeric(df[target_col], errors="coerce")
         self.target_vector = target_series_numeric if not target_series_numeric.isna().all() else df[target_col]
         self.features_df = numeric_df
         self.features_list = numeric_df.columns.tolist()
 
-        # --- Summary ---
+        # ---------- Summary ----------
+        name_src_note = "from index" if names_col is None else f"from column '{names_col}'"
         summary = {
             "path": path_used,
-            "names_column": names_col,
+            "names_column": names_label,
             "target_column": target_col,
             "n_rows": df.shape[0],
             "n_features_total": n_features_total,
@@ -2259,10 +2379,10 @@ class ClassificationModel:
             "dropped_user_columns": dropped_user_columns,
         }
 
-        # --- Output/log ---
+        # ---------- Output/log ----------
         msg = (
             f"Processed {'DataFrame' if path_used is None else os.path.basename(path_used)}\n"
-            f"Names column: {names_col} | Target: {target_col}\n"
+            f"Molecule names: {name_src_note} | Target: {target_col}\n"
             f"Rows: {df.shape[0]} | Features: {n_features_total} → {numeric_df.shape[1]}"
         )
         for key, lst in {
@@ -2284,6 +2404,7 @@ class ClassificationModel:
             print(msg)
 
         return summary
+
 
 
     

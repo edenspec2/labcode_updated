@@ -1389,7 +1389,7 @@ def print_models_regression_table(results, app=None ,model=None):
         model.fit(X, y)
         pred, lwr, upr = model.predict(X, return_interval=True)
         coef_df = model.get_covariance_matrix(features)
-
+        leftout_pred_df, r2_leftout, mae_leftout = _compute_leftout(model, features)
         x_min, y_min = y.min(), y.min()
         x_max, y_max = pred.max(), pred.max()
         padding_x = (x_max - x_min) * 0.05
@@ -1458,7 +1458,7 @@ def print_models_regression_table(results, app=None ,model=None):
             # ✅ Generate scatter plot safely (don’t auto-show inside the function)
             lb = None if lwr is None else float(np.nanmin(lwr))
             ub = None if upr is None else float(np.nanmax(upr))
-
+           
             _, ax_q2 = generate_q2_scatter_plot(
                 y=y,
                 y_pred=pred,
@@ -1474,7 +1474,8 @@ def print_models_regression_table(results, app=None ,model=None):
                 figsize=(10, 5),                # wider
                 equal_aspect=False,             # let it expand horizontally
                 fontsize=10,                    # bigger axes text
-                label_fontsize=8                # smaller point labels
+                label_fontsize=8,               # smaller point labels
+                leftout_pred_df=leftout_pred_df
             )
 
             ip = get_ipython()
@@ -1787,23 +1788,74 @@ def _compute_cv_metrics(model, X, y):
     return folds_df, Q2_loo
 
 def _compute_leftout(model, features):
+    import numpy as np
+    import pandas as pd
+    from sklearn.metrics import r2_score, mean_absolute_error
+
+    # ---- Guard: no left-out set ----
     if getattr(model, "leftout_samples", None) is None or len(model.leftout_samples) == 0:
         return None, None, None
-    X_left = model.leftout_samples[features].reindex()
-    y_left = np.array(model.leftout_target_vector).ravel()
-    leftout_pred = model.predict_for_leftout(X_left, y=y_left, calc_interval=False)
-    y_pred_left = np.array(leftout_pred[0]).ravel() if isinstance(leftout_pred, tuple) else np.array(leftout_pred).ravel()
-    names = list(model.molecule_names_predict)
-    df = pd.DataFrame({'Molecule': names, 'Actual': y_left, 'Predicted': y_pred_left})
-    df['Error in %'] = np.where(
-        df['Actual'] != 0,
-        np.abs(df['Actual'] - df['Predicted']) / np.abs(df['Actual']) * 100,
-        np.nan
+
+    # ---- Training data for this feature set (as DataFrame/Series) ----
+    X_train = model.features_df[features]
+    y_train = model.target_vector
+
+    # ---- Align left-out columns to training schema ----
+    # (reindex adds missing columns as NaN; model.predict_for_leftout should impute/handle or you can fillna here)
+    X_left = model.leftout_samples.reindex(columns=features)
+    y_left = None
+    if getattr(model, "leftout_target_vector", None) is not None:
+        y_left = np.asarray(model.leftout_target_vector).ravel()
+
+    # ---- Predict (pass X_train/y_train so the method can fit if needed) ----
+    pred_out = model.predict_for_leftout(
+        X_left,
+        y=y_left,
+        X_train=X_train,
+        y_train=y_train,
+        calc_interval=False
     )
-    from sklearn.metrics import r2_score, mean_absolute_error
-    r2_leftout = r2_score(y_left, y_pred_left)
-    mae_leftout = mean_absolute_error(y_left, y_pred_left)
+
+    # Unpack predictions
+    if isinstance(pred_out, tuple):
+        y_pred_left = np.asarray(pred_out[0]).ravel()
+    else:
+        y_pred_left = np.asarray(pred_out).ravel()
+
+    # ---- Names handling (robust to length mismatches) ----
+    if hasattr(model, "molecule_names_predict") and model.molecule_names_predict is not None:
+        names = list(model.molecule_names_predict)
+    else:
+        names = X_left.index.astype(str).tolist()
+
+    if len(names) != len(y_pred_left):
+        names = [str(n) for n in range(len(y_pred_left))]  # fallback safe indexing
+
+    # ---- Build result frame ----
+    if y_left is not None and len(y_left) == len(y_pred_left):
+        df = pd.DataFrame({
+            "Molecule": names,
+            "Actual": y_left,
+            "Predicted": y_pred_left
+        })
+        df["Error in %"] = np.where(
+            df["Actual"] != 0,
+            np.abs(df["Actual"] - df["Predicted"]) / np.abs(df["Actual"]) * 100.0,
+            np.nan
+        )
+        r2_leftout = r2_score(y_left, y_pred_left)
+        mae_leftout = mean_absolute_error(y_left, y_pred_left)
+    else:
+        # No targets → just predictions
+        df = pd.DataFrame({
+            "Molecule": names,
+            "Predicted": y_pred_left
+        })
+        df["Error in %"] = np.nan
+        r2_leftout, mae_leftout = None, None
+
     return df, r2_leftout, mae_leftout
+
 
 def _compute_margins():
     x_ideal = np.linspace(-3.0, 0.6, 100)
