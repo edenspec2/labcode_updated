@@ -1478,24 +1478,34 @@ def print_models_regression_table(results, app=None ,model=None):
             )
 
             ip = get_ipython()
-            if ip is not None:  # notebook/Colab
-                from IPython.display import display
-                display(fig_q2)          # <- reliable in Colab/Jupyter
-                # optional: avoid duplicate rendering later
-                # plt.close(fig_q2)
-            else:  # terminal script
-                import matplotlib.pyplot as plt
-                plt.show()
+            is_colab = "google.colab" in str(ip).lower() if ip else False
 
-        if not app:
-            cont = input("Do you want to select another model? (y/n): ").strip().lower()
-            if cont != 'y':
-                print("Exiting model selection.")
-                break
-        else:
-            cont=messagebox.askyesno('Continue','Do you want to select another model?')
-            if not cont:
-                break
+            # --- show figure non-blocking ---
+            if ip is not None:  # Notebook / Colab
+                from IPython.display import display
+                display(fig_q2)       # render inline immediately
+                plt.pause(0.5)        # <-- short pause lets Colab finish rendering
+            else:                     # Terminal / script
+                plt.show(block=False)
+                plt.pause(0.5)
+
+            # --- handle prompt logic ---
+            if not app:
+                if is_colab:
+                    # Colab can't handle `input()` interactively — fallback
+                    print("\n[Colab detected] Skipping interactive input prompt.")
+                    cont = "n"  # or auto-continue if you prefer: cont = "y"
+                else:
+                    cont = input("Do you want to select another model? (y/n): ").strip().lower()
+
+                if cont != "y":
+                    print("Exiting model selection.")
+                    break
+            else:
+                cont = messagebox.askyesno("Continue", "Do you want to select another model?")
+                if not cont:
+                    break
+
 
 
 import re
