@@ -16,6 +16,7 @@ from tkinter import ttk
 import sys 
 from pathlib import Path
 import os 
+from IPython import get_ipython
 import math
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
@@ -166,8 +167,11 @@ def generate_q2_scatter_plot(
     r=None,
     lower_bound=None,
     upper_bound=None,
-    figsize=(8, 4),          # wider by default
-    fontsize=8,
+    figsize=(6, 6),
+    width_scale=1.0,          # ← make it wider (e.g., 1.6)
+    height_scale=1.0,         # ← optional height scaling
+    equal_aspect=True,        # ← keep y=x at 45°; set False if you want a stretched plot
+    fontsize=6,
     scatter_color="#0b0e0b",
     band_color="cadetblue",
     identity_color="#1f77b4",
@@ -204,9 +208,10 @@ def generate_q2_scatter_plot(
     marker_edgewidth=0.6,
     label_max=12,
     label_min_abs_residual=None,
-    label_fontsize=6,        # smaller labels
+    label_fontsize=6,
     leftout_label_fontsize=6,
-    show_metrics=False,      # <- NOTHING drawn on figure when False
+    show_metrics=False,      # no metrics box when False
+    footer_y=0.10            # footer equation vertical position in figure coords
 ):
     import numpy as np
     import pandas as pd
@@ -215,6 +220,14 @@ def generate_q2_scatter_plot(
     import matplotlib.patheffects as pe
     from adjustText import adjust_text
     from matplotlib.lines import Line2D
+    print('Debugging print')
+    # ---------- helpers ----------
+    def _build_eqn(formula, coefficients, corr):
+        # If you have your own builder, swap this out.
+        if coefficients is not None and len(coefficients) == 2:
+            a, b = coefficients
+            return f"y = {a:.3g}·x + {b:.3g}     R = {corr:.2f}"
+        return f"R = {corr:.2f}"
 
     rng = np.random.default_rng(random_state)
 
@@ -224,6 +237,7 @@ def generate_q2_scatter_plot(
     data = pd.DataFrame({"Measured": y, "Predicted": y_pred, "Labels": labels})
     data["Residual"] = data["Predicted"] - data["Measured"]
 
+    # Optional categorical styling
     if ligand_types is not None:
         ligand_types = np.asarray(ligand_types).astype(str)
         if len(ligand_types) != len(data):
@@ -247,18 +261,11 @@ def generate_q2_scatter_plot(
 
     sns.set_theme(style="white", palette=palette)
 
-    fig, ax = plt.subplots(figsize=figsize, dpi=dpi, constrained_layout=True)
-    ax.set_aspect('auto')
+    # --- figure (NO constrained_layout) ---
+    fw, fh = figsize
+    fig, ax = plt.subplots(figsize=(fw * width_scale, fh * height_scale), dpi=dpi)
 
-    # fit line + CI (no points)
-    sns.regplot(
-        data=data, x="Measured", y="Predicted",
-        scatter=False, ci=90,
-        line_kws={"color": "black", "linewidth": 1.2},
-        ax=ax
-    )
-
-    # points
+    # ---- scatter points ----
     scatter_kwargs = dict(
         x="Measured", y="Predicted", s=marker_size,
         edgecolor="w", linewidth=marker_edgewidth, zorder=3, ax=ax
@@ -271,19 +278,19 @@ def generate_q2_scatter_plot(
         sns.scatterplot(data=data, color=scatter_color, legend=False, **scatter_kwargs)
         show_type_legend = False
 
-    # optional explicit regression line from coefficients
+    # ---- optional explicit regression line from coefficients ----
     if coefficients is not None and len(coefficients) == 2:
         a, b = coefficients
-        xx = np.linspace(data["Measured"].min(), data["Measured"].max(), 200)
-        ax.plot(xx, a*xx + b, color="black", lw=1.3, zorder=2)
+        xx = np.linspace(np.nanmin(data["Measured"]), np.nanmax(data["Measured"]), 200)
+        ax.plot(xx, a * xx + b, color="black", lw=1.2, zorder=2)
 
-    # left-out overlay
+    # ---- external/left-out overlay ----
     texts_lo_all = []
     if leftout_pred_df is not None and len(leftout_pred_df):
         lo_df = leftout_pred_df.copy()
         y_meas = pd.to_numeric(lo_df.get(leftout_meas_col, lo_df.get("Measured")), errors="coerce")
         y_pr   = pd.to_numeric(lo_df.get(leftout_pred_col, lo_df.get("Predicted")), errors="coerce")
-        lo_df = lo_df.assign(Measured=y_meas, Predicted=y_pr).dropna(subset=["Measured","Predicted"])
+        lo_df = lo_df.assign(Measured=y_meas, Predicted=y_pr).dropna(subset=["Measured", "Predicted"])
         ax.scatter(lo_df["Measured"], lo_df["Predicted"],
                    marker=leftout_marker, s=leftout_size,
                    facecolors=leftout_facecolor or "blue",
@@ -295,13 +302,31 @@ def generate_q2_scatter_plot(
                         path_effects=[pe.withStroke(linewidth=1.5, foreground="white")])
             texts_lo_all.append(t)
 
-    # correlation (not drawn if show_metrics is False)
+    # ---- correlation + equation string (footer) ----
     try:
         corr = float(r) if r is not None else float(np.corrcoef(y, y_pred)[0, 1])
     except Exception:
         corr = np.nan
+    eqn = _build_eqn(formula, coefficients, corr)
 
-    # label selection
+    # ---- identity line + symmetric padded limits ----
+    lo = float(np.nanmin([y.min(), y_pred.min()]))
+    hi = float(np.nanmax([y.max(), y_pred.max()]))
+    if lower_bound is not None:
+        lo = min(lo, float(lower_bound))
+    if upper_bound is not None:
+        hi = max(hi, float(upper_bound))
+    span = hi - lo
+    pad = margin_frac * span if span > 0 else 1.0
+    lo_p, hi_p = lo - pad, hi + pad
+
+    ax.plot([lo_p, hi_p], [lo_p, hi_p], "--", color=identity_color, lw=1.0, zorder=1)
+    ax.set_xlim(lo_p, hi_p)
+    ax.set_ylim(lo_p, hi_p)
+    if equal_aspect:
+        ax.set_aspect("equal", adjustable="box")  # keeps parity look correct
+
+    # ---- label selection & placement ----
     n_total = len(data)
     n_default = max(1, int(np.ceil(label_fraction * n_total)))
     n_to_label = min(label_max if label_max is not None else n_default, n_total)
@@ -309,7 +334,6 @@ def generate_q2_scatter_plot(
     if label_strategy == "residual":
         order = np.argsort(np.abs(data["Residual"].values))[::-1]
     else:
-        rng = np.random.default_rng(random_state)
         order = rng.permutation(n_total)
 
     if label_min_abs_residual is not None:
@@ -317,68 +341,59 @@ def generate_q2_scatter_plot(
 
     idx = np.array(order[:n_to_label], dtype=int)
 
-    # smaller & closer labels
     texts = []
-    xlim = ax.get_xlim()
-    ylim = ax.get_ylim()
-
     for _, row in data.iloc[idx].iterrows():
         x, y_ = row["Measured"], row["Predicted"]
+        if (lo_p <= x <= hi_p) and (lo_p <= y_ <= hi_p):
+            t = ax.text(
+                x, y_, row["Labels"],
+                fontsize=label_fontsize,
+                ha="center", va="bottom", color="black",
+                clip_on=True,
+                path_effects=[pe.withStroke(linewidth=1.2, foreground="white", alpha=0.95)]
+            )
+            texts.append(t)
 
-        # Skip labels that would fall outside the visible range
-        if x < xlim[0] or x > xlim[1] or y_ < ylim[0] or y_ > ylim[1]:
-            continue
-
-        t = ax.text(
-            x, y_, row["Labels"],
-            fontsize=label_fontsize,
-            ha="center", va="bottom", color="black",
-            clip_on=True,
-            path_effects=[pe.withStroke(linewidth=1.2, foreground="white", alpha=0.95)]
-        )
-        texts.append(t)
-
-
-    # make them sit closer (reduced expansions/forces)
     try:
         adjust_text(
             texts + texts_lo_all,
-            x=data["Measured"].values,
-            y=data["Predicted"].values,
-            ax=ax,
+            x=data["Measured"].values, y=data["Predicted"].values, ax=ax,
             arrowprops=dict(arrowstyle='-', color='gray', lw=0.2, alpha=0.6),
-            expand_text=(1.1, 1.1),
-            expand_points=(1.1, 1.1),
-            force_text=(0.7, 0.9),
+            expand_text=(1.05, 1.05),
+            expand_points=(1.05, 1.05),
+            force_text=(0.6, 0.8),
             lim=300
         )
     except Exception:
         pass
 
-    # axes cosmetics
+    # ---- cosmetics ----
     ax.set_xlabel("Measured", fontsize=fontsize)
     ax.set_ylabel("Predicted", fontsize=fontsize)
-    ax.set_title("Predicted vs Measured", fontsize=fontsize+1)
+    ax.set_title("Predicted vs Measured", fontsize=fontsize + 1)
     if compact:
-        for s in ("top","right"): ax.spines[s].set_visible(False)
-        ax.tick_params(axis="both", which="both", length=3, width=0.8, labelsize=max(6, fontsize-2))
+        for s in ("top", "right"):
+            ax.spines[s].set_visible(False)
+        ax.tick_params(axis="both", which="both", length=3, width=0.8,
+                       labelsize=max(6, fontsize - 2))
 
-    # lean legend
-    handles = [Line2D([0],[0], marker="o", color="w",
+    # ---- lean legend ----
+    handles = [Line2D([0], [0], marker="o", color="w",
                       markerfacecolor=scatter_color, markeredgecolor="w",
                       markeredgewidth=marker_edgewidth, markersize=np.sqrt(marker_size),
-                      label="Training set")]
-    labels_ = ["Training set"]
+                      label="Training Set")]
+    labels_ = ["Training Set"]
     if leftout_pred_df is not None and len(leftout_pred_df):
-        handles.append(Line2D([0],[0], marker=leftout_marker, color="w",
+        handles.append(Line2D([0], [0], marker=leftout_marker, color="w",
                               markerfacecolor=leftout_facecolor or "blue",
                               markeredgecolor=leftout_edgecolor, markeredgewidth=0.8,
                               markersize=np.sqrt(leftout_size), label="External Validation"))
         labels_.append("External Validation")
     ax.legend(handles, labels_, loc="lower right", frameon=True,
-              fontsize=max(6, fontsize-1), markerscale=0.9, handlelength=1.0,
+              fontsize=max(6, fontsize - 1), markerscale=0.9, handlelength=1.0,
               handletextpad=0.3, borderpad=0.3, labelspacing=0.25)
 
+<<<<<<< Updated upstream
     fig.tight_layout()
 
     # return metrics instead of drawing them
@@ -393,37 +408,37 @@ def generate_q2_scatter_plot(
         if coefficients is not None and len(coefficients) == 2:
             a, b = coefficients
             eqn = f"y = {a:.3g} x + {b:.3g}   R = {corr:.2f}"
+=======
+    # ---- optional metrics box inside axes ----
+    if show_metrics:
+        if folds_df is not None and not folds_df.empty:
+            q = folds_df.iloc[0]
+            q_txt = (
+                rf"$R^2 = {corr:.2f}$"
+                f"\n3-fold Q²: {q.get('Q2_3_Fold', np.nan):.2f}"
+                f"\n5-fold Q²: {q.get('Q2_5_Fold', np.nan):.2f}"
+                f"\nLOOCV Q²: {q.get('Q2_LOOCV', np.nan):.2f}"
+            )
+>>>>>>> Stashed changes
         else:
-            eqn = f"R = {corr:.2f}"
-
-    ax.text(
-        0.5, -0.3, f"{eqn}",
-        transform=ax.transAxes,
-        fontsize=fontsize-2,
-        va="top", ha="center",
-        bbox=dict(facecolor="white", alpha=0.9, boxstyle="round,pad=0.25"),
-        zorder=2
-    )
-
-    if folds_df is not None and not folds_df.empty:
-        q = folds_df.iloc[0]
-        q_txt = (
-            rf"$R^2 = {corr:.2f}$"
-            f"\n3-fold Q²: {q.get('Q2_3_Fold', np.nan):.2f}"
-            f"\n5-fold Q²: {q.get('Q2_5_Fold', np.nan):.2f}"
-            f"\nLOOCV Q²: {q.get('Q2_LOOCV', np.nan):.2f}"
+            q_txt = rf"$R^2 = {corr:.2f}$"
+        ax.text(
+            0.02, 0.98, q_txt,
+            transform=ax.transAxes,
+            fontsize=fontsize,
+            va="top", ha="left",
+            bbox=dict(facecolor="white", alpha=0.9, boxstyle="round,pad=0.25"),
+            zorder=4,
         )
-    else:
-        q_txt = rf"$R^2 = {corr:.2f}$"
 
-    ax.text(
-        0.02, 0.98, q_txt,
-        transform=ax.transAxes,
-        fontsize=4 ,
-        va="top", ha="left",
-        bbox=dict(facecolor="white", alpha=0.9, boxstyle="round,pad=0.25"),
-        zorder=4,
-    )
+    # ---- footer equation OUTSIDE axes (prevents squeezing) ----
+    fig.subplots_adjust(left=0.12, right=0.95, bottom=max(0.18, footer_y + 0.06), top=0.95)
+    fig.text(0.5, footer_y, eqn, ha="center", va="center",
+             fontsize=max(5, fontsize - 1),
+             bbox=dict(facecolor="white", alpha=0.9, boxstyle="round,pad=0.25"))
+
+    if plot:
+        plt.show()
 
     return fig, ax
 
@@ -1749,13 +1764,21 @@ def print_models_regression_table(results, app=None ,model=None):
             fig_q2, ax_q2 = generate_q2_scatter_plot(
                 y, pred, model.molecule_names,
                 folds_df, features, coef_df['Estimate'], r, X, lwr, upr,
-                plot=False, dir=model.paths.figs
+                plot=False, dir=model.paths.figs,
+                figsize=(12, 7),         # wider
+                equal_aspect=False,      # let it expand horizontally
+                fontsize=10,             # bigger axes text
+                label_fontsize=5         # smaller point labels
             )
 
-    
-            if "ipykernel" in sys.modules:  # running in Jupyter
-                fig_q2
-            else:  # running in terminal script
+            ip = get_ipython()
+            if ip is not None:  # notebook/Colab
+                from IPython.display import display
+                display(fig_q2)          # <- reliable in Colab/Jupyter
+                # optional: avoid duplicate rendering later
+                # plt.close(fig_q2)
+            else:  # terminal script
+                import matplotlib.pyplot as plt
                 plt.show()
 
         if not app:
